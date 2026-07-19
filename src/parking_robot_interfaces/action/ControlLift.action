@@ -1,0 +1,7 @@
+# [초안] robot_task_orchestrator -> lift_action_server 리프트 제어 액션 (SR-05, SR-07, SR-08).
+string command   # UP, DOWN
+---
+bool success
+string support_state
+---
+string status

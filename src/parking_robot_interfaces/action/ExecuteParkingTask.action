@@ -1,0 +1,10 @@
+# [초안] task_dispatcher -> robot_task_orchestrator 작업 할당 액션.
+string task_id
+string request_type   # ENTRY, EXIT
+string vehicle_id
+---
+bool success
+string message
+---
+string current_step
+float32 progress

@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
-"""navigate_action_server (이동): Nav2 액션 서버."""
+"""navigate_action_server (이동): Nav2 액션 서버.
+
+[초안] 인터페이스: navigate_to_pose(액션 서버, nav2_msgs/action/NavigateToPose 재사용).
+"""
 
 import rclpy
+from rclpy.action import ActionServer
 from rclpy.node import Node
+from nav2_msgs.action import NavigateToPose
 
 
 class NavigateActionServerNode(Node):
 
     def __init__(self):
         super().__init__('navigate_action_server')
+
+        self._action_server = ActionServer(
+            self, NavigateToPose, 'navigate_to_pose', self._on_navigate_to_pose)
+
         self.get_logger().info('navigate_action_server started')
 
-        # TODO(SR-06): Nav2 NavigateToPose 래핑
-        # TODO: 목표 위치까지 경로계획 및 이동
-        # TODO: 장애물 시 정지 또는 재경로 계산
+    def _on_navigate_to_pose(self, goal_handle):
+        # TODO(SR-06): 실제 Nav2 NavigateToPose 클라이언트로 위임, 장애물 시 재경로 계산
+        goal_handle.succeed()
+        return NavigateToPose.Result()
 
 
 def main(args=None):
