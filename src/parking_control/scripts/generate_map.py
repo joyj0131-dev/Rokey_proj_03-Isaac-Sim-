@@ -21,7 +21,9 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "config" / "parking_map.yaml"
+PKG_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT = PKG_ROOT / "config" / "parking_map.yaml"
+DEFAULT_SEED_SQL = PKG_ROOT / "db" / "002_seed.sql"
 
 
 def build_map(space_count=10, parking_start=1, parking_end=8,
@@ -89,6 +91,45 @@ def build_map(space_count=10, parking_start=1, parking_end=8,
     )
 
 
+def write_seed_sql(data, path):
+    """지도 데이터 → DB 시드 SQL. YAML과 같은 원천이므로 어긋날 수 없다."""
+    lines = [
+        "-- generate_map.py가 자동 생성한 시드. 손으로 편집하지 말 것.",
+        "-- 적용: mysql -u parking -p parking < 002_seed.sql",
+        "",
+    ]
+    for zone_id in data["zones"]:
+        lines.append(
+            f"INSERT INTO zones (zone_id) VALUES ('{zone_id}')"
+            " ON DUPLICATE KEY UPDATE zone_id = zone_id;"
+        )
+    lines.append("")
+    for node_id, attrs in data["nodes"].items():
+        if attrs["kind"] != "slot":
+            continue
+        accessible = "TRUE" if attrs.get("accessible") else "FALSE"
+        lines.append(
+            "INSERT INTO parking_slots (slot_id, x, y, is_accessible)"
+            f" VALUES ('{node_id}', {attrs['x']}, {attrs['y']}, {accessible})"
+            " ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y),"
+            " is_accessible = VALUES(is_accessible);"
+        )
+    lines.append("")
+    nodes = data["nodes"]
+    for edge in data["edges"]:
+        u, v = sorted((edge["u"], edge["v"]))
+        dist = round(math.hypot(nodes[u]["x"] - nodes[v]["x"],
+                                nodes[u]["y"] - nodes[v]["y"]), 3)
+        zone = f"'{edge['zone']}'" if edge.get("zone") else "NULL"
+        lines.append(
+            "INSERT INTO parking_lot_edges (u, v, dist_m, zone_id)"
+            f" VALUES ('{u}', '{v}', {dist}, {zone})"
+            " ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m),"
+            " zone_id = VALUES(zone_id);"
+        )
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--space-count", type=int, default=10)
@@ -97,6 +138,7 @@ def main():
     parser.add_argument("--aisle-width", type=float, default=9.00)
     parser.add_argument("--border-margin", type=float, default=1.10)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--seed-sql", type=Path, default=DEFAULT_SEED_SQL)
     args = parser.parse_args()
 
     data = build_map(space_count=args.space_count, space_width=args.space_width,
@@ -107,8 +149,11 @@ def main():
     with open(args.output, "w") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
+    write_seed_sql(data, args.seed_sql)
+
     slots = {k: v for k, v in data["nodes"].items() if v["kind"] == "slot"}
     print(f"생성 완료: {args.output}")
+    print(f"시드 SQL: {args.seed_sql}")
     print(f"노드 {len(data['nodes'])}개, 엣지 {len(data['edges'])}개, "
           f"존 {len(data['zones'])}개, 슬롯 {len(slots)}개")
     for name in sorted(slots):
