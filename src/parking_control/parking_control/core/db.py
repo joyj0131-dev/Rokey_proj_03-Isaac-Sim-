@@ -56,6 +56,44 @@ class ParkingDB:
         self._query("UPDATE parking_slots SET status = %s WHERE slot_id = %s",
                     (status, slot_id))
 
+    # ---- robots / vehicles / tasks ----
+
+    def idle_robots(self):
+        return self._query(
+            "SELECT robot_id, x, y FROM robots WHERE status = 'IDLE'")
+
+    def set_robot_status(self, robot_id, status):
+        self._query("UPDATE robots SET status = %s WHERE robot_id = %s",
+                    (status, robot_id))
+
+    def upsert_vehicle(self, vehicle_id):
+        self._query(
+            "INSERT INTO vehicles (vehicle_id) VALUES (%s)"
+            " ON DUPLICATE KEY UPDATE vehicle_id = vehicle_id",
+            (vehicle_id,))
+
+    def create_task(self, task_id, request_type, vehicle_id):
+        self._query(
+            "INSERT INTO tasks (task_id, request_type, vehicle_id)"
+            " VALUES (%s, %s, %s)",
+            (task_id, request_type, vehicle_id))
+
+    def update_task(self, task_id, state=None, robot_id=None, slot_id=None):
+        sets, params = [], []
+        for column, value in (("state", state), ("robot_id", robot_id),
+                              ("slot_id", slot_id)):
+            if value is not None:
+                sets.append(f"{column} = %s")
+                params.append(value)
+        if sets:
+            self._query(
+                f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = %s",
+                (*params, task_id))
+
+    def get_task(self, task_id):
+        rows = self._query("SELECT * FROM tasks WHERE task_id = %s", (task_id,))
+        return rows[0] if rows else None
+
     # ---- zone_locks ----
 
     def try_acquire_zone(self, zone_id, robot_id) -> bool:
