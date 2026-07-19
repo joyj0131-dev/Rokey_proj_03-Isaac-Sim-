@@ -1,0 +1,287 @@
+meta:
+  generated_by: generate_map.py
+  frame: ros_map
+  usd_to_ros: ros_x = usd_x, ros_y = -usd_z (이식 후 실측 검증 필요)
+  params:
+    space_count: 10
+    parking_start: 1
+    parking_end: 8
+    space_width: 3.4
+    space_length: 6.6
+    aisle_width: 9.0
+    border_margin: 1.1
+nodes:
+  J0:
+    x: -17.0
+    y: 0.0
+    kind: junction
+  J1:
+    x: -13.6
+    y: 0.0
+    kind: junction
+  J2:
+    x: -10.2
+    y: 0.0
+    kind: junction
+  J3:
+    x: -6.8
+    y: 0.0
+    kind: junction
+  J4:
+    x: -3.4
+    y: 0.0
+    kind: junction
+  J5:
+    x: 0.0
+    y: 0.0
+    kind: junction
+  J6:
+    x: 3.4
+    y: 0.0
+    kind: junction
+  J7:
+    x: 6.8
+    y: 0.0
+    kind: junction
+  J8:
+    x: 10.2
+    y: 0.0
+    kind: junction
+  J9:
+    x: 13.6
+    y: 0.0
+    kind: junction
+  J10:
+    x: 17.0
+    y: 0.0
+    kind: junction
+  entrance:
+    x: -18.1
+    y: 0.0
+    kind: entrance
+  dock_wait_A:
+    x: -15.3
+    y: -7.8
+    kind: dock
+    role: waiting
+  A1:
+    x: -11.9
+    y: -7.8
+    kind: slot
+    accessible: true
+  A2:
+    x: -8.5
+    y: -7.8
+    kind: slot
+    accessible: true
+  A3:
+    x: -5.1
+    y: -7.8
+    kind: slot
+    accessible: false
+  A4:
+    x: -1.7
+    y: -7.8
+    kind: slot
+    accessible: false
+  A5:
+    x: 1.7
+    y: -7.8
+    kind: slot
+    accessible: false
+  A6:
+    x: 5.1
+    y: -7.8
+    kind: slot
+    accessible: false
+  A7:
+    x: 8.5
+    y: -7.8
+    kind: slot
+    accessible: false
+  A8:
+    x: 11.9
+    y: -7.8
+    kind: slot
+    accessible: false
+  dock_charge_A:
+    x: 15.3
+    y: -7.8
+    kind: dock
+    role: charging
+  dock_wait_B:
+    x: -15.3
+    y: 7.8
+    kind: dock
+    role: waiting
+  B1:
+    x: -11.9
+    y: 7.8
+    kind: slot
+    accessible: false
+  B2:
+    x: -8.5
+    y: 7.8
+    kind: slot
+    accessible: false
+  B3:
+    x: -5.1
+    y: 7.8
+    kind: slot
+    accessible: false
+  B4:
+    x: -1.7
+    y: 7.8
+    kind: slot
+    accessible: false
+  B5:
+    x: 1.7
+    y: 7.8
+    kind: slot
+    accessible: false
+  B6:
+    x: 5.1
+    y: 7.8
+    kind: slot
+    accessible: false
+  B7:
+    x: 8.5
+    y: 7.8
+    kind: slot
+    accessible: false
+  B8:
+    x: 11.9
+    y: 7.8
+    kind: slot
+    accessible: false
+  dock_charge_B:
+    x: 15.3
+    y: 7.8
+    kind: dock
+    role: charging
+edges:
+- u: J0
+  v: J1
+  zone: Z01
+- u: J1
+  v: J2
+  zone: Z02
+- u: J2
+  v: J3
+  zone: Z03
+- u: J3
+  v: J4
+  zone: Z04
+- u: J4
+  v: J5
+  zone: Z05
+- u: J5
+  v: J6
+  zone: Z06
+- u: J6
+  v: J7
+  zone: Z07
+- u: J7
+  v: J8
+  zone: Z08
+- u: J8
+  v: J9
+  zone: Z09
+- u: J9
+  v: J10
+  zone: Z10
+- u: entrance
+  v: J0
+  zone: Z_ENTRANCE
+- u: dock_wait_A
+  v: J0
+- u: dock_wait_A
+  v: J1
+- u: A1
+  v: J1
+- u: A1
+  v: J2
+- u: A2
+  v: J2
+- u: A2
+  v: J3
+- u: A3
+  v: J3
+- u: A3
+  v: J4
+- u: A4
+  v: J4
+- u: A4
+  v: J5
+- u: A5
+  v: J5
+- u: A5
+  v: J6
+- u: A6
+  v: J6
+- u: A6
+  v: J7
+- u: A7
+  v: J7
+- u: A7
+  v: J8
+- u: A8
+  v: J8
+- u: A8
+  v: J9
+- u: dock_charge_A
+  v: J9
+- u: dock_charge_A
+  v: J10
+- u: dock_wait_B
+  v: J0
+- u: dock_wait_B
+  v: J1
+- u: B1
+  v: J1
+- u: B1
+  v: J2
+- u: B2
+  v: J2
+- u: B2
+  v: J3
+- u: B3
+  v: J3
+- u: B3
+  v: J4
+- u: B4
+  v: J4
+- u: B4
+  v: J5
+- u: B5
+  v: J5
+- u: B5
+  v: J6
+- u: B6
+  v: J6
+- u: B6
+  v: J7
+- u: B7
+  v: J7
+- u: B7
+  v: J8
+- u: B8
+  v: J8
+- u: B8
+  v: J9
+- u: dock_charge_B
+  v: J9
+- u: dock_charge_B
+  v: J10
+zones:
+- Z01
+- Z02
+- Z03
+- Z04
+- Z05
+- Z06
+- Z07
+- Z08
+- Z09
+- Z10
+- Z_ENTRANCE
