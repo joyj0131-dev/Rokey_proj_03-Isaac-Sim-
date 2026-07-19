@@ -24,8 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # 노드 구현 후 등록 예정:
-            # 'parking_slot_manager = parking_control.parking_slot_manager_node:main',
+            'parking_slot_manager = parking_control.parking_slot_manager_node:main',
             # 'task_dispatcher = parking_control.task_dispatcher_node:main',
         ],
     },
