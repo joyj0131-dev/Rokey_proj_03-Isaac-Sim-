@@ -12,6 +12,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/FindEmptySlot.srv"
   "srv/RequestParkingTask.srv"
   "srv/GetTaskStatus.srv"
+  "srv/AcquireZones.srv"
+  "srv/ReleaseZones.srv"
   "action/ExecuteParkingTask.action"
   "action/DetectVehicle.action"
   "action/AlignVehicle.action"

@@ -1,0 +1,10 @@
+# [초안, Team A 제안 2026-07-19] robot_task_orchestrator -> task_dispatcher 존 락 획득 요청.
+# 로봇은 다음 통로 구간에 진입하기 전에 이 서비스로 존을 확보한다.
+# 데드락 방지: zone_ids는 반드시 오름차순으로 요청한다 (관제가 정렬 검증).
+# MVP(로봇 1대) 단계에서는 관제가 무조건 granted=true를 반환하는 스텁으로 동작.
+string robot_id
+string[] zone_ids
+---
+bool granted
+string[] held_zones      # 이 로봇이 현재 보유한 존 전체
+float32 retry_after_sec  # 거부 시 재시도 권고 간격

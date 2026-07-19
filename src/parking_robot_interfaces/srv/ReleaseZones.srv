@@ -1,0 +1,6 @@
+# [초안, Team A 제안 2026-07-19] robot_task_orchestrator -> task_dispatcher 존 락 해제.
+# 통과를 마친 존부터 즉시 반환한다. zone_ids가 빈 배열이면 보유 전체 해제.
+string robot_id
+string[] zone_ids
+---
+bool success
