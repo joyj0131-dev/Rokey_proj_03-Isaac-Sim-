@@ -45,13 +45,13 @@ class SensorContract:
 SENSORS = {
     "ceiling_01": SensorContract(
         zone="west",
-        prim_path="/World/Sensors/CeilingLidarWest",
+        prim_path="/World/Sensors/CeilingLidarWest/sensor",
         topic="parking/lidar/ceiling_01/points",
         frame_id="ceiling_lidar_01_link",
     ),
     "ceiling_02": SensorContract(
         zone="east",
-        prim_path="/World/Sensors/CeilingLidarEast",
+        prim_path="/World/Sensors/CeilingLidarEast/sensor",
         topic="parking/lidar/ceiling_02/points",
         frame_id="ceiling_lidar_02_link",
     ),
