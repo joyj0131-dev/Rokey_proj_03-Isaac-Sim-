@@ -40,3 +40,7 @@ Thumbs.db
 .env
 venv/
 .venv/
+
+skills-lock.json
+DEBUG_LOG.md
+HANDOFF.md
