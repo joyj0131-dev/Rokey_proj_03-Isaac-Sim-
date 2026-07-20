@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS robots (
     x               DECIMAL(7,3) NULL,
     y               DECIMAL(7,3) NULL,
     battery_percent DECIMAL(5,2) NULL,
+    target_node     VARCHAR(16) NULL,  -- 지금 이동 중인 다리(leg)의 목적지 노드. 대시보드가
+                                        -- 이 값 + 현재 좌표로 "가야 할 경로"를 실시간 계산한다.
     updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
