@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "keep_drivetrain": false,
+  "sphere_wheels": true,
+  "carry_mode_requested": "real",
+  "used_guided_fallback": false,
+  "car_before_grab_xyz_m": [
+    8.49999713897705,
+    -0.002927035093307495,
+    7.7999982833862305
+  ],
+  "car_after_grab_xyz_m": [
+    8.499617576599121,
+    0.026564836502075195,
+    7.800553321838379
+  ],
+  "car_final_xyz_m": [
+    8.50051498413086,
+    0.02652740478515625,
+    8.831742286682129
+  ],
+  "real_drive_forward_m": 1.03118896484375,
+  "total_forward_m": 1.03118896484375,
+  "carry_target_m": 1.0,
+  "car_lift_m": 0.02949187159538269,
+  "robot_carry_m": 1.0312631130218506,
+  "robot_carry_per_robot_m": {
+    "rear": 1.031303882598877,
+    "front": 1.0312223434448242
+  },
+  "carry_follow_ratio": 0.9999280996506476
+}

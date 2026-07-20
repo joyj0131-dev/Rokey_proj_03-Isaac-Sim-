@@ -1,0 +1,44 @@
+{
+  "passed": true,
+  "robot": "/home/rokey/cobot3_ws/isaacpjt/hwia_parking_robot_final_caster_package/hwia_parking_robot_final_caster.usd",
+  "lin_speed_m_s": 0.4,
+  "yaw_speed_rad_s": 0.5,
+  "forward_segment": {
+    "cmd": {
+      "vx": 0.4,
+      "vy": 0.0,
+      "wz": 0.0
+    },
+    "lateral_world_x_m": 0.0042115426788313925,
+    "forward_world_z_m": 1.201493776363634,
+    "vertical_world_y_m": 0.00043986737728118896,
+    "dyaw_deg": -0.0030053252161539763
+  },
+  "strafe_left_segment": {
+    "cmd": {
+      "vx": 0.0,
+      "vy": 0.4,
+      "wz": 0.0
+    },
+    "lateral_world_x_m": 1.175709298811853,
+    "forward_world_z_m": 0.01045083999633789,
+    "vertical_world_y_m": -0.00027266889810562134,
+    "dyaw_deg": 0.14238621650578498
+  },
+  "rotate_ccw_segment": {
+    "cmd": {
+      "vx": 0.0,
+      "vy": 0.0,
+      "wz": 0.5
+    },
+    "lateral_world_x_m": -0.014422774314880371,
+    "forward_world_z_m": 0.044777512550354004,
+    "vertical_world_y_m": 1.652166247367859e-05,
+    "dyaw_deg": 89.85677163837411
+  },
+  "checks": {
+    "forward_ok": true,
+    "strafe_ok": true,
+    "rotate_ok": true
+  }
+}
