@@ -89,6 +89,12 @@ class ParkingDB:
             return float(rows[0]["x"]), float(rows[0]["y"])
         return None
 
+    def update_robot_target(self, robot_id, target_node):
+        """현재 이동 중인 목적지 노드. 대시보드가 이 값 + 현재 좌표로
+        "가야 할 경로"를 계산한다. 이동이 끝나면 None으로 지운다."""
+        self._query("UPDATE robots SET target_node = %s WHERE robot_id = %s",
+                    (target_node, robot_id))
+
     def upsert_vehicle(self, vehicle_id):
         self._query(
             "INSERT INTO vehicles (vehicle_id) VALUES (%s)"

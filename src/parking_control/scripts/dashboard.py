@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """관제 상태 대시보드 (개발·디버깅용 로컬 웹 UI).
 
-DB(슬롯/로봇/작업/존락)를 2초마다 읽어 주차장 도면으로 보여준다.
+DB(슬롯/로봇/작업/존락)를 2초마다 읽어 주차장 도면으로 보여주고,
+동시에 ROS2 task_state 토픽을 구독해 실시간 작업 로그를 화면에 띄운다.
+로봇마다 "지나온 경로"(실선)와 "가야 할 경로"(점선)도 함께 그린다.
 D 팀원의 정식 웹 UI와는 별개인 A의 개발 확인용 도구다.
 
-실행:
-    cd ~/cobot3_ws && source install/setup.bash   # 입고 요청 버튼을 쓰려면
+실행 (ROS2 환경 필수 — task_state 구독 때문에 항상 source 해야 한다):
+    cd ~/cobot3_ws && source install/setup.bash
     python3 src/parking_control/scripts/dashboard.py
     → 브라우저에서 http://localhost:8080
 
-표준 라이브러리 + mysql-connector만 사용 (Flask 불필요).
+표준 라이브러리 + mysql-connector + rclpy만 사용 (Flask 불필요).
 """
 
 import json
 import subprocess
 import sys
+import threading
+from collections import deque
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -23,28 +28,103 @@ sys.path.insert(0, str(PKG_ROOT))
 
 from parking_control.core.db import ParkingDB  # noqa: E402
 from parking_control.core.graph import ParkingMap  # noqa: E402
+from parking_control.core.pathfinder import PathFinder  # noqa: E402
+
+import rclpy  # noqa: E402
+from rclpy.executors import SingleThreadedExecutor  # noqa: E402
+from rclpy.node import Node as RosNode  # noqa: E402
+from parking_robot_interfaces.msg import TaskState  # noqa: E402
 
 PORT = 8080
 MAP = ParkingMap.load(PKG_ROOT / "config" / "parking_map.yaml")
+PATHFINDER = PathFinder(MAP)
 DB = ParkingDB()
+
+# ---- 실시간 작업 로그 (task_state 토픽 구독, DB에는 남기지 않음 — 메모리에만) ----
+_LOG_MAXLEN = 200
+_log = deque(maxlen=_LOG_MAXLEN)
+_log_lock = threading.Lock()
+
+# ---- 로봇 이동 흔적 ("지나온 경로") — 작업 시작(IDLE→BUSY)마다 새로 시작 ----
+_TRAIL_MAXLEN = 400
+_trail = {}          # robot_id -> deque([x, y])
+_prev_status = {}    # robot_id -> 직전에 관측한 status
+
+
+class _TaskStateListener(RosNode):
+    """task_state 토픽을 구독해 메모리 로그에 쌓기만 하는 전용 노드."""
+
+    def __init__(self):
+        super().__init__("dashboard_log_listener")
+        self.create_subscription(TaskState, "task_state", self._on_msg, 20)
+
+    def _on_msg(self, msg):
+        entry = dict(
+            time=datetime.now().strftime("%H:%M:%S"),
+            robot_id=msg.robot_id, task_id=msg.task_id[:8],
+            state=msg.state, current_step=msg.current_step,
+        )
+        with _log_lock:
+            _log.append(entry)
+
+
+def _start_log_listener():
+    rclpy.init(args=None)
+    node = _TaskStateListener()
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread.start()
+    return node
+
+
+def _update_trail(robot_id, status, x, y):
+    """작업이 새로 시작되면(IDLE→BUSY) 흔적을 리셋하고, 좌표가 바뀌면 추가."""
+    if status == "BUSY" and _prev_status.get(robot_id) != "BUSY":
+        _trail[robot_id] = deque(maxlen=_TRAIL_MAXLEN)
+    _prev_status[robot_id] = status
+    trail = _trail.setdefault(robot_id, deque(maxlen=_TRAIL_MAXLEN))
+    if x is not None and y is not None:
+        point = [float(x), float(y)]
+        if not trail or trail[-1] != point:
+            trail.append(point)
+    return list(trail)
+
+
+def _planned_path(x, y, target_node):
+    """target_node가 있으면 현재 위치→목적지 경로를 계산해 "가야 할 경로"로 준다."""
+    if target_node is None or x is None or y is None:
+        return []
+    start = MAP.nearest_node(float(x), float(y))
+    path = PATHFINDER.find_path(start, target_node)
+    return [list(p) for p in path.waypoints] if path else []
 
 
 def collect_state():
     slots = DB._query(
         "SELECT slot_id, status, is_accessible FROM parking_slots")
-    robots = DB._query(
-        "SELECT robot_id, status, x, y, battery_percent FROM robots")
+    robot_rows = DB._query(
+        "SELECT robot_id, status, x, y, battery_percent, target_node FROM robots")
+    robots = []
+    for r in robot_rows:
+        robots.append(dict(
+            r,
+            trail=_update_trail(r["robot_id"], r["status"], r["x"], r["y"]),
+            planned_path=_planned_path(r["x"], r["y"], r["target_node"]),
+        ))
     tasks = DB._query(
         "SELECT LEFT(task_id,8) AS task, request_type, state, vehicle_id,"
         " robot_id, slot_id, DATE_FORMAT(created_at,'%H:%i:%s') AS at_time"
         " FROM tasks ORDER BY created_at DESC LIMIT 8")
     locks = DB._query("SELECT zone_id, robot_id FROM zone_locks")
+    with _log_lock:
+        log = list(_log)[-40:][::-1]   # 최근 40개, 최신이 위로
 
     nodes = {n: dict(MAP.graph.nodes[n]) for n in MAP.graph.nodes}
     edges = [dict(u=u, v=v, zone=d.get("zone"))
              for u, v, d in MAP.graph.edges(data=True)]
     return dict(slots=slots, robots=robots, tasks=tasks, locks=locks,
-                nodes=nodes, edges=edges,
+                log=log, nodes=nodes, edges=edges,
                 params=MAP.meta["params"])
 
 
@@ -86,6 +166,10 @@ h1 { font-size:18px; margin-bottom:2px; }
 .wrap { display:flex; flex-wrap:wrap; gap:16px; }
 .map { flex:1 1 560px; background:var(--panel); border:1px solid var(--line);
   border-radius:8px; padding:8px; }
+.legend { font-size:11px; color:var(--ink2); margin-top:6px; display:flex; gap:16px; }
+.legend span { display:inline-flex; align-items:center; gap:5px; }
+.legend i { width:18px; height:0; border-top:3px solid var(--ink2); display:inline-block; }
+.legend i.dash { border-top-style:dashed; border-color:var(--accent); }
 svg { width:100%; height:auto; display:block; }
 .side { flex:1 1 300px; display:flex; flex-direction:column; gap:12px; }
 .card { background:var(--panel); border:1px solid var(--line);
@@ -106,16 +190,27 @@ button { background:var(--accent); border:0; color:#fff; padding:6px 14px;
   border-radius:6px; font-size:13px; cursor:pointer; }
 button:disabled { opacity:.5; }
 #msg { font-size:12px; color:var(--ink2); margin-top:6px; word-break:break-all; }
+#log { font-size:12px; max-height:220px; overflow-y:auto;
+  font-family:ui-monospace,Menlo,Consolas,monospace; }
+#log div { padding:2px 0; border-bottom:1px dotted var(--line); }
+#log .t { color:var(--ink2); }
 text { font-family:system-ui, sans-serif; }
 </style></head><body>
 <h1>주차로봇 관제 대시보드</h1>
-<div class="sub">2초마다 자동 갱신 · DB를 직접 읽는 개발용 뷰 (정식 UI는 D 담당)</div>
+<div class="sub">2초마다 자동 갱신 · DB + ROS2 task_state 실시간 구독 (정식 UI는 D 담당)</div>
 <div class="wrap">
-  <div class="map"><svg id="lot" viewBox="0 0 780 460"></svg></div>
+  <div class="map">
+    <svg id="lot" viewBox="0 0 780 460"></svg>
+    <div class="legend">
+      <span><i></i> 지나온 경로</span>
+      <span><i class="dash"></i> 가야 할 경로</span>
+    </div>
+  </div>
   <div class="side">
     <div class="card tiles" id="tiles"></div>
     <div class="card"><h2>로봇</h2><table id="robots"></table></div>
     <div class="card"><h2>존 락</h2><div id="locks" style="font-size:12px">—</div></div>
+    <div class="card"><h2>실시간 작업 로그</h2><div id="log"></div></div>
     <div class="card"><h2>최근 작업 (tasks)</h2><table id="tasks"></table></div>
     <div class="card"><h2>입고 요청 보내기</h2>
       <button id="go">ENTRY 요청 전송</button>
@@ -173,11 +268,22 @@ function render(s) {
       svg.push(`<text x="${sx(n.x)-4}" y="${sy(n.y)+4}" text-anchor="end"
         font-size="12" fill="var(--ink2)">입구 ▶</text>`);
   }
-  // 로봇
+  // 로봇 — 지나온 경로(실선) + 가야 할 경로(점선) + 현재 위치
   for (const r of s.robots) {
+    const col = ROBOT_COL[r.status] || 'var(--ink2)';
+    if (r.trail && r.trail.length > 1) {
+      const pts = r.trail.map(([x,y]) => `${sx(x)},${sy(y)}`).join(' ');
+      svg.push(`<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="3"
+        stroke-opacity="0.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+    }
+    if (r.planned_path && r.planned_path.length > 1) {
+      const pts = r.planned_path.map(([x,y]) => `${sx(x)},${sy(y)}`).join(' ');
+      svg.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"
+        stroke-dasharray="3 5" stroke-opacity="0.9" stroke-linejoin="round" stroke-linecap="round"/>`);
+    }
     if (r.x === null || r.status === 'OFFLINE') continue;
     svg.push(`<circle cx="${sx(+r.x)}" cy="${sy(+r.y)}" r="11"
-      fill="${ROBOT_COL[r.status]||'var(--ink2)'}" stroke="var(--surface)" stroke-width="2"/>
+      fill="${col}" stroke="var(--surface)" stroke-width="2"/>
       <text x="${sx(+r.x)}" y="${sy(+r.y)-15}" text-anchor="middle" font-size="11"
       font-weight="600" fill="var(--ink)">${r.robot_id} (${r.status})</text>`);
   }
@@ -191,14 +297,19 @@ function render(s) {
      <div class="tile"><b>${s.locks.length}</b><span>잠긴 존</span></div>`;
 
   document.getElementById('robots').innerHTML =
-    '<tr><th>ID</th><th>상태</th><th>위치</th><th>배터리</th></tr>' +
+    '<tr><th>ID</th><th>상태</th><th>위치</th><th>목적지</th></tr>' +
     s.robots.map(r => `<tr><td>${r.robot_id}</td>
       <td><span class="dot" style="background:${ROBOT_COL[r.status]||'var(--ink2)'}"></span>${r.status}</td>
       <td>${r.x===null?'—':`(${(+r.x).toFixed(1)}, ${(+r.y).toFixed(1)})`}</td>
-      <td>${r.battery_percent===null?'—':(+r.battery_percent).toFixed(0)+'%'}</td></tr>`).join('');
+      <td>${r.target_node||'—'}</td></tr>`).join('');
 
   document.getElementById('locks').innerHTML = s.locks.length
     ? s.locks.map(l => `🔒 ${l.zone_id} ← ${l.robot_id}`).join('<br>') : '없음';
+
+  document.getElementById('log').innerHTML = s.log.length
+    ? s.log.map(e => `<div><span class="t">[${e.time}]</span> <b>${e.robot_id}</b>
+        · ${e.state}: ${e.current_step}</div>`).join('')
+    : '<span style="color:var(--ink2)">아직 없음 (task_state 토픽 대기 중)</span>';
 
   document.getElementById('tasks').innerHTML =
     '<tr><th>시각</th><th>task</th><th>상태</th><th>차량</th><th>슬롯</th></tr>' +
@@ -261,5 +372,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    listener = _start_log_listener()
     print(f"대시보드: http://localhost:{PORT}  (Ctrl+C로 종료)")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    try:
+        ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        listener.destroy_node()
+        rclpy.shutdown()
