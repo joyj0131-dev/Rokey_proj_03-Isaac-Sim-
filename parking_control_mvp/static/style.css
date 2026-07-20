@@ -273,7 +273,7 @@ h2 {
   display: grid;
   gap: 22px;
   width: 100%;
-  max-width: 1600px;
+  max-width: 1920px;
   margin: 0 auto;
   padding: 24px clamp(20px, 3vw, 48px) 56px;
 }
@@ -351,7 +351,7 @@ h2 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(330px, 0.8fr) minmax(520px, 1.2fr);
+  grid-template-columns: minmax(360px, 0.9fr) minmax(520px, 1.1fr);
   gap: 22px;
 }
 
@@ -378,6 +378,12 @@ h2 {
 form {
   display: grid;
   gap: 17px;
+}
+
+.request-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 label {
@@ -523,7 +529,9 @@ select:focus {
 
 .robot-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* auto-fit: 로봇이 1대뿐이면 빈 칸으로 남기지 않고 카드가 패널 전체 폭을
+     채운다. 로봇이 많아지면 220px 단위로 자동으로 여러 열로 배치된다. */
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 15px;
 }
 
@@ -759,6 +767,56 @@ select:focus {
   font-weight: 700;
 }
 
+.map-header-status {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.live-update-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.live-update-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.live-update-status.pending {
+  border-color: var(--border);
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.live-update-status.pending i {
+  background: #94a3b8;
+  box-shadow: none;
+}
+
+.live-update-status.offline {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.live-update-status.offline i {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.13);
+}
+
 .legend span {
   display: flex;
   align-items: center;
@@ -795,7 +853,7 @@ select:focus {
 #lotMap {
   display: block;
   width: 100%;
-  height: auto;
+  height: clamp(400px, 34vw, 500px);
   font-family: inherit;
 }
 
@@ -817,6 +875,11 @@ select:focus {
   fill: var(--success);
   fill-opacity: 0.08;
   stroke: var(--border-strong);
+}
+
+.lot-slot-rect.accessible {
+  stroke: var(--primary);
+  stroke-width: 3;
 }
 
 .lot-slot-rect.RESERVED {
@@ -877,8 +940,14 @@ select:focus {
 
 .lot-aisle-line {
   stroke: var(--border-strong);
-  stroke-width: 2;
-  stroke-dasharray: 6 5;
+  stroke-width: 4;
+}
+
+.lot-connector-line {
+  stroke: var(--border-strong);
+  stroke-width: 1.3;
+  stroke-dasharray: 6 6;
+  opacity: 0.7;
 }
 
 .lot-entrance-label {
@@ -911,7 +980,7 @@ select:focus {
 
 .slot-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(125px, 1fr));
+  grid-template-columns: repeat(8, minmax(100px, 1fr));
   gap: 13px;
 }
 
@@ -1057,8 +1126,13 @@ td {
 /* 사이드바(216px)가 가로 공간을 가져가는 만큼, 2열 붕괴 기준을 기존 900px보다
    일찍(1280px) 적용해 카드가 지나치게 좁아지기 전에 1열로 전환한다. */
 @media (max-width: 1280px) {
-  .summary-grid,
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1090,13 +1164,22 @@ td {
   }
 
   .robot-list,
-  .slot-grid {
+  .slot-grid,
+  .request-fields {
     grid-template-columns: 1fr;
   }
 
   .panel-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .map-header-status {
+    justify-items: start;
+  }
+
+  #lotMap {
+    height: 360px;
   }
 
   .summary-card {

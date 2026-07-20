@@ -31,12 +31,14 @@ const requestTypeLabels = {
 };
 
 async function apiRequest(path, options = {}) {
+  const { headers = {}, ...requestOptions } = options;
   const response = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
+    ...requestOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {}),
+      ...headers,
     },
-    ...options,
   });
 
   const data = await response.json();
@@ -143,10 +145,14 @@ function renderRobots(robots) {
     .join("");
 }
 
-const LOT_MAP_WIDTH = 780;
-const LOT_MAP_HEIGHT = 460;
-const LOT_SLOT_SIZE = 56;
-const LOT_DOCK_SIZE = 50;
+// 실제 parking_map.yaml의 A/B 8면 배치를 한 화면에 표시하는 좌표계.
+// HTML의 viewBox와 항상 같은 값을 유지한다.
+const LOT_MAP_WIDTH = 1100;
+const LOT_MAP_HEIGHT = 430;
+const LOT_SLOT_WIDTH = 82;
+const LOT_SLOT_HEIGHT = 126;
+const LOT_DOCK_WIDTH = 70;
+const LOT_DOCK_HEIGHT = 68;
 const LOT_ROBOT_RADIUS = 11;
 
 const dockRoleLabels = {
@@ -161,20 +167,17 @@ function computeLotTransform(points) {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-
-  const padX = Math.max((maxX - minX) * 0.2, LOT_SLOT_SIZE / 20);
-  const padY = Math.max((maxY - minY) * 0.2, LOT_SLOT_SIZE / 20);
-  const x0 = minX - padX;
-  const x1 = maxX + padX;
-  const y0 = minY - padY;
-  const y1 = maxY + padY;
-  const spanX = x1 - x0 || 1;
-  const spanY = y1 - y0 || 1;
+  const marginX = 48;
+  const marginY = 78;
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const drawableWidth = LOT_MAP_WIDTH - marginX * 2;
+  const drawableHeight = LOT_MAP_HEIGHT - marginY * 2;
 
   return {
-    sx: (x) => ((x - x0) / spanX) * LOT_MAP_WIDTH,
+    sx: (x) => marginX + ((x - minX) / spanX) * drawableWidth,
     // y는 위로 갈수록 커지도록 뒤집는다 (화면 좌표는 아래로 갈수록 커짐).
-    sy: (y) => LOT_MAP_HEIGHT - ((y - y0) / spanY) * LOT_MAP_HEIGHT,
+    sy: (y) => LOT_MAP_HEIGHT - marginY - ((y - minY) / spanY) * drawableHeight,
   };
 }
 
@@ -200,11 +203,24 @@ function renderLotMap(slots, robots, mapInfo) {
   const { sx, sy } = computeLotTransform(allPoints);
   const parts = [];
 
-  // 통로: 입구와 도크가 지나는 y(보통 0)를 기준으로 가로선을 하나 그린다.
+  // 통로: 입구가 있는 y=0을 기준으로 주차면/도크의 진입 경로를 연결한다.
   const aisleY = entrance ? entrance.y : docks[0] && docks[0].y;
   if (aisleY != null) {
     const xs = allPoints.map((p) => p.x);
     const laneY = sy(aisleY);
+    const connectionPoints = [...placedSlots, ...docks];
+
+    for (const point of connectionPoints) {
+      if (point.y === aisleY) continue;
+      const cx = sx(point.x);
+      const cy = sy(point.y);
+      const connectorOffset = point.role ? LOT_DOCK_WIDTH * 0.38 : LOT_SLOT_WIDTH * 0.45;
+      parts.push(`
+        <line class="lot-connector-line" x1="${cx}" y1="${cy}" x2="${cx - connectorOffset}" y2="${laneY}"></line>
+        <line class="lot-connector-line" x1="${cx}" y1="${cy}" x2="${cx + connectorOffset}" y2="${laneY}"></line>
+      `);
+    }
+
     parts.push(`
       <line
         class="lot-aisle-line"
@@ -225,12 +241,11 @@ function renderLotMap(slots, robots, mapInfo) {
   for (const dock of docks) {
     const cx = sx(dock.x);
     const cy = sy(dock.y);
-    const half = LOT_DOCK_SIZE / 2;
     parts.push(`
       <rect
         class="lot-dock-rect ${dock.role}"
-        x="${cx - half}" y="${cy - half}"
-        width="${LOT_DOCK_SIZE}" height="${LOT_DOCK_SIZE}"
+        x="${cx - LOT_DOCK_WIDTH / 2}" y="${cy - LOT_DOCK_HEIGHT / 2}"
+        width="${LOT_DOCK_WIDTH}" height="${LOT_DOCK_HEIGHT}"
         rx="8"
       ></rect>
       <text class="lot-dock-label" x="${cx}" y="${cy + 4}">
@@ -242,15 +257,14 @@ function renderLotMap(slots, robots, mapInfo) {
   for (const slot of placedSlots) {
     const cx = sx(slot.x);
     const cy = sy(slot.y);
-    const half = LOT_SLOT_SIZE / 2;
     parts.push(`
       <rect
-        class="lot-slot-rect ${slot.status}"
-        x="${cx - half}" y="${cy - half}"
-        width="${LOT_SLOT_SIZE}" height="${LOT_SLOT_SIZE}"
+        class="lot-slot-rect ${slot.status} ${slot.is_accessible ? "accessible" : ""}"
+        x="${cx - LOT_SLOT_WIDTH / 2}" y="${cy - LOT_SLOT_HEIGHT / 2}"
+        width="${LOT_SLOT_WIDTH}" height="${LOT_SLOT_HEIGHT}"
         rx="8"
       ></rect>
-      <text class="lot-slot-label" x="${cx}" y="${cy - 2}">
+      <text class="lot-slot-label" x="${cx}" y="${cy - 5}">
         ${slot.id}${slot.is_accessible ? " ♿" : ""}
       </text>
       <text class="lot-slot-sub" x="${cx}" y="${cy + 14}">
@@ -441,6 +455,25 @@ function showMessage(message, isError = false) {
   }
 }
 
+function updateLiveStatus(isOnline) {
+  const status = document.getElementById("liveUpdateStatus");
+  if (!status) return;
+
+  status.classList.remove("pending", "offline");
+  if (!isOnline) {
+    status.classList.add("offline");
+    status.querySelector("span").textContent = "서버 연결 끊김";
+    return;
+  }
+
+  const now = new Date().toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  status.querySelector("span").textContent = `${now} 갱신`;
+}
+
 async function refreshDashboard() {
   try {
     const data = await apiRequest("/dashboard");
@@ -452,7 +485,9 @@ async function refreshDashboard() {
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || []);
     renderSystem(data.system);
+    updateLiveStatus(true);
   } catch (error) {
+    updateLiveStatus(false);
     showMessage(error.message, true);
   }
 }
@@ -552,4 +587,4 @@ window.advanceRequest = advanceRequest;
 window.resolveAlert = resolveAlert;
 
 refreshDashboard();
-setInterval(refreshDashboard, 3000);
+setInterval(refreshDashboard, 2000);

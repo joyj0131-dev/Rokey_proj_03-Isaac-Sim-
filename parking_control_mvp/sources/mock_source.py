@@ -24,24 +24,36 @@ from core.state_store import StateStore
 
 #: 실제 map 좌표가 없는 mock 모드용 가상 배치. 실제 parking_map.yaml과 같은
 #: 규칙(입구 → 대기/충전 도크 → 통로(y=0) → A행(y<0)/B행(y>0))을 따른다.
-_ENTRANCE = (-14.0, 0.0)
-_DOCK_WAIT = (-8.0, 0.0)
-_DOCK_CHARGE = (10.0, 0.0)
+_ENTRANCE = (-18.1, 0.0)
+_DOCK_WAIT_A = (-15.3, -7.8)
+_DOCK_WAIT_B = (-15.3, 7.8)
+_DOCK_CHARGE_A = (15.3, -7.8)
+_DOCK_CHARGE_B = (15.3, 7.8)
 
 #: id, status, battery, (x, y) — 로봇은 각자의 도크 위치에서 시작.
 _DEFAULT_ROBOTS = [
-    ("robot_01", "IDLE", 92, _DOCK_WAIT),
-    ("robot_02", "CHARGING", 64, _DOCK_CHARGE),
+    ("robot_01", "IDLE", 92, _DOCK_WAIT_A),
+    ("robot_02", "CHARGING", 64, _DOCK_CHARGE_B),
 ]
 
 #: id, status, vehicle, (x, y), is_accessible
 _DEFAULT_SLOTS = [
-    ("A-01", "OCCUPIED", "12가3456", (-2.0, -6.0), True),
-    ("A-02", "EMPTY", None, (2.0, -6.0), True),
-    ("A-03", "EMPTY", None, (6.0, -6.0), False),
-    ("B-01", "OCCUPIED", "34나7890", (-2.0, 6.0), False),
-    ("B-02", "EMPTY", None, (2.0, 6.0), False),
-    ("B-03", "EMPTY", None, (6.0, 6.0), False),
+    ("A1", "OCCUPIED", "12가3456", (-11.9, -7.8), True),
+    ("A2", "EMPTY", None, (-8.5, -7.8), True),
+    ("A3", "EMPTY", None, (-5.1, -7.8), False),
+    ("A4", "EMPTY", None, (-1.7, -7.8), False),
+    ("A5", "EMPTY", None, (1.7, -7.8), False),
+    ("A6", "EMPTY", None, (5.1, -7.8), False),
+    ("A7", "EMPTY", None, (8.5, -7.8), False),
+    ("A8", "EMPTY", None, (11.9, -7.8), False),
+    ("B1", "OCCUPIED", "34나7890", (-11.9, 7.8), False),
+    ("B2", "EMPTY", None, (-8.5, 7.8), False),
+    ("B3", "EMPTY", None, (-5.1, 7.8), False),
+    ("B4", "EMPTY", None, (-1.7, 7.8), False),
+    ("B5", "EMPTY", None, (1.7, 7.8), False),
+    ("B6", "EMPTY", None, (5.1, 7.8), False),
+    ("B7", "EMPTY", None, (8.5, 7.8), False),
+    ("B8", "EMPTY", None, (11.9, 7.8), False),
 ]
 
 
@@ -86,8 +98,10 @@ class MockDataSource(DataSource):
     def get_map_info(self) -> dict:
         return {
             "docks": [
-                {"role": "waiting", "x": _DOCK_WAIT[0], "y": _DOCK_WAIT[1]},
-                {"role": "charging", "x": _DOCK_CHARGE[0], "y": _DOCK_CHARGE[1]},
+                {"role": "waiting", "x": _DOCK_WAIT_A[0], "y": _DOCK_WAIT_A[1]},
+                {"role": "waiting", "x": _DOCK_WAIT_B[0], "y": _DOCK_WAIT_B[1]},
+                {"role": "charging", "x": _DOCK_CHARGE_A[0], "y": _DOCK_CHARGE_A[1]},
+                {"role": "charging", "x": _DOCK_CHARGE_B[0], "y": _DOCK_CHARGE_B[1]},
             ],
             "entrance": {"x": _ENTRANCE[0], "y": _ENTRANCE[1]},
         }

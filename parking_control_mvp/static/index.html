@@ -135,24 +135,26 @@
         </div>
 
         <form id="requestForm">
-          <label>
-            <span>요청 유형</span>
-            <select id="requestType">
-              <option value="PARK_IN">입고 요청</option>
-              <option value="PARK_OUT">출차 요청</option>
-            </select>
-          </label>
+          <div class="request-fields">
+            <label>
+              <span>요청 유형</span>
+              <select id="requestType">
+                <option value="PARK_IN">입고 요청</option>
+                <option value="PARK_OUT">출차 요청</option>
+              </select>
+            </label>
 
-          <label>
-            <span>차량 번호</span>
-            <input
-              id="vehicleNumber"
-              type="text"
-              placeholder="예: 12가3456"
-              autocomplete="off"
-              required
-            />
-          </label>
+            <label>
+              <span>차량 번호</span>
+              <input
+                id="vehicleNumber"
+                type="text"
+                placeholder="예: 12가3456"
+                autocomplete="off"
+                required
+              />
+            </label>
+          </div>
 
           <button type="submit" class="primary-button">
             요청 등록
@@ -189,19 +191,25 @@
           <p class="panel-label">LIVE FLOOR PLAN</p>
           <h2>주차장 실시간 도면</h2>
           <p class="panel-description">
-            슬롯과 로봇의 실제 위치를 도면 형태로 표시합니다 (3초마다 자동 갱신).
+            A/B 주차면과 로봇의 실제 위치를 2초마다 자동 갱신합니다.
           </p>
         </div>
 
-        <div class="legend">
-          <span><i class="legend-dot empty"></i>빈 공간</span>
-          <span><i class="legend-dot reserved"></i>예약</span>
-          <span><i class="legend-dot occupied"></i>주차 중</span>
+        <div class="map-header-status">
+          <div id="liveUpdateStatus" class="live-update-status pending">
+            <i></i>
+            <span>연결 확인 중</span>
+          </div>
+          <div class="legend">
+            <span><i class="legend-dot empty"></i>빈 공간</span>
+            <span><i class="legend-dot reserved"></i>예약</span>
+            <span><i class="legend-dot occupied"></i>주차 중</span>
+          </div>
         </div>
       </div>
 
       <div class="lot-map-wrap">
-        <svg id="lotMap" viewBox="0 0 780 460" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="lotMap" viewBox="0 0 1100 430" preserveAspectRatio="xMidYMid meet"></svg>
         <p id="lotMapEmpty" class="lot-map-empty hidden">
           위치 정보가 있는 슬롯/로봇이 없습니다.
         </p>
