@@ -61,6 +61,19 @@ _TASK_STATE_AFTER_LIFT = {
     "NAVIGATING": RequestStatus.MOVING_TO_SLOT,
 }
 
+# parking_slot_manager_node / task_dispatcher_node 어느 쪽도 find_empty_slot
+# 응답 이후 parking_slots.status를 갱신하지 않는다 (2026-07-20 기준 실제 코드
+# 확인 — set_slot_status() 호출이 아예 없음). DB 컬럼을 그대로 믿으면 슬롯이
+# 영원히 EMPTY로 보이므로, 같은 슬롯의 가장 최근 task로 상태를 역산한다.
+_SLOT_STATUS_FROM_TASK = {
+    ("ENTRY", "WAITING"): "RESERVED",
+    ("ENTRY", "PROCESSING"): "RESERVED",
+    ("ENTRY", "DONE"): "OCCUPIED",
+    ("EXIT", "WAITING"): "OCCUPIED",
+    ("EXIT", "PROCESSING"): "OCCUPIED",
+    ("EXIT", "DONE"): "EMPTY",
+}
+
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -193,7 +206,9 @@ class Ros2DataSource(DataSource):
         with self.store.lock, self._map_lock:
             requests = []
             active_task_by_robot: dict[str, int] = {}
-            slot_vehicle: dict[str, str] = {}
+            # slot_id -> (파생 상태, 차량번호). task_rows는 created_at DESC라
+            # 슬롯당 처음 매칭되는(=가장 최근) 유효 상태를 채택한다.
+            slot_status_override: dict[str, tuple[str, str | None]] = {}
 
             for row in task_rows:
                 internal_id = self._task_id_map.get(row["task_id"])
@@ -205,6 +220,7 @@ class Ros2DataSource(DataSource):
                 if row["state"] == "PROCESSING":
                     status = self._fine_status.get(row["task_id"], status)
 
+                created_at = row["created_at"]
                 requests.append(
                     ParkingRequest(
                         id=internal_id,
@@ -215,15 +231,25 @@ class Ros2DataSource(DataSource):
                         slot_id=row["slot_id"],
                         robot_id=row["robot_id"],
                         status=status,
-                        created_at=str(row["created_at"]),
+                        created_at=(
+                            created_at.isoformat(timespec="seconds")
+                            if hasattr(created_at, "isoformat")
+                            else str(created_at)
+                        ),
                         external_task_id=row["task_id"],
                     )
                 )
 
                 if row["robot_id"] and row["state"] in ("WAITING", "PROCESSING"):
                     active_task_by_robot[row["robot_id"]] = internal_id
-                if row["slot_id"] and row["slot_id"] not in slot_vehicle:
-                    slot_vehicle[row["slot_id"]] = row["vehicle_id"]
+
+                if row["slot_id"] and row["slot_id"] not in slot_status_override:
+                    derived = _SLOT_STATUS_FROM_TASK.get(
+                        (row["request_type"], row["state"])
+                    )
+                    if derived is not None:
+                        vehicle = row["vehicle_id"] if derived == "OCCUPIED" else None
+                        slot_status_override[row["slot_id"]] = (derived, vehicle)
 
             # DB는 최신순 LIMIT이라 오래된 요청이 위로 오도록 뒤집는다
             # (mock과 동일하게 store에는 생성 순으로 쌓고, API가 reversed() 처리).
@@ -235,12 +261,8 @@ class Ros2DataSource(DataSource):
             self.store.parking_slots.extend(
                 ParkingSlot(
                     id=row["slot_id"],
-                    status=row["status"],
-                    vehicle_number=(
-                        slot_vehicle.get(row["slot_id"])
-                        if row["status"] == "OCCUPIED"
-                        else None
-                    ),
+                    status=slot_status_override.get(row["slot_id"], (row["status"], None))[0],
+                    vehicle_number=slot_status_override.get(row["slot_id"], (row["status"], None))[1],
                 )
                 for row in slot_rows
             )
