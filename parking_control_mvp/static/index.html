@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>주차로봇 통합 관제센터</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-area">
+      <div class="brand-icon">P</div>
+      <div>
+        <p class="eyebrow">AUTONOMOUS PARKING SYSTEM</p>
+        <h1>주차로봇 통합 관제센터</h1>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span id="modeBadge" class="mode-badge">Mock Mode</span>
+      <div id="systemStatus" class="system-status">
+        <span class="status-dot"></span>
+        <span id="systemStatusText">시스템 정상</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <section id="summaryCards" class="summary-grid"></section>
+
+    <section id="alertPanel" class="panel alert-panel hidden">
+      <div class="panel-header">
+        <div>
+          <p class="panel-label">SYSTEM ALERTS</p>
+          <h2>에러 · 장애물 감지</h2>
+          <p class="panel-description">
+            로봇 오류와 장애물 감지 이벤트를 표시합니다.
+          </p>
+        </div>
+      </div>
+
+      <div id="alertList" class="alert-list"></div>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel request-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-label">USER REQUEST</p>
+            <h2>입고 · 출차 요청</h2>
+            <p class="panel-description">
+              차량 번호를 입력하여 주차 작업을 등록합니다.
+            </p>
+          </div>
+        </div>
+
+        <form id="requestForm">
+          <label>
+            <span>요청 유형</span>
+            <select id="requestType">
+              <option value="PARK_IN">입고 요청</option>
+              <option value="PARK_OUT">출차 요청</option>
+            </select>
+          </label>
+
+          <label>
+            <span>차량 번호</span>
+            <input
+              id="vehicleNumber"
+              type="text"
+              placeholder="예: 12가3456"
+              autocomplete="off"
+              required
+            />
+          </label>
+
+          <button type="submit" class="primary-button">
+            요청 등록
+          </button>
+        </form>
+
+        <div class="test-guide">
+          <span class="guide-title">출차 테스트 차량</span>
+          <span class="vehicle-chip">12가3456</span>
+          <span class="vehicle-chip">34나7890</span>
+        </div>
+
+        <div id="messageBox" class="message-box hidden"></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-label">ROBOT FLEET</p>
+            <h2>로봇 상태</h2>
+            <p class="panel-description">
+              로봇의 작업 상태와 배터리를 확인합니다.
+            </p>
+          </div>
+        </div>
+
+        <div id="robotList" class="robot-list"></div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="panel-label">PARKING MAP</p>
+          <h2>주차면 현황</h2>
+          <p class="panel-description">
+            각 주차면의 사용 상태와 차량 번호를 표시합니다.
+          </p>
+        </div>
+
+        <div class="legend">
+          <span><i class="legend-dot empty"></i>빈 공간</span>
+          <span><i class="legend-dot reserved"></i>예약</span>
+          <span><i class="legend-dot occupied"></i>주차 중</span>
+        </div>
+      </div>
+
+      <div id="slotGrid" class="slot-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="panel-label">TASK MONITOR</p>
+          <h2>작업 요청 목록</h2>
+          <p class="panel-description">
+            등록된 입고·출차 작업의 진행 단계를 확인합니다.
+          </p>
+        </div>
+
+        <div id="mockControls" class="panel-actions">
+          <button id="obstacleButton" class="secondary-button warn">
+            장애물 감지 시뮬레이션
+          </button>
+          <button id="errorButton" class="secondary-button danger">
+            로봇 오류 시뮬레이션
+          </button>
+          <button id="resetButton" class="secondary-button">
+            Mock 초기화
+          </button>
+        </div>
+      </div>
+
+      <div id="requestTable"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
