@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'parking_slot_manager = parking_control.parking_slot_manager_node:main',
             'task_dispatcher = parking_control.task_dispatcher_node:main',
+            'sim_orchestrator = parking_control.sim_orchestrator_node:main',
         ],
     },
 )
