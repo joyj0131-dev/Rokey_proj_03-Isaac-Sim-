@@ -57,11 +57,13 @@ class ParkingRequest(BaseModel):
     robot_id: str | None
     status: RequestStatus
     created_at: str
+    #: task_dispatcher가 발급한 task_id (UUID). mock 모드에서는 None.
+    external_task_id: str | None = None
 
 
 class Robot(BaseModel):
     id: str
-    status: Literal["IDLE", "BUSY", "CHARGING", "ERROR"]
+    status: Literal["IDLE", "BUSY", "CHARGING", "ERROR", "OFFLINE"]
     battery: int
     current_task_id: int | None = None
     error_message: str | None = None

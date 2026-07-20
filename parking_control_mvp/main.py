@@ -32,11 +32,11 @@ def _create_datasource() -> DataSource:
     if config.PARKING_MODE == "mock":
         return MockDataSource(store)
 
-    # ros2 모드는 task_dispatcher 인터페이스 확정 후 구현 예정.
-    raise NotImplementedError(
-        "ros2 모드는 아직 구현되지 않았습니다. "
-        "PARKING_MODE=mock 으로 실행해주세요."
-    )
+    # 지연 import: rclpy/parking_robot_interfaces는 ROS2 환경이 source된
+    # 상태에서만 존재하므로, mock 모드 실행 시에는 아예 건드리지 않는다.
+    from sources.ros2_source import Ros2DataSource
+
+    return Ros2DataSource(store)
 
 
 datasource: DataSource = _create_datasource()
