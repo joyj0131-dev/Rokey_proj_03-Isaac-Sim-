@@ -14,23 +14,13 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_runtime import restart_with_isaac_python
+
 
 ROOT = Path(__file__).resolve().parent
 STAGE_PATH = ROOT / "parking_environment.usd"
-ISAAC_PYTHON = Path(
-    "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh"
-)
 LIDAR_CONFIG = "SICK_multiScan136"
 LIDAR_ZONES = ("west", "east")
-
-
-def restart() -> None:
-    if os.environ.get("CARB_APP_PATH"):
-        return
-    os.execv(
-        str(ISAAC_PYTHON),
-        [str(ISAAC_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],
-    )
 
 
 def point_count_and_summary(payload):
@@ -54,7 +44,7 @@ def point_count_and_summary(payload):
 
 
 def main() -> None:
-    restart()
+    restart_with_isaac_python(Path(__file__))
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless-test", action="store_true")
     args = parser.parse_args()

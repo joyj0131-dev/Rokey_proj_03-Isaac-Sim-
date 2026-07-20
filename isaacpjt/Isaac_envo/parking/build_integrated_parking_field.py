@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import argparse
 import math
-import os
-import sys
 from pathlib import Path
+
+from isaac_runtime import restart_with_isaac_python
 
 
 ROOT = Path(__file__).resolve().parent
@@ -30,22 +30,6 @@ ROBOT_USD = ROBOT_PACKAGE / "hwia_parking_robot_final_caster_mecha_roller.usd"
 # OUTPUT_USD가 Isaac_envo/parking/ 에 있으므로 두 단계 올라간다.
 ROBOT_REF = f"../../{ROBOT_PACKAGE.name}/{ROBOT_USD.name}"
 OUTPUT_USD = ROOT / "parking_robot_field.usd"
-ISAAC_PYTHON = Path(
-    "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh"
-)
-
-
-def restart_with_isaac_python() -> None:
-    if os.environ.get("CARB_APP_PATH"):
-        return
-    if not ISAAC_PYTHON.is_file():
-        raise FileNotFoundError(f"Isaac Sim python.sh를 찾을 수 없습니다: {ISAAC_PYTHON}")
-    os.execv(
-        str(ISAAC_PYTHON),
-        [str(ISAAC_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],
-    )
-
-
 def build_stage() -> tuple[float, float]:
     from pxr import Gf, Sdf, Usd, UsdGeom
 
@@ -184,7 +168,7 @@ def world_position(stage, path: str) -> tuple[float, float, float]:
 
 
 def main() -> None:
-    restart_with_isaac_python()
+    restart_with_isaac_python(Path(__file__))
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless-test", action="store_true")
     args = parser.parse_args()

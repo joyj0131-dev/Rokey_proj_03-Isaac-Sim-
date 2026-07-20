@@ -13,6 +13,8 @@ import os
 import sys
 from pathlib import Path
 
+from isaac_runtime import restart_with_isaac_python
+
 
 WORK_DIR = Path(__file__).resolve().parent
 OUTPUT_USD = WORK_DIR / "parking_environment.usd"
@@ -23,11 +25,6 @@ VEHICLE_USD = PROJECT_ROOT / "fab_vehicles.usd"
 # 12대와 PhysicsScene/VehiclePhysics 참조가 전부 죽었다). OUTPUT_USD가 parking/에
 # 있고 fab_vehicles.usd는 그 부모에 있으므로 "../fab_vehicles.usd"가 된다.
 VEHICLE_REF = f"../{VEHICLE_USD.name}"
-ISAAC_ROOT = Path(
-    "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
-)
-ISAAC_PYTHON = ISAAC_ROOT / "python.sh"
-
 # fab_vehicles.usd의 최대 차량(Pickup 약 2.33 x 5.83 m)을 기준으로 여유 확보.
 SPACE_COUNT = 10
 PARKING_INDICES = tuple(range(1, 9))
@@ -76,18 +73,6 @@ FAB_VEHICLE_TYPES = {
     "Compact", "Coupe", "Hatchback", "Minivan", "Offroad",
     "Pickup", "Sedan", "Sport", "SUV", "Wagon",
 }
-
-
-def _restart_with_isaac_python():
-    if os.environ.get("CARB_APP_PATH"):
-        return
-    if not ISAAC_PYTHON.is_file():
-        raise FileNotFoundError(f"Isaac Sim python.sh를 찾을 수 없습니다: {ISAAC_PYTHON}")
-    print(f"[parking] Isaac Sim Python으로 전환: {ISAAC_PYTHON}", flush=True)
-    os.execv(
-        str(ISAAC_PYTHON),
-        [str(ISAAC_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],
-    )
 
 
 def _material(stage, path, color, roughness=0.7, metallic=0.0, emissive=None):
@@ -1017,7 +1002,7 @@ def verify_stage():
 
 
 def main():
-    _restart_with_isaac_python()
+    restart_with_isaac_python(Path(__file__))
     from isaacsim import SimulationApp
 
     headless = "--headless" in sys.argv[1:]
