@@ -22,18 +22,20 @@ from core.models import (
 )
 from core.state_store import StateStore
 
+#: id, status, battery, (x, y) — 실제 map 좌표가 없는 mock 모드용 가상 배치.
 _DEFAULT_ROBOTS = [
-    ("robot_01", "IDLE", 92),
-    ("robot_02", "CHARGING", 64),
+    ("robot_01", "IDLE", 92, (-4.0, 0.0)),
+    ("robot_02", "CHARGING", 64, (12.0, 0.0)),
 ]
 
+#: id, status, vehicle, (x, y)
 _DEFAULT_SLOTS = [
-    ("A-01", "OCCUPIED", "12가3456"),
-    ("A-02", "EMPTY", None),
-    ("A-03", "EMPTY", None),
-    ("B-01", "OCCUPIED", "34나7890"),
-    ("B-02", "EMPTY", None),
-    ("B-03", "EMPTY", None),
+    ("A-01", "OCCUPIED", "12가3456", (0.0, 6.0)),
+    ("A-02", "EMPTY", None, (4.0, 6.0)),
+    ("A-03", "EMPTY", None, (8.0, 6.0)),
+    ("B-01", "OCCUPIED", "34나7890", (0.0, -6.0)),
+    ("B-02", "EMPTY", None, (4.0, -6.0)),
+    ("B-03", "EMPTY", None, (8.0, -6.0)),
 ]
 
 
@@ -55,14 +57,16 @@ class MockDataSource(DataSource):
         with self.store.lock:
             self.store.robots.clear()
             self.store.robots.extend(
-                Robot(id=robot_id, status=status, battery=battery)
-                for robot_id, status, battery in _DEFAULT_ROBOTS
+                Robot(id=robot_id, status=status, battery=battery, x=x, y=y)
+                for robot_id, status, battery, (x, y) in _DEFAULT_ROBOTS
             )
 
             self.store.parking_slots.clear()
             self.store.parking_slots.extend(
-                ParkingSlot(id=slot_id, status=status, vehicle_number=vehicle)
-                for slot_id, status, vehicle in _DEFAULT_SLOTS
+                ParkingSlot(
+                    id=slot_id, status=status, vehicle_number=vehicle, x=x, y=y
+                )
+                for slot_id, status, vehicle, (x, y) in _DEFAULT_SLOTS
             )
 
             self.store.requests.clear()

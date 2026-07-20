@@ -106,6 +106,31 @@
     <section class="panel">
       <div class="panel-header">
         <div>
+          <p class="panel-label">LIVE FLOOR PLAN</p>
+          <h2>주차장 실시간 도면</h2>
+          <p class="panel-description">
+            슬롯과 로봇의 실제 위치를 도면 형태로 표시합니다 (3초마다 자동 갱신).
+          </p>
+        </div>
+
+        <div class="legend">
+          <span><i class="legend-dot empty"></i>빈 공간</span>
+          <span><i class="legend-dot reserved"></i>예약</span>
+          <span><i class="legend-dot occupied"></i>주차 중</span>
+        </div>
+      </div>
+
+      <div class="lot-map-wrap">
+        <svg id="lotMap" viewBox="0 0 780 460" preserveAspectRatio="xMidYMid meet"></svg>
+        <p id="lotMapEmpty" class="lot-map-empty hidden">
+          위치 정보가 있는 슬롯/로봇이 없습니다.
+        </p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
           <p class="panel-label">PARKING MAP</p>
           <h2>주차면 현황</h2>
           <p class="panel-description">

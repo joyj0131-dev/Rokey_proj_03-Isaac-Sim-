@@ -143,6 +143,87 @@ function renderRobots(robots) {
     .join("");
 }
 
+const LOT_MAP_WIDTH = 780;
+const LOT_MAP_HEIGHT = 460;
+const LOT_SLOT_SIZE = 56;
+const LOT_ROBOT_RADIUS = 11;
+
+function computeLotTransform(points) {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const padX = Math.max((maxX - minX) * 0.2, LOT_SLOT_SIZE / 20);
+  const padY = Math.max((maxY - minY) * 0.2, LOT_SLOT_SIZE / 20);
+  const x0 = minX - padX;
+  const x1 = maxX + padX;
+  const y0 = minY - padY;
+  const y1 = maxY + padY;
+  const spanX = x1 - x0 || 1;
+  const spanY = y1 - y0 || 1;
+
+  return {
+    sx: (x) => ((x - x0) / spanX) * LOT_MAP_WIDTH,
+    // y는 위로 갈수록 커지도록 뒤집는다 (화면 좌표는 아래로 갈수록 커짐).
+    sy: (y) => LOT_MAP_HEIGHT - ((y - y0) / spanY) * LOT_MAP_HEIGHT,
+  };
+}
+
+function renderLotMap(slots, robots) {
+  const svg = document.getElementById("lotMap");
+  const emptyMessage = document.getElementById("lotMapEmpty");
+
+  const placedSlots = slots.filter((s) => s.x != null && s.y != null);
+  const placedRobots = robots.filter((r) => r.x != null && r.y != null);
+
+  if (!placedSlots.length && !placedRobots.length) {
+    svg.innerHTML = "";
+    emptyMessage.classList.remove("hidden");
+    return;
+  }
+  emptyMessage.classList.add("hidden");
+
+  const { sx, sy } = computeLotTransform([...placedSlots, ...placedRobots]);
+  const parts = [];
+
+  for (const slot of placedSlots) {
+    const cx = sx(slot.x);
+    const cy = sy(slot.y);
+    const half = LOT_SLOT_SIZE / 2;
+    parts.push(`
+      <rect
+        class="lot-slot-rect ${slot.status}"
+        x="${cx - half}" y="${cy - half}"
+        width="${LOT_SLOT_SIZE}" height="${LOT_SLOT_SIZE}"
+        rx="8"
+      ></rect>
+      <text class="lot-slot-label" x="${cx}" y="${cy - 2}">${slot.id}</text>
+      <text class="lot-slot-sub" x="${cx}" y="${cy + 14}">
+        ${slot.vehicle_number ? slot.vehicle_number : statusLabels[slot.status]}
+      </text>
+    `);
+  }
+
+  for (const robot of placedRobots) {
+    const cx = sx(robot.x);
+    const cy = sy(robot.y);
+    parts.push(`
+      <circle
+        class="lot-robot-dot ${robot.status}"
+        cx="${cx}" cy="${cy}" r="${LOT_ROBOT_RADIUS}"
+      ></circle>
+      <text class="lot-robot-label" x="${cx}" y="${cy - LOT_ROBOT_RADIUS - 6}">
+        ${robot.id} (${statusLabels[robot.status]})
+      </text>
+    `);
+  }
+
+  svg.innerHTML = parts.join("");
+}
+
 function renderSlots(slots) {
   document.getElementById("slotGrid").innerHTML = slots
     .map(
@@ -315,6 +396,7 @@ async function refreshDashboard() {
     renderSummary(data.summary);
     renderRobots(data.robots);
     renderSlots(data.slots);
+    renderLotMap(data.slots, data.robots);
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || []);
     renderSystem(data.system);

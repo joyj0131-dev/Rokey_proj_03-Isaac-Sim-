@@ -103,10 +103,12 @@ class _ParkingDbReader:
             cursor.close()
 
     def fetch_robots(self) -> list[dict]:
-        return self._query("SELECT robot_id, status, battery_percent FROM robots")
+        return self._query(
+            "SELECT robot_id, status, battery_percent, x, y FROM robots"
+        )
 
     def fetch_slots(self) -> list[dict]:
-        return self._query("SELECT slot_id, status FROM parking_slots")
+        return self._query("SELECT slot_id, status, x, y FROM parking_slots")
 
     def fetch_tasks(self, limit: int = 100) -> list[dict]:
         return self._query(
@@ -263,6 +265,8 @@ class Ros2DataSource(DataSource):
                     id=row["slot_id"],
                     status=slot_status_override.get(row["slot_id"], (row["status"], None))[0],
                     vehicle_number=slot_status_override.get(row["slot_id"], (row["status"], None))[1],
+                    x=float(row["x"]) if row["x"] is not None else None,
+                    y=float(row["y"]) if row["y"] is not None else None,
                 )
                 for row in slot_rows
             )
@@ -283,6 +287,8 @@ class Ros2DataSource(DataSource):
                         if row["status"] == "ERROR"
                         else None
                     ),
+                    x=float(row["x"]) if row["x"] is not None else None,
+                    y=float(row["y"]) if row["y"] is not None else None,
                 )
                 for row in robot_rows
             )

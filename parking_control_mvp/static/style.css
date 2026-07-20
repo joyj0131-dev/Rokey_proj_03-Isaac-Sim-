@@ -529,6 +529,11 @@ select:focus {
   color: var(--danger);
 }
 
+.badge.OFFLINE {
+  background: var(--border);
+  color: var(--muted);
+}
+
 /* ---------- 에러 · 장애물 감지 패널 ---------- */
 
 .panel-actions {
@@ -688,6 +693,97 @@ select:focus {
 
 .legend-dot.occupied {
   background: #ef4444;
+}
+
+.lot-map-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+#lotMap {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: inherit;
+}
+
+.lot-map-empty {
+  margin: 0;
+  padding: 40px 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.lot-slot-rect {
+  stroke-width: 2;
+  fill-opacity: 0.55;
+}
+
+.lot-slot-rect.EMPTY {
+  fill: var(--success);
+  fill-opacity: 0.08;
+  stroke: var(--border-strong);
+}
+
+.lot-slot-rect.RESERVED {
+  fill: var(--warning);
+  stroke: var(--warning);
+}
+
+.lot-slot-rect.OCCUPIED {
+  fill: var(--danger);
+  stroke: var(--danger);
+}
+
+.lot-slot-label {
+  font-size: 13px;
+  font-weight: 800;
+  fill: var(--text);
+  text-anchor: middle;
+}
+
+.lot-slot-sub {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--text-soft);
+  text-anchor: middle;
+}
+
+.lot-robot-dot {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.lot-robot-dot.IDLE {
+  fill: var(--success);
+}
+
+.lot-robot-dot.BUSY {
+  fill: var(--warning);
+}
+
+.lot-robot-dot.CHARGING {
+  fill: var(--primary);
+}
+
+.lot-robot-dot.ERROR {
+  fill: var(--danger);
+}
+
+.lot-robot-dot.OFFLINE {
+  fill: var(--muted);
+}
+
+.lot-robot-label {
+  font-size: 11px;
+  font-weight: 800;
+  fill: var(--text);
+  text-anchor: middle;
 }
 
 .slot-grid {

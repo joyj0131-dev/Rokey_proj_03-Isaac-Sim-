@@ -67,12 +67,17 @@ class Robot(BaseModel):
     battery: int
     current_task_id: int | None = None
     error_message: str | None = None
+    #: 실시간 도면 표시용 좌표. ros2 모드는 DB의 실측값, mock 모드는 가상 배치.
+    x: float | None = None
+    y: float | None = None
 
 
 class ParkingSlot(BaseModel):
     id: str
     status: Literal["EMPTY", "RESERVED", "OCCUPIED"]
     vehicle_number: str | None = None
+    x: float | None = None
+    y: float | None = None
 
 
 class AlertLevel(str, Enum):
