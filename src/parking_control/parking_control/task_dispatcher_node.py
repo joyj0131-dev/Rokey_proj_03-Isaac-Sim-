@@ -79,6 +79,16 @@ class TaskDispatcherNode(Node):
             response.message = f"알 수 없는 request_type: {request.request_type}"
             return response
 
+        # EXIT는 "빈 슬롯 찾기"가 아니라 "이 차가 지금 어느 칸에 있는지" 조회다.
+        exit_slot_id = None
+        if request.request_type == "EXIT":
+            exit_slot_id = self._db.find_vehicle_slot(request.vehicle_id)
+            if exit_slot_id is None:
+                response.message = (
+                    f"{request.vehicle_id}의 주차 기록을 찾을 수 없습니다 "
+                    "(입고 완료된 차량만 출차할 수 있습니다)")
+                return response
+
         robots = [RobotState(r["robot_id"], float(r["x"] or 0), float(r["y"] or 0))
                   for r in self._db.idle_robots()]
         if not robots:
@@ -86,7 +96,8 @@ class TaskDispatcherNode(Node):
             return response
 
         task_id = str(uuid.uuid4())
-        task = TaskRequest(task_id=task_id, target_node="entrance")
+        target_node = exit_slot_id or "entrance"
+        task = TaskRequest(task_id=task_id, target_node=target_node)
         assignments = self._allocator.assign(robots, [task], self._cost)
         if not assignments:
             response.message = "도달 가능한 로봇 없음"
@@ -98,10 +109,16 @@ class TaskDispatcherNode(Node):
         self._db.update_task(task_id, robot_id=robot_id)
         self._db.set_robot_status(robot_id, "BUSY")
 
-        # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
-        future = self._find_slot_client.call_async(FindEmptySlot.Request())
-        future.add_done_callback(
-            lambda f: self._on_slot_found(f, task_id, request, robot_id))
+        if exit_slot_id is not None:
+            # 슬롯을 이미 알고 있으니(EXIT) find_empty_slot을 건너뛰고 바로 진행.
+            self._db.update_task(task_id, slot_id=exit_slot_id, state="PROCESSING")
+            x, y = self._map.node_pos(exit_slot_id)
+            self._send_execute_goal(task_id, request, robot_id, exit_slot_id, x, y)
+        else:
+            # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
+            future = self._find_slot_client.call_async(FindEmptySlot.Request())
+            future.add_done_callback(
+                lambda f: self._on_slot_found(f, task_id, request, robot_id))
 
         response.accepted = True
         response.task_id = task_id
@@ -121,15 +138,21 @@ class TaskDispatcherNode(Node):
             return
         self._db.update_task(task_id, slot_id=result.slot_id,
                              state="PROCESSING")
+        self._send_execute_goal(
+            task_id, request, robot_id, result.slot_id,
+            result.slot_pose.position.x, result.slot_pose.position.y)
 
+    def _send_execute_goal(self, task_id, request, robot_id, slot_id, x, y):
         goal = ExecuteParkingTask.Goal()
         goal.task_id = task_id
         goal.request_type = request.request_type
         goal.vehicle_id = request.vehicle_id
-        goal.slot_id = result.slot_id
-        goal.slot_pose = result.slot_pose
+        goal.slot_id = slot_id
+        goal.slot_pose.position.x = float(x)
+        goal.slot_pose.position.y = float(y)
+        goal.slot_pose.orientation.w = 1.0
         self.get_logger().info(
-            f"작업 {task_id[:8]}: 슬롯 {result.slot_id} → goal 전송")
+            f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송")
         send_future = self._execute_client.send_goal_async(goal)
         send_future.add_done_callback(
             lambda f: self._on_goal_response(f, task_id, robot_id))

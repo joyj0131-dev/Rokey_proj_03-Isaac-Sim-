@@ -56,6 +56,18 @@ class ParkingDB:
         self._query("UPDATE parking_slots SET status = %s WHERE slot_id = %s",
                     (status, slot_id))
 
+    def find_vehicle_slot(self, vehicle_id):
+        """차량이 현재 주차 중인 슬롯 id. 마지막 완료 작업이 ENTRY일 때만
+        유효(그 이후 EXIT가 없었다는 뜻) — 아니면 None."""
+        rows = self._query(
+            "SELECT request_type, slot_id FROM tasks"
+            " WHERE vehicle_id = %s AND state = 'DONE' AND slot_id IS NOT NULL"
+            " ORDER BY created_at DESC LIMIT 1",
+            (vehicle_id,))
+        if rows and rows[0]["request_type"] == "ENTRY":
+            return rows[0]["slot_id"]
+        return None
+
     # ---- robots / vehicles / tasks ----
 
     def idle_robots(self):
@@ -65,6 +77,17 @@ class ParkingDB:
     def set_robot_status(self, robot_id, status):
         self._query("UPDATE robots SET status = %s WHERE robot_id = %s",
                     (status, robot_id))
+
+    def update_robot_position(self, robot_id, x, y):
+        self._query("UPDATE robots SET x = %s, y = %s WHERE robot_id = %s",
+                    (x, y, robot_id))
+
+    def get_robot_position(self, robot_id):
+        rows = self._query(
+            "SELECT x, y FROM robots WHERE robot_id = %s", (robot_id,))
+        if rows and rows[0]["x"] is not None:
+            return float(rows[0]["x"]), float(rows[0]["y"])
+        return None
 
     def upsert_vehicle(self, vehicle_id):
         self._query(
