@@ -56,6 +56,94 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- 전체 레이아웃 골격 (사이드바 + 본문) ---------- */
+
+.app-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 216px;
+  height: 100vh;
+  padding: 22px 14px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 13.5px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidebar-link:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.sidebar-link.active {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+.sidebar-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.sidebar-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebar-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -64,8 +152,8 @@ button {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  min-height: 96px;
-  padding: 20px clamp(22px, 4vw, 64px);
+  min-height: 72px;
+  padding: 14px clamp(20px, 3vw, 48px);
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
@@ -184,9 +272,10 @@ h2 {
 .dashboard {
   display: grid;
   gap: 22px;
-  width: min(1760px, calc(100% - 40px));
+  width: 100%;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 28px 0 56px;
+  padding: 24px clamp(20px, 3vw, 48px) 56px;
 }
 
 .summary-grid {
@@ -965,18 +1054,30 @@ td {
   }
 }
 
-@media (max-width: 900px) {
+/* 사이드바(216px)가 가로 공간을 가져가는 만큼, 2열 붕괴 기준을 기존 900px보다
+   일찍(1280px) 적용해 카드가 지나치게 좁아지기 전에 1열로 전환한다. */
+@media (max-width: 1280px) {
   .summary-grid,
   .content-grid {
     grid-template-columns: 1fr;
   }
-
-  .dashboard {
-    width: min(100% - 28px, 1760px);
-  }
 }
 
 @media (max-width: 640px) {
+  .sidebar {
+    width: 64px;
+    padding: 16px 8px;
+  }
+
+  .sidebar-label {
+    display: none;
+  }
+
+  .sidebar-link {
+    justify-content: center;
+    padding: 11px 0;
+  }
+
   .topbar {
     position: static;
     align-items: flex-start;
