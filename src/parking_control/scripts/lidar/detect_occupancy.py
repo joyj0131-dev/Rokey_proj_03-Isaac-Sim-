@@ -25,30 +25,12 @@ PKG_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
 from parking_control.core.graph import ParkingMap  # noqa: E402
-
-HEIGHT_THRESHOLD_M = 0.15   # 이보다 낮으면 바닥/차선 노이즈로 간주하고 무시
-POINT_THRESHOLD = 30        # 이 개수 이상이면 점유로 판단
+from parking_control.core.slot_occupancy_detector import (  # noqa: E402
+    HEIGHT_THRESHOLD_M, POINT_THRESHOLD, detect,
+)
 
 EMPTY_COLOR = "#008300"
 OCCUPIED_COLOR = "#e34948"
-
-
-def detect(points, parking_map):
-    """슬롯 id -> {occupied, point_count, x, y} 딕셔너리 반환."""
-    W = parking_map.meta["params"]["space_width"]
-    L = parking_map.meta["params"]["space_length"]
-    results = {}
-    for slot_id in parking_map.nodes_of_kind("slot"):
-        cx, cy = parking_map.node_pos(slot_id)
-        in_box = (
-            (points[:, 0] > cx - W / 2) & (points[:, 0] < cx + W / 2) &
-            (points[:, 1] > cy - L / 2) & (points[:, 1] < cy + L / 2) &
-            (points[:, 2] > HEIGHT_THRESHOLD_M)
-        )
-        count = int(in_box.sum())
-        results[slot_id] = dict(
-            occupied=count >= POINT_THRESHOLD, point_count=count, x=cx, y=cy)
-    return results
 
 
 def render(points, results, parking_map, out_path):
