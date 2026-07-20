@@ -74,6 +74,14 @@ class ParkingDB:
         return self._query(
             "SELECT robot_id, x, y FROM robots WHERE status = 'IDLE'")
 
+    def all_robot_positions(self):
+        """상태와 무관하게 좌표가 있는 모든 로봇 위치. 장애물 감지에서
+        로봇 자신을 장애물로 오인하지 않도록 제외할 때 쓴다 — BUSY 로봇도
+        물리적으로 존재하므로 idle_robots()로는 부족하다."""
+        rows = self._query(
+            "SELECT x, y FROM robots WHERE x IS NOT NULL AND y IS NOT NULL")
+        return [(float(r["x"]), float(r["y"])) for r in rows]
+
     def set_robot_status(self, robot_id, status):
         self._query("UPDATE robots SET status = %s WHERE robot_id = %s",
                     (status, robot_id))
