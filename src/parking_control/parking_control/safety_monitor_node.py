@@ -14,8 +14,17 @@
 ObstacleAlert.msg가 불리언 하나뿐이고, 주차 목적에도 있다/없다면
 충분하기 때문이다.
 
-주의: LiDAR가 실제로 ROS2 브릿지로 연결되기 전까지는 입력 토픽에 아무
-데이터도 안 들어와서 이 노드는 그냥 조용히 대기만 한다 (에러는 안 남).
+실제 LiDAR 2대 (rokey님의 run_ceiling_lidar_ros2.py, 2026-07-20 커밋
+35617de 기준):
+  서쪽(A1~A4/B1~B4) /parking/lidar/ceiling_01/points
+  동쪽(A5~A8/B5~B8) /parking/lidar/ceiling_02/points
+둘 다 센서 로컬 좌표로 발행되므로(아직 TF 없음), core/lidar_frame_transform.py로
+저희 월드 좌표로 변환한 뒤에야 기존 판정 로직에 넣을 수 있다. ★이 변환의
+축 가정은 실측 검증이 안 됐다 — 파일 상단 경고 참고, 반드시 실제
+데이터로 verify_with_known_point() 등으로 확인할 것.★
+
+주의: 브릿지가 안 떠 있으면 두 토픽 다 데이터가 안 들어와서 이 노드는
+그냥 조용히 대기만 한다 (에러는 안 남).
 """
 
 import numpy as np
@@ -28,6 +37,9 @@ from parking_robot_interfaces.msg import ObstacleAlert
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
+from parking_control.core.lidar_frame_transform import (
+    sensor_offsets, transform_to_world,
+)
 from parking_control.core.obstacle_detector import detect_blocked_zones, zone_boxes
 from parking_control.core.slot_occupancy_detector import detect as detect_slot_occupancy
 from parking_control.parking_slot_manager_node import _default_map_yaml
@@ -43,7 +55,8 @@ class SafetyMonitorNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        self.declare_parameter("lidar_topic", "lidar_points")
+        self.declare_parameter("lidar_topic_west", "/parking/lidar/ceiling_01/points")
+        self.declare_parameter("lidar_topic_east", "/parking/lidar/ceiling_02/points")
 
         p = self.get_parameter
         self._db = ParkingDB(
@@ -53,26 +66,51 @@ class SafetyMonitorNode(Node):
         self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
+        half_w = (self._map.meta["params"]["space_count"]
+                 * self._map.meta["params"]["space_width"] / 2)
+        west_x, east_x, height = sensor_offsets(half_w)
+        # 센서별 최신 변환 결과를 들고 있다가, 어느 한쪽이 갱신될 때마다
+        # 둘을 합쳐서 판정한다 — 두 토픽이 동기화되어 오지 않으므로.
+        self._sensor_offsets = {"west": (west_x, height), "east": (east_x, height)}
+        self._latest_world_points = {"west": np.empty((0, 3)), "east": np.empty((0, 3))}
+
         self._alert_pub = self.create_publisher(ObstacleAlert, "obstacle_alert", 10)
         self.create_subscription(
-            PointCloud2, p("lidar_topic").value, self._on_pointcloud, 10)
+            PointCloud2, p("lidar_topic_west").value,
+            lambda msg: self._on_pointcloud(msg, "west"), 10)
+        self.create_subscription(
+            PointCloud2, p("lidar_topic_east").value,
+            lambda msg: self._on_pointcloud(msg, "east"), 10)
 
         slot_count = len(self._map.nodes_of_kind("slot"))
         self.get_logger().info(
-            f"safety_monitor 시작 (lidar_topic={p('lidar_topic').value}, "
+            f"safety_monitor 시작 (west={p('lidar_topic_west').value}, "
+            f"east={p('lidar_topic_east').value}, "
             f"통로 {len(self._zone_boxes)}개 + 슬롯 {slot_count}개 감시) — "
-            "LiDAR가 이 토픽에 연결되기 전까지는 대기만 합니다")
+            "LiDAR가 연결되기 전까지는 대기만 합니다. ⚠ 센서 좌표 변환은 "
+            "실측 검증 전이니 첫 실데이터로 core/lidar_frame_transform.py의 "
+            "verify_with_known_point()로 꼭 확인할 것")
 
-    def _on_pointcloud(self, msg):
+    def _on_pointcloud(self, msg, sensor_id):
         # read_points()는 구조화 배열(필드별 named dtype)을 반환하므로
         # np.array(list(...), dtype=float64)로 바로 캐스팅하면 에러가 난다.
         # 필드를 각각 뽑아서 일반 (N,3) 배열로 조립해야 한다.
         cloud = point_cloud2.read_points(
             msg, field_names=("x", "y", "z"), skip_nans=True)
         if cloud.size == 0:
+            local_points = np.empty((0, 3))
+        else:
+            local_points = np.column_stack(
+                [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
+
+        x_offset, height_offset = self._sensor_offsets[sensor_id]
+        self._latest_world_points[sensor_id] = transform_to_world(
+            local_points, x_offset, height_offset)
+
+        points = np.vstack([self._latest_world_points["west"],
+                            self._latest_world_points["east"]])
+        if points.size == 0:
             return
-        points = np.column_stack(
-            [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
 
         self._check_obstacles(points)
         self._update_slot_occupancy(points)
