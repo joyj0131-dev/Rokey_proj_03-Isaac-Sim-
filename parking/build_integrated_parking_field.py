@@ -132,7 +132,7 @@ def find_robot_rigid_body(stage) -> str:
 
 
 def verify_composition(stage) -> dict[str, int]:
-    from pxr import UsdGeom, UsdPhysics
+    from pxr import PhysxSchema, UsdGeom, UsdPhysics
 
     if UsdGeom.GetStageUpAxis(stage) != UsdGeom.Tokens.y:
         raise RuntimeError("통합 Stage가 Y-up이 아닙니다.")
@@ -144,6 +144,20 @@ def verify_composition(stage) -> dict[str, int]:
         raise RuntimeError("내부 주차 차량 6대가 유지되지 않았습니다.")
     if len(list(waiting.GetChildren())) != 6:
         raise RuntimeError("외부 인계 대기 차량 6대가 유지되지 않았습니다.")
+    vehicles = [*parked.GetChildren(), *waiting.GetChildren()]
+    for vehicle in vehicles:
+        if (
+            not vehicle.HasAPI(UsdPhysics.RigidBodyAPI)
+            or not vehicle.HasAPI(UsdPhysics.MassAPI)
+            or not vehicle.HasAPI(PhysxSchema.PhysxVehicleAPI)
+        ):
+            raise RuntimeError(f"FAB 차량 물리 구동계가 누락됐습니다: {vehicle.GetPath()}")
+        wheels = [
+            child for child in vehicle.GetChildren()
+            if child.HasAPI(PhysxSchema.PhysxVehicleWheelAttachmentAPI)
+        ]
+        if len(wheels) != 4:
+            raise RuntimeError(f"FAB 차량 바퀴 물리가 4개가 아닙니다: {vehicle.GetPath()}")
     if not robot or not base_link:
         raise RuntimeError("HWIA 주차로봇 reference가 구성되지 않았습니다.")
     robot_body = find_robot_rigid_body(stage)
@@ -158,7 +172,13 @@ def verify_composition(stage) -> dict[str, int]:
     if stage.GetPrimAtPath("/World/TestVehicleLibrary").IsValid():
         raise RuntimeError("별도 시험용 차량 라이브러리가 통합 필드에 남아 있습니다.")
     print(f"[field] HWIA 물리 몸체: {robot_body}", flush=True)
-    return {"parked": 6, "waiting": 6, "robot": 1, "lidars": lidar_count}
+    return {
+        "parked": 6,
+        "waiting": 6,
+        "fabPhysicsVehicles": len(vehicles),
+        "robot": 1,
+        "lidars": lidar_count,
+    }
 
 
 def world_position(stage, path: str) -> tuple[float, float, float]:
@@ -206,6 +226,17 @@ def main() -> None:
             world = World(stage_units_in_meters=1.0, set_defaults=False)
             robot_body = find_robot_rigid_body(stage)
             before = world_position(stage, robot_body)
+            vehicle_paths = [
+                str(vehicle.GetPath())
+                for root_path in (
+                    "/World/ParkingVehicles/Parked",
+                    "/World/ParkingVehicles/HandoffQueue",
+                )
+                for vehicle in stage.GetPrimAtPath(root_path).GetChildren()
+            ]
+            vehicle_before = {
+                path: world_position(stage, path) for path in vehicle_paths
+            }
             timeline = omni.timeline.get_timeline_interface()
             timeline.play()
             world.reset()
@@ -220,9 +251,25 @@ def main() -> None:
                 raise RuntimeError(
                     f"로봇 초기 물리 변위가 과도합니다: {displacement:.4f} m"
                 )
+            vehicle_displacements = {
+                path: math.dist(vehicle_before[path], world_position(stage, path))
+                for path in vehicle_paths
+            }
+            max_vehicle_path = max(vehicle_displacements, key=vehicle_displacements.get)
+            max_vehicle_displacement = vehicle_displacements[max_vehicle_path]
+            if not math.isfinite(max_vehicle_displacement) or max_vehicle_displacement > 0.75:
+                raise RuntimeError(
+                    "FAB 차량 초기 물리 변위가 과도합니다: "
+                    f"{max_vehicle_path} / {max_vehicle_displacement:.4f} m"
+                )
             print(
                 f"[field] 180 frame 물리 안정성 통과: {before} -> {after} "
                 f"(변위 {displacement:.4f} m)",
+                flush=True,
+            )
+            print(
+                "[field] FAB 차량 12대 물리 안정성 통과: "
+                f"최대 변위 {max_vehicle_displacement:.4f} m ({max_vehicle_path})",
                 flush=True,
             )
             return

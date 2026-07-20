@@ -66,11 +66,15 @@ PARKED_VEHICLES = (
 HANDOFF_VEHICLES = (
     ("H1", "SUV", "white"),
     ("H2", "Wagon", "black"),
-    ("H3", "Compact", "white"),
-    ("H4", "Sedan", "black"),
+    ("H3", "Sport", "red"),
+    ("H4", "Offroad", "army"),
     ("H5", "Hatchback", "white"),
     ("H6", "Minivan", "black"),
 )
+FAB_VEHICLE_TYPES = {
+    "Compact", "Coupe", "Hatchback", "Minivan", "Offroad",
+    "Pickup", "Sedan", "Sport", "SUV", "Wagon",
+}
 
 
 def _restart_with_isaac_python():
@@ -348,11 +352,12 @@ def _label(stage, path, text, center_x, center_z, color):
 
 
 def _vehicle_instance(
-    stage, path, vehicle_type, color_name, position, yaw_degrees, materials, workflow_state
+    stage, path, vehicle_type, color_name, position, yaw_degrees, workflow_state
 ):
-    """build_fab_vehicles.py 결과의 차량을 고정 초기 배치한다."""
+    """build_fab_vehicles.py의 완성 차량을 물리/재질 포함 그대로 배치한다."""
     import re
     from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+    from omni.physx.scripts.physicsUtils import add_collision_to_collision_group
 
     vehicle = stage.DefinePrim(path, "Xform")
     vehicle.GetReferences().AddReference(
@@ -369,41 +374,74 @@ def _vehicle_instance(
     vehicle.CreateAttribute("parking:bodyColor", Sdf.ValueTypeNames.Token).Set(color_name)
     vehicle.CreateAttribute("parking:workflowState", Sdf.ValueTypeNames.Token).Set(workflow_state)
     vehicle.CreateAttribute("parking:initialPlacement", Sdf.ValueTypeNames.Bool).Set(True)
+    vehicle.CreateAttribute("parking:sourcePrim", Sdf.ValueTypeNames.String).Set(
+        f"/World/Vehicles/{vehicle_type}"
+    )
 
-    # 초기 장면 배치가 시뮬레이션 시작과 동시에 굴러가거나 낙하하지 않도록
-    # kinematic으로 둔다. 이후 제어기가 인계받을 때 이 속성만 False로 바꾸면 된다.
+    # 원본의 RigidBody, 질량/무게중심, PhysX Vehicle 구동계, 서스펜션과
+    # 타이어 속성을 유지한다. 주차로봇이 들어 올릴 수 있도록 kinematic은 끈다.
     rigid = UsdPhysics.RigidBodyAPI.Apply(vehicle)
-    rigid.CreateKinematicEnabledAttr().Set(True)
+    rigid.CreateKinematicEnabledAttr().Set(False)
     rigid.CreateRigidBodyEnabledAttr().Set(True)
-    # 주차/대기 장면에서는 엔진 구동 VehicleAPI를 합성하지 않는다. RigidBody,
-    # 질량, 차체/타이어 Collision은 남으므로 주차로봇의 물리 운반에는 영향 없다.
-    if vehicle.HasAPI(PhysxSchema.PhysxVehicleAPI):
-        vehicle.RemoveAPI(PhysxSchema.PhysxVehicleAPI)
+    if not vehicle.HasAPI(PhysxSchema.PhysxVehicleAPI):
+        raise RuntimeError(f"{vehicle_type}에 원본 PhysxVehicleAPI가 없습니다.")
 
-    # 원본 파일의 차체 재질 관계가 reference 경계를 벗어나더라도 요청한
-    # 흰색/검은색이 보장되도록 Body subset에 주차장 로컬 재질을 덮어쓴다.
+    # USD reference는 참조된 Prim 바깥의 절대 relationship target을 캡슐화한다.
+    # 원본 FAB 재질과 물리 지원 Prim은 Stage에 함께 합성되어 있으므로, 동일한
+    # target을 인스턴스 경로에서 다시 연결해 원본 결과를 손실 없이 보존한다.
+    body_material_name = (
+        "BodyRed" if vehicle_type == "Sport"
+        else "BodyArmy" if vehicle_type == "Offroad"
+        else "BodyBlack" if vehicle_type in {"Coupe", "Minivan", "Sedan", "Wagon"}
+        else "BodyWhite"
+    )
+    fab_materials = {
+        name: UsdShade.Material.Get(stage, f"/World/Looks/FabColors/{name}")
+        for name in (body_material_name, "Black", "GlassBlack", "LightWhite")
+    }
+
+    # 원본 CollisionGroup의 collection에는 원래 /World/Vehicles 경로가 들어
+    # 있으므로, 인스턴스 경로의 차체와 바퀴 충돌체를 공용 그룹에 추가한다.
     for prim in Usd.PrimRange(vehicle):
+        prim_path = str(prim.GetPath())
         normalized = re.sub(r"[^a-z0-9]", "", prim.GetName().lower())
-        full_name = re.sub(r"[^a-z0-9]", "", str(prim.GetPath()).lower())
-        friction_rel = prim.GetRelationship("physxVehicleTire:frictionTable")
-        if friction_rel:
-            friction_rel.SetTargets([])
-        collision_group_rel = prim.GetRelationship(
-            "physxVehicleWheelAttachment:collisionGroup"
-        )
-        if collision_group_rel:
-            collision_group_rel.SetTargets([])
-        binding = None
-        if "wheel" in full_name and (prim.IsA(UsdGeom.Mesh) or prim.IsA(UsdGeom.Subset)):
-            binding = materials["car_tire"]
+        is_wheel_part = "wheel" in re.sub(r"[^a-z0-9]", "", prim_path.lower())
+
+        material = None
+        if prim.IsA(UsdGeom.Subset) and is_wheel_part:
+            material = fab_materials["Black"]
         elif prim.IsA(UsdGeom.Subset) and "glass" in normalized:
-            binding = materials["car_glass"]
-        elif prim.IsA(UsdGeom.Subset) and any(key in normalized for key in ("optic", "light")):
-            binding = materials["car_light"]
+            material = fab_materials["GlassBlack"]
+        elif prim.IsA(UsdGeom.Subset) and any(
+            key in normalized for key in ("optic", "light")
+        ):
+            material = fab_materials["LightWhite"]
         elif prim.IsA(UsdGeom.Subset) and "body" in normalized:
-            binding = materials[f"car_{color_name}"]
-        if binding is not None:
-            UsdShade.MaterialBindingAPI.Apply(prim).Bind(binding[0])
+            material = fab_materials[body_material_name]
+        elif prim.IsA(UsdGeom.Gprim) and is_wheel_part:
+            material = fab_materials["Black"]
+        if material and material.GetPrim().IsValid():
+            UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
+
+        if prim.HasAPI(PhysxSchema.PhysxVehicleTireAPI):
+            PhysxSchema.PhysxVehicleTireAPI(prim).CreateFrictionTableRel().SetTargets([
+                Sdf.Path("/World/VehiclePhysics/RoadTireFriction")
+            ])
+        if prim.HasAPI(PhysxSchema.PhysxVehicleWheelAttachmentAPI):
+            PhysxSchema.PhysxVehicleWheelAttachmentAPI(
+                prim
+            ).CreateCollisionGroupRel().SetTargets([
+                Sdf.Path("/World/VehiclePhysics/GroundQueryGroup")
+            ])
+
+        if prim.HasAPI(UsdPhysics.CollisionAPI):
+            if prim.GetName() == "ChassisCollision":
+                group = Sdf.Path("/World/VehiclePhysics/ChassisGroup")
+            elif prim.GetName() == "Collision" and "Wheel" in prim_path:
+                group = Sdf.Path("/World/VehiclePhysics/WheelGroup")
+            else:
+                continue
+            add_collision_to_collision_group(stage, prim.GetPath(), group)
     return vehicle
 
 
@@ -433,16 +471,33 @@ def build_stage():
     world.SetCustomDataByKey("ceilingLidarConfig", LIDAR_CONFIG)
     world.SetCustomDataByKey("ceilingLidarCount", 2)
     world.SetCustomDataByKey("initialVehicleCount", 12)
+    world.SetCustomDataByKey("initialUniqueFabVehicleTypes", 10)
     world.SetCustomDataByKey("driverParkedVehicles", 2)
     world.SetCustomDataByKey("robotParkedVehicles", 4)
 
     scene = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    # VehicleContextAPI와 축/업데이트 모드는 차량 에셋의 설정을 그대로 합성한다.
+    scene.GetPrim().GetReferences().AddReference(
+        str(VEHICLE_USD), "/World/PhysicsScene"
+    )
     scene.CreateGravityDirectionAttr(Gf.Vec3f(0.0, -1.0, 0.0))
     scene.CreateGravityMagnitudeAttr(9.81)
 
+    # 타이어 마찰표와 차체/바퀴/지면 CollisionGroup도 원본 차량 에셋에서 가져온다.
+    vehicle_physics = stage.DefinePrim("/World/VehiclePhysics", "Scope")
+    vehicle_physics.GetReferences().AddReference(
+        str(VEHICLE_USD), "/World/VehiclePhysics"
+    )
+    # 참조 원본의 collection은 /World/Vehicles 아래 쇼룸 차량을 가리킨다.
+    # 주차장 인스턴스 경로를 아래에서 새로 등록하므로 원본 includes만 비운다.
+    for group_name in ("ChassisGroup", "WheelGroup", "GroundGroup"):
+        group = stage.GetPrimAtPath(f"/World/VehiclePhysics/{group_name}")
+        includes = group.GetRelationship("collection:colliders:includes")
+        if includes:
+            includes.SetTargets([])
+
     looks = UsdGeom.Scope.Define(stage, "/World/Looks").GetPath()
-    # 차량 개별 Prim의 외관 관계가 가리키는 원본 공용 재질만 함께 합성한다.
-    # 엔진/타이어 구동은 초기 고정 배치에서 비활성화하고 충돌·질량은 보존한다.
+    # 차량 개별 Prim의 원본 차체/유리/조명/타이어 재질을 함께 합성한다.
     fab_colors = stage.DefinePrim("/World/Looks/FabColors")
     fab_colors.GetReferences().AddReference(str(VEHICLE_USD), "/World/Looks/FabColors")
     colors = {
@@ -458,11 +513,6 @@ def build_stage():
         "charge": Gf.Vec3f(0.04, 0.88, 0.83),
         "dark": Gf.Vec3f(0.025, 0.032, 0.045),
         "light": Gf.Vec3f(1.0, 0.94, 0.78),
-        "car_white": Gf.Vec3f(0.92, 0.92, 0.92),
-        "car_black": Gf.Vec3f(0.025, 0.030, 0.038),
-        "car_tire": Gf.Vec3f(0.012, 0.014, 0.018),
-        "car_glass": Gf.Vec3f(0.018, 0.026, 0.035),
-        "car_light": Gf.Vec3f(0.85, 0.88, 0.82),
     }
     mats = {}
     for name, color in colors.items():
@@ -492,6 +542,10 @@ def build_stage():
     phys.CreateRestitutionAttr(0.02)
     UsdShade.MaterialBindingAPI.Apply(floor.GetPrim()).Bind(
         physics_mat, UsdShade.Tokens.weakerThanDescendants, "physics"
+    )
+    from omni.physx.scripts.physicsUtils import add_collision_to_collision_group
+    add_collision_to_collision_group(
+        stage, floor.GetPath(), Sdf.Path("/World/VehiclePhysics/GroundGroup")
     )
 
     markings = UsdGeom.Xform.Define(stage, environment.AppendChild("Markings")).GetPath()
@@ -614,6 +668,9 @@ def build_stage():
     UsdShade.MaterialBindingAPI.Apply(handoff_floor.GetPrim()).Bind(
         physics_mat, UsdShade.Tokens.weakerThanDescendants, "physics"
     )
+    add_collision_to_collision_group(
+        stage, handoff_floor.GetPath(), Sdf.Path("/World/VehiclePhysics/GroundGroup")
+    )
     _outline(
         stage, handoff.GetPath().AppendChild("Boundary"), handoff_center_x, 0.0,
         HANDOFF_LENGTH - 0.20, HANDOFF_WIDTH - 0.20, mats["green"], 0.12,
@@ -659,7 +716,7 @@ def build_stage():
         vehicle = _vehicle_instance(
             stage, parked_root.AppendChild(f"{label}_{vehicle_type}"),
             vehicle_type, color_name, (x, 0.035, z), yaw,
-            mats, workflow_state,
+            workflow_state,
         )
         vehicle.CreateAttribute("parking:space", Sdf.ValueTypeNames.String).Set(label)
         spot = stage.GetPrimAtPath(spaces_root.AppendChild(label))
@@ -677,7 +734,7 @@ def build_stage():
         vehicle = _vehicle_instance(
             stage, waiting_root.AppendChild(f"{label}_{vehicle_type}"),
             vehicle_type, color_name, (x, 0.035, z), 90.0,
-            mats, "driver_dropoff_waiting",
+            "driver_dropoff_waiting",
         )
         vehicle.CreateAttribute("parking:handoffBay", Sdf.ValueTypeNames.String).Set(label)
         vehicle.CreateAttribute("parking:queueOrder", Sdf.ValueTypeNames.Int).Set(queue_index + 1)
@@ -808,7 +865,7 @@ def add_ceiling_lidars():
 
 
 def verify_stage():
-    from pxr import Usd, UsdGeom, UsdPhysics
+    from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
 
     stage = Usd.Stage.Open(str(OUTPUT_USD))
     if stage is None:
@@ -903,6 +960,38 @@ def verify_stage():
     waiting = stage.GetPrimAtPath("/World/ParkingVehicles/HandoffQueue")
     if len(list(parked.GetChildren())) != 6 or len(list(waiting.GetChildren())) != 6:
         raise RuntimeError("초기 차량 12대(내부 6/외부 6) 배치 검증에 실패했습니다.")
+    vehicles = [*parked.GetChildren(), *waiting.GetChildren()]
+    placed_types = {
+        str(vehicle.GetAttribute("parking:vehicleType").Get()) for vehicle in vehicles
+    }
+    if placed_types != FAB_VEHICLE_TYPES:
+        raise RuntimeError(
+            f"FAB 고유 차종 10종이 모두 배치되지 않았습니다: {sorted(placed_types)}"
+        )
+    for vehicle in vehicles:
+        if (
+            not vehicle.HasAPI(UsdPhysics.RigidBodyAPI)
+            or not vehicle.HasAPI(UsdPhysics.MassAPI)
+            or not vehicle.HasAPI(PhysxSchema.PhysxVehicleAPI)
+        ):
+            raise RuntimeError(f"FAB 차량 물리 API가 보존되지 않았습니다: {vehicle.GetPath()}")
+        if bool(UsdPhysics.RigidBodyAPI(vehicle).GetKinematicEnabledAttr().Get()):
+            raise RuntimeError(f"차량이 kinematic으로 고정되어 있습니다: {vehicle.GetPath()}")
+        wheels = [
+            child for child in vehicle.GetChildren()
+            if child.HasAPI(PhysxSchema.PhysxVehicleWheelAttachmentAPI)
+        ]
+        if len(wheels) != 4:
+            raise RuntimeError(f"FAB 차량 바퀴 물리 4개가 보존되지 않았습니다: {vehicle.GetPath()}")
+        body_materials = []
+        for prim in Usd.PrimRange(vehicle):
+            if not prim.IsA(UsdGeom.Subset) or "body" not in prim.GetName().lower():
+                continue
+            material = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()[0]
+            if material:
+                body_materials.append(str(material.GetPath()))
+        if not any(path.startswith("/World/Looks/FabColors/") for path in body_materials):
+            raise RuntimeError(f"FAB 원본 차체 재질이 보존되지 않았습니다: {vehicle.GetPath()}")
     parked_colors = [str(prim.GetAttribute("parking:bodyColor").Get()) for prim in parked.GetChildren()]
     if parked_colors.count("white") != 3 or parked_colors.count("black") != 3:
         raise RuntimeError(f"내부 차량 흰색3/검정3 배치 오류: {parked_colors}")
@@ -939,8 +1028,8 @@ def main():
         import omni.usd
 
         report = build_stage()
-        if not omni.usd.get_context().open_stage(str(OUTPUT_USD)):
-            raise RuntimeError("Isaac Sim에서 생성된 주차장 USD를 열 수 없습니다.")
+        # Isaac Sim 5.1의 동기 open_stage()는 성공해도 None을 반환한다.
+        omni.usd.get_context().open_stage(str(OUTPUT_USD))
         for _ in range(8):
             app.update()
         lidar_paths = add_ceiling_lidars()
