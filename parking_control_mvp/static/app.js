@@ -146,7 +146,13 @@ function renderRobots(robots) {
 const LOT_MAP_WIDTH = 780;
 const LOT_MAP_HEIGHT = 460;
 const LOT_SLOT_SIZE = 56;
+const LOT_DOCK_SIZE = 50;
 const LOT_ROBOT_RADIUS = 11;
+
+const dockRoleLabels = {
+  waiting: "대기",
+  charging: "충전",
+};
 
 function computeLotTransform(points) {
   const xs = points.map((p) => p.x);
@@ -172,9 +178,12 @@ function computeLotTransform(points) {
   };
 }
 
-function renderLotMap(slots, robots) {
+function renderLotMap(slots, robots, mapInfo) {
   const svg = document.getElementById("lotMap");
   const emptyMessage = document.getElementById("lotMapEmpty");
+
+  const docks = (mapInfo && mapInfo.docks) || [];
+  const entrance = mapInfo && mapInfo.entrance;
 
   const placedSlots = slots.filter((s) => s.x != null && s.y != null);
   const placedRobots = robots.filter((r) => r.x != null && r.y != null);
@@ -186,8 +195,49 @@ function renderLotMap(slots, robots) {
   }
   emptyMessage.classList.add("hidden");
 
-  const { sx, sy } = computeLotTransform([...placedSlots, ...placedRobots]);
+  const allPoints = [...placedSlots, ...placedRobots, ...docks];
+  if (entrance) allPoints.push(entrance);
+  const { sx, sy } = computeLotTransform(allPoints);
   const parts = [];
+
+  // 통로: 입구와 도크가 지나는 y(보통 0)를 기준으로 가로선을 하나 그린다.
+  const aisleY = entrance ? entrance.y : docks[0] && docks[0].y;
+  if (aisleY != null) {
+    const xs = allPoints.map((p) => p.x);
+    const laneY = sy(aisleY);
+    parts.push(`
+      <line
+        class="lot-aisle-line"
+        x1="${sx(Math.min(...xs))}" y1="${laneY}"
+        x2="${sx(Math.max(...xs))}" y2="${laneY}"
+      ></line>
+    `);
+  }
+
+  if (entrance) {
+    const cx = sx(entrance.x);
+    const cy = sy(entrance.y);
+    parts.push(`
+      <text class="lot-entrance-label" x="${cx}" y="${cy - 10}">입구 ▶</text>
+    `);
+  }
+
+  for (const dock of docks) {
+    const cx = sx(dock.x);
+    const cy = sy(dock.y);
+    const half = LOT_DOCK_SIZE / 2;
+    parts.push(`
+      <rect
+        class="lot-dock-rect ${dock.role}"
+        x="${cx - half}" y="${cy - half}"
+        width="${LOT_DOCK_SIZE}" height="${LOT_DOCK_SIZE}"
+        rx="8"
+      ></rect>
+      <text class="lot-dock-label" x="${cx}" y="${cy + 4}">
+        ${dockRoleLabels[dock.role] || dock.role}
+      </text>
+    `);
+  }
 
   for (const slot of placedSlots) {
     const cx = sx(slot.x);
@@ -200,7 +250,9 @@ function renderLotMap(slots, robots) {
         width="${LOT_SLOT_SIZE}" height="${LOT_SLOT_SIZE}"
         rx="8"
       ></rect>
-      <text class="lot-slot-label" x="${cx}" y="${cy - 2}">${slot.id}</text>
+      <text class="lot-slot-label" x="${cx}" y="${cy - 2}">
+        ${slot.id}${slot.is_accessible ? " ♿" : ""}
+      </text>
       <text class="lot-slot-sub" x="${cx}" y="${cy + 14}">
         ${slot.vehicle_number ? slot.vehicle_number : statusLabels[slot.status]}
       </text>
@@ -396,7 +448,7 @@ async function refreshDashboard() {
     renderSummary(data.summary);
     renderRobots(data.robots);
     renderSlots(data.slots);
-    renderLotMap(data.slots, data.robots);
+    renderLotMap(data.slots, data.robots, data.map);
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || []);
     renderSystem(data.system);

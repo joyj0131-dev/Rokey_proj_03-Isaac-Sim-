@@ -22,20 +22,26 @@ from core.models import (
 )
 from core.state_store import StateStore
 
-#: id, status, battery, (x, y) — 실제 map 좌표가 없는 mock 모드용 가상 배치.
+#: 실제 map 좌표가 없는 mock 모드용 가상 배치. 실제 parking_map.yaml과 같은
+#: 규칙(입구 → 대기/충전 도크 → 통로(y=0) → A행(y<0)/B행(y>0))을 따른다.
+_ENTRANCE = (-14.0, 0.0)
+_DOCK_WAIT = (-8.0, 0.0)
+_DOCK_CHARGE = (10.0, 0.0)
+
+#: id, status, battery, (x, y) — 로봇은 각자의 도크 위치에서 시작.
 _DEFAULT_ROBOTS = [
-    ("robot_01", "IDLE", 92, (-4.0, 0.0)),
-    ("robot_02", "CHARGING", 64, (12.0, 0.0)),
+    ("robot_01", "IDLE", 92, _DOCK_WAIT),
+    ("robot_02", "CHARGING", 64, _DOCK_CHARGE),
 ]
 
-#: id, status, vehicle, (x, y)
+#: id, status, vehicle, (x, y), is_accessible
 _DEFAULT_SLOTS = [
-    ("A-01", "OCCUPIED", "12가3456", (0.0, 6.0)),
-    ("A-02", "EMPTY", None, (4.0, 6.0)),
-    ("A-03", "EMPTY", None, (8.0, 6.0)),
-    ("B-01", "OCCUPIED", "34나7890", (0.0, -6.0)),
-    ("B-02", "EMPTY", None, (4.0, -6.0)),
-    ("B-03", "EMPTY", None, (8.0, -6.0)),
+    ("A-01", "OCCUPIED", "12가3456", (-2.0, -6.0), True),
+    ("A-02", "EMPTY", None, (2.0, -6.0), True),
+    ("A-03", "EMPTY", None, (6.0, -6.0), False),
+    ("B-01", "OCCUPIED", "34나7890", (-2.0, 6.0), False),
+    ("B-02", "EMPTY", None, (2.0, 6.0), False),
+    ("B-03", "EMPTY", None, (6.0, 6.0), False),
 ]
 
 
@@ -64,13 +70,27 @@ class MockDataSource(DataSource):
             self.store.parking_slots.clear()
             self.store.parking_slots.extend(
                 ParkingSlot(
-                    id=slot_id, status=status, vehicle_number=vehicle, x=x, y=y
+                    id=slot_id,
+                    status=status,
+                    vehicle_number=vehicle,
+                    x=x,
+                    y=y,
+                    is_accessible=accessible,
                 )
-                for slot_id, status, vehicle, (x, y) in _DEFAULT_SLOTS
+                for slot_id, status, vehicle, (x, y), accessible in _DEFAULT_SLOTS
             )
 
             self.store.requests.clear()
             self.store.alerts.clear()
+
+    def get_map_info(self) -> dict:
+        return {
+            "docks": [
+                {"role": "waiting", "x": _DOCK_WAIT[0], "y": _DOCK_WAIT[1]},
+                {"role": "charging", "x": _DOCK_CHARGE[0], "y": _DOCK_CHARGE[1]},
+            ],
+            "entrance": {"x": _ENTRANCE[0], "y": _ENTRANCE[1]},
+        }
 
     def reset(self) -> None:
         self._load_defaults(clear_counters=True)

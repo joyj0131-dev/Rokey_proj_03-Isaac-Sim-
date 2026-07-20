@@ -121,6 +121,7 @@ def get_dashboard():
         "slots": slots,
         "requests": list(reversed(requests)),
         "alerts": list(reversed(alerts)),
+        "map": datasource.get_map_info(),
         "summary": {
             "empty_slots": sum(slot.status == "EMPTY" for slot in slots),
             "occupied_slots": sum(slot.status == "OCCUPIED" for slot in slots),

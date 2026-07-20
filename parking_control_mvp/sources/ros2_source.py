@@ -28,6 +28,9 @@ from rclpy.node import Node
 from parking_robot_interfaces.msg import ObstacleAlert, TaskState
 from parking_robot_interfaces.srv import RequestParkingTask
 
+from parking_control.core.graph import ParkingMap
+from parking_control.parking_slot_manager_node import _default_map_yaml
+
 import config
 from core.datasource import DataSource, DataSourceError
 from core.models import (
@@ -79,6 +82,24 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _extract_map_info(parking_map: ParkingMap) -> dict:
+    """parking_map.yaml에서 실시간 도면용 고정 배치(도크/입구)만 뽑아낸다."""
+    docks = [
+        {
+            "role": parking_map.graph.nodes[node_id].get("role"),
+            "x": parking_map.graph.nodes[node_id]["x"],
+            "y": parking_map.graph.nodes[node_id]["y"],
+        }
+        for node_id in parking_map.nodes_of_kind("dock")
+    ]
+    entrance_nodes = parking_map.nodes_of_kind("entrance")
+    entrance = None
+    if entrance_nodes:
+        node = parking_map.graph.nodes[entrance_nodes[0]]
+        entrance = {"x": node["x"], "y": node["y"]}
+    return {"docks": docks, "entrance": entrance}
+
+
 class _ParkingDbReader:
     """dispatcher가 쓰는 MySQL을 읽기 전용으로 조회한다. 쓰기는 하지 않는다."""
 
@@ -108,7 +129,9 @@ class _ParkingDbReader:
         )
 
     def fetch_slots(self) -> list[dict]:
-        return self._query("SELECT slot_id, status, x, y FROM parking_slots")
+        return self._query(
+            "SELECT slot_id, status, x, y, is_accessible FROM parking_slots"
+        )
 
     def fetch_tasks(self, limit: int = 100) -> list[dict]:
         return self._query(
@@ -140,6 +163,7 @@ class Ros2DataSource(DataSource):
         self._task_id_map: dict[str, int] = {}     # external_task_id -> internal id
         self._lifted_tasks: set[str] = set()        # LIFTING을 관측한 external_task_id
         self._fine_status: dict[str, RequestStatus] = {}  # task_state 토픽 기반 세부 상태
+        self._map_info: dict = {"docks": [], "entrance": None}
 
     # ------------------------------------------------------------------
     # 기동/종료
@@ -170,6 +194,14 @@ class Ros2DataSource(DataSource):
         self._stop_event.clear()
         self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._poll_thread.start()
+
+        try:
+            parking_map = ParkingMap.load(_default_map_yaml())
+            self._map_info = _extract_map_info(parking_map)
+        except Exception as exc:  # 지도 파일이 없어도 나머지 기능은 계속 동작
+            self._node.get_logger().warn(
+                f"parking_map.yaml 로드 실패, 도면에 도크/입구 생략: {exc}"
+            )
 
         self._node.get_logger().info(
             f"parking_control_web_bridge 시작 (dispatch={config.DISPATCH_SERVICE_NAME})"
@@ -267,6 +299,7 @@ class Ros2DataSource(DataSource):
                     vehicle_number=slot_status_override.get(row["slot_id"], (row["status"], None))[1],
                     x=float(row["x"]) if row["x"] is not None else None,
                     y=float(row["y"]) if row["y"] is not None else None,
+                    is_accessible=bool(row["is_accessible"]),
                 )
                 for row in slot_rows
             )
@@ -292,6 +325,9 @@ class Ros2DataSource(DataSource):
                 )
                 for row in robot_rows
             )
+
+    def get_map_info(self) -> dict:
+        return self._map_info
 
     # ------------------------------------------------------------------
     # 토픽 콜백 (rclpy 스핀 스레드에서 호출됨)

@@ -786,6 +786,40 @@ select:focus {
   text-anchor: middle;
 }
 
+.lot-aisle-line {
+  stroke: var(--border-strong);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+
+.lot-entrance-label {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--muted);
+  text-anchor: end;
+}
+
+.lot-dock-rect {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.lot-dock-rect.waiting {
+  stroke: var(--warning);
+}
+
+.lot-dock-rect.charging {
+  stroke: var(--primary);
+}
+
+.lot-dock-label {
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--text-soft);
+  text-anchor: middle;
+}
+
 .slot-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(125px, 1fr));

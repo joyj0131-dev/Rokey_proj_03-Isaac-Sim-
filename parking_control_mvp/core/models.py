@@ -78,6 +78,7 @@ class ParkingSlot(BaseModel):
     vehicle_number: str | None = None
     x: float | None = None
     y: float | None = None
+    is_accessible: bool = False
 
 
 class AlertLevel(str, Enum):
