@@ -43,7 +43,6 @@ let recentWorkflowEvents = [];
 const lastRequestStates = new Map();
 const robotSpeechBubbles = new Map();
 const seenSpeechAlertIds = new Set();
-let activeObstacleAlertId = null;
 
 function shortRobotName(robotId) {
   const match = String(robotId).match(/(\d+)$/);
@@ -877,13 +876,6 @@ function renderRequests(requests, system) {
 function renderAlerts(alerts) {
   const panel = document.getElementById("alertPanel");
   const list = document.getElementById("alertList");
-  const activeObstacle = alerts.find((alert) => alert.category === "OBSTACLE");
-  const obstacleButton = document.getElementById("obstacleButton");
-  activeObstacleAlertId = activeObstacle?.id ?? null;
-  obstacleButton.textContent = activeObstacle
-    ? "장애물 제거 · 재개"
-    : "장애물 감지 · 정지";
-  obstacleButton.classList.toggle("resume", Boolean(activeObstacle));
 
   if (!alerts.length) {
     panel.classList.add("hidden");
@@ -942,13 +934,10 @@ function renderSystem(system) {
   }
 
   document
-    .getElementById("mockControls")
+    .getElementById("resetButton")
     .classList.toggle("hidden", !system.mock_controls);
   document
     .getElementById("mockVehicleGuide")
-    .classList.toggle("hidden", !system.mock_controls);
-  document
-    .getElementById("obstacleButton")
     .classList.toggle("hidden", !system.mock_controls);
 }
 
@@ -1118,6 +1107,49 @@ document
     }
   });
 
+function downloadDashboardBackup() {
+  const button = document.getElementById("backupButton");
+
+  if (!latestDashboard) {
+    const originalText = button.textContent;
+    button.textContent = "데이터 준비 중";
+    window.setTimeout(() => {
+      button.textContent = originalText;
+    }, 1600);
+    return;
+  }
+
+  const exportedAt = new Date();
+  const backup = {
+    backup_version: 1,
+    exported_at: exportedAt.toISOString(),
+    dashboard: latestDashboard,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const timestamp = exportedAt.toISOString().replace(/[:.]/g, "-");
+
+  link.href = url;
+  link.download = `parking-control-backup-${timestamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+
+  const originalText = button.textContent;
+  button.textContent = "백업 완료";
+  window.setTimeout(() => {
+    button.textContent = originalText;
+  }, 1600);
+}
+
+document
+  .getElementById("backupButton")
+  .addEventListener("click", downloadDashboardBackup);
+
 document.querySelectorAll("[data-vehicle-number]").forEach((button) => {
   button.addEventListener("click", () => {
     document.getElementById("requestType").value = "PARK_OUT";
@@ -1138,32 +1170,6 @@ async function resolveAlert(alertId) {
     showMessage(error.message, true);
   }
 }
-
-document
-  .getElementById("obstacleButton")
-  .addEventListener("click", async () => {
-    try {
-      if (activeObstacleAlertId != null) {
-        await apiRequest(`/alerts/${activeObstacleAlertId}/resolve`, { method: "POST" });
-      } else {
-        await apiRequest("/mock/obstacle", { method: "POST" });
-      }
-      await refreshDashboard();
-    } catch (error) {
-      showMessage(error.message, true);
-    }
-  });
-
-document
-  .getElementById("errorButton")
-  .addEventListener("click", async () => {
-    try {
-      await apiRequest("/mock/robot-error", { method: "POST" });
-      await refreshDashboard();
-    } catch (error) {
-      showMessage(error.message, true);
-    }
-  });
 
 document
   .getElementById("lidarVisibilityButton")

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=20260721-2" />
 </head>
 <body>
   <div class="app-shell">
@@ -94,13 +94,6 @@
               </div>
 
               <div class="map-header-status">
-                <button
-                  id="obstacleButton"
-                  type="button"
-                  class="map-toggle-button obstacle-test-button"
-                >
-                  장애물 감지 · 정지
-                </button>
                 <button
                   id="lidarVisibilityButton"
                   type="button"
@@ -199,17 +192,19 @@
                 </p>
               </div>
 
-              <details id="mockControls" class="mock-tools">
-                <summary>테스트 도구</summary>
-                <div class="panel-actions mock-tools-actions">
-                  <button id="errorButton" class="secondary-button danger">
-                    로봇 오류
-                  </button>
-                  <button id="resetButton" class="secondary-button">
-                    Mock 초기화
-                  </button>
-                </div>
-              </details>
+              <div class="task-header-actions">
+                <button id="resetButton" type="button" class="secondary-button">
+                  Mock 초기화
+                </button>
+                <button
+                  id="backupButton"
+                  type="button"
+                  class="secondary-button backup-button"
+                  title="현재 관제 상태를 JSON 파일로 저장합니다."
+                >
+                  상태 백업
+                </button>
+              </div>
             </div>
             <div id="requestTable"></div>
           </section>
@@ -225,6 +220,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260721-2"></script>
 </body>
 </html>
