@@ -70,6 +70,11 @@ class FormationGapControllerNode(Node):
         self.declare_parameter("k_angular", 2.0)
         self.declare_parameter("max_linear", 0.5)
         self.declare_parameter("max_angular", 1.0)
+        # 메카넘 로봇: 목표를 향해 회전하지 않고 횡이동으로 붙는다(제자리 회전이
+        # 이 에셋에서 비결정적이라 diff-drive 추종은 발레가 됨 — 2026-07-21 실측).
+        self.declare_parameter("holonomic", True)
+        self.declare_parameter("k_yaw_hold", 0.5)
+        self.declare_parameter("max_yaw_hold", 0.15)
 
         p = self.get_parameter
         self._robot_id = p("robot_id").value
@@ -79,7 +84,10 @@ class FormationGapControllerNode(Node):
             k_linear=float(p("k_linear").value),
             k_angular=float(p("k_angular").value),
             max_linear=float(p("max_linear").value),
-            max_angular=float(p("max_angular").value))
+            max_angular=float(p("max_angular").value),
+            holonomic=bool(p("holonomic").value),
+            k_yaw_hold=float(p("k_yaw_hold").value),
+            max_yaw_hold=float(p("max_yaw_hold").value))
 
         # 아래는 formation_assignment로 배정이 올 때까지는 전부 빈 상태(idle).
         self._active = False
@@ -196,6 +204,7 @@ class FormationGapControllerNode(Node):
             cmd = self._controller.compute(self._own_pose, self._partner_pose)
             twist = Twist()
             twist.linear.x = cmd.linear_x
+            twist.linear.y = cmd.linear_y   # 홀로노믹 횡속도 (diff-drive 모드면 0)
             twist.angular.z = cmd.angular_z
             self._cmd_pub.publish(twist)
         # role == "leader": 이 노드는 정지 게이트만 담당, 주행 명령은

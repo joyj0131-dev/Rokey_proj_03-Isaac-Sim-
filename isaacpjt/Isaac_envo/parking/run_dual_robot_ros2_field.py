@@ -295,6 +295,9 @@ def main() -> None:
                 message.child_frame_id = f"{robot_id}/base_link"
                 message.pose.pose.position.x = ros_x
                 message.pose.pose.position.y = ros_y
+                # 세로 높이(USD Y-up)를 z 자리에 실어 점프/튐을 관측 가능하게 한다.
+                # 평면 odom에서 z는 원래 안 쓰던 자리라 소비자에게 무해하다.
+                message.pose.pose.position.z = float(position[1])
                 message.pose.pose.orientation.z = math.sin(ros_yaw * 0.5)
                 message.pose.pose.orientation.w = math.cos(ros_yaw * 0.5)
                 odom_publishers[robot_id].publish(message)
