@@ -44,3 +44,4 @@ venv/
 skills-lock.json
 DEBUG_LOG.md
 HANDOFF.md
+*.zip

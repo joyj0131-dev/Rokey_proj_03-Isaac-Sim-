@@ -1,0 +1,498 @@
+{
+  "stage": "/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/parking/parking_environment_marker_preview.usd",
+  "dictionary": "DICT_5X5_100",
+  "camera_height_m": 0.6,
+  "resolution": [
+    640,
+    480
+  ],
+  "checked": 44,
+  "passed": 44,
+  "all_passed": true,
+  "results": [
+    {
+      "id": 0,
+      "label": "A1",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        0
+      ],
+      "gray_min": 6,
+      "gray_max": 236
+    },
+    {
+      "id": 1,
+      "label": "A2",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        1
+      ],
+      "gray_min": 10,
+      "gray_max": 235
+    },
+    {
+      "id": 2,
+      "label": "A3",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        2
+      ],
+      "gray_min": 9,
+      "gray_max": 232
+    },
+    {
+      "id": 3,
+      "label": "A4",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        3
+      ],
+      "gray_min": 13,
+      "gray_max": 240
+    },
+    {
+      "id": 4,
+      "label": "A5",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        4
+      ],
+      "gray_min": 12,
+      "gray_max": 240
+    },
+    {
+      "id": 5,
+      "label": "A6",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        5
+      ],
+      "gray_min": 12,
+      "gray_max": 235
+    },
+    {
+      "id": 6,
+      "label": "A7",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        6
+      ],
+      "gray_min": 8,
+      "gray_max": 237
+    },
+    {
+      "id": 7,
+      "label": "A8",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        7
+      ],
+      "gray_min": 11,
+      "gray_max": 237
+    },
+    {
+      "id": 8,
+      "label": "B1",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        8
+      ],
+      "gray_min": 9,
+      "gray_max": 237
+    },
+    {
+      "id": 9,
+      "label": "B2",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        9
+      ],
+      "gray_min": 10,
+      "gray_max": 236
+    },
+    {
+      "id": 10,
+      "label": "B3",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        10
+      ],
+      "gray_min": 11,
+      "gray_max": 233
+    },
+    {
+      "id": 11,
+      "label": "B4",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        11
+      ],
+      "gray_min": 12,
+      "gray_max": 239
+    },
+    {
+      "id": 12,
+      "label": "B5",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        12
+      ],
+      "gray_min": 12,
+      "gray_max": 238
+    },
+    {
+      "id": 13,
+      "label": "B6",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        13
+      ],
+      "gray_min": 12,
+      "gray_max": 234
+    },
+    {
+      "id": 14,
+      "label": "B7",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        14
+      ],
+      "gray_min": 11,
+      "gray_max": 237
+    },
+    {
+      "id": 15,
+      "label": "B8",
+      "kind": "slot",
+      "ok": true,
+      "detected": [
+        15
+      ],
+      "gray_min": 10,
+      "gray_max": 236
+    },
+    {
+      "id": 20,
+      "label": "A·W",
+      "kind": "dock",
+      "ok": true,
+      "detected": [
+        20
+      ],
+      "gray_min": 5,
+      "gray_max": 219
+    },
+    {
+      "id": 21,
+      "label": "A·E",
+      "kind": "dock",
+      "ok": true,
+      "detected": [
+        21
+      ],
+      "gray_min": 6,
+      "gray_max": 220
+    },
+    {
+      "id": 22,
+      "label": "B·W",
+      "kind": "dock",
+      "ok": true,
+      "detected": [
+        22
+      ],
+      "gray_min": 5,
+      "gray_max": 218
+    },
+    {
+      "id": 23,
+      "label": "B·E",
+      "kind": "dock",
+      "ok": true,
+      "detected": [
+        23
+      ],
+      "gray_min": 5,
+      "gray_max": 219
+    },
+    {
+      "id": 30,
+      "label": "W",
+      "kind": "crossing",
+      "ok": true,
+      "detected": [
+        30
+      ],
+      "gray_min": 5,
+      "gray_max": 215
+    },
+    {
+      "id": 31,
+      "label": "2",
+      "kind": "crossing",
+      "ok": true,
+      "detected": [
+        31
+      ],
+      "gray_min": 9,
+      "gray_max": 236
+    },
+    {
+      "id": 32,
+      "label": "7",
+      "kind": "crossing",
+      "ok": true,
+      "detected": [
+        32
+      ],
+      "gray_min": 12,
+      "gray_max": 238
+    },
+    {
+      "id": 33,
+      "label": "E",
+      "kind": "crossing",
+      "ok": true,
+      "detected": [
+        33
+      ],
+      "gray_min": 6,
+      "gray_max": 218
+    },
+    {
+      "id": 40,
+      "label": "GW",
+      "kind": "gateway",
+      "ok": true,
+      "detected": [
+        40
+      ],
+      "gray_min": 2,
+      "gray_max": 188
+    },
+    {
+      "id": 41,
+      "label": "GW'",
+      "kind": "gateway",
+      "ok": true,
+      "detected": [
+        41
+      ],
+      "gray_min": 3,
+      "gray_max": 185
+    },
+    {
+      "id": 50,
+      "label": "H1_SUV",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        50
+      ],
+      "gray_min": 2,
+      "gray_max": 177
+    },
+    {
+      "id": 51,
+      "label": "H2_Wagon",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        51
+      ],
+      "gray_min": 2,
+      "gray_max": 178
+    },
+    {
+      "id": 52,
+      "label": "H3_Sport",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        52
+      ],
+      "gray_min": 0,
+      "gray_max": 61
+    },
+    {
+      "id": 53,
+      "label": "H4_Offroad",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        53
+      ],
+      "gray_min": 0,
+      "gray_max": 71
+    },
+    {
+      "id": 54,
+      "label": "H5_Hatchback",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        54
+      ],
+      "gray_min": 0,
+      "gray_max": 60
+    },
+    {
+      "id": 55,
+      "label": "H6_Minivan",
+      "kind": "handoff_bay",
+      "ok": true,
+      "detected": [
+        55
+      ],
+      "gray_min": 0,
+      "gray_max": 59
+    },
+    {
+      "id": 60,
+      "label": "HL0",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        60
+      ],
+      "gray_min": 0,
+      "gray_max": 101
+    },
+    {
+      "id": 61,
+      "label": "HL1",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        61
+      ],
+      "gray_min": 0,
+      "gray_max": 78
+    },
+    {
+      "id": 62,
+      "label": "HL2",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        62
+      ],
+      "gray_min": 0,
+      "gray_max": 70
+    },
+    {
+      "id": 63,
+      "label": "HL3",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        63
+      ],
+      "gray_min": 0,
+      "gray_max": 77
+    },
+    {
+      "id": 64,
+      "label": "HL4",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        64
+      ],
+      "gray_min": 0,
+      "gray_max": 73
+    },
+    {
+      "id": 65,
+      "label": "HL5",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        65
+      ],
+      "gray_min": 0,
+      "gray_max": 70
+    },
+    {
+      "id": 66,
+      "label": "HL0'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        66
+      ],
+      "gray_min": 1,
+      "gray_max": 99
+    },
+    {
+      "id": 67,
+      "label": "HL1'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        67
+      ],
+      "gray_min": 0,
+      "gray_max": 80
+    },
+    {
+      "id": 68,
+      "label": "HL2'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        68
+      ],
+      "gray_min": 0,
+      "gray_max": 83
+    },
+    {
+      "id": 69,
+      "label": "HL3'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        69
+      ],
+      "gray_min": 0,
+      "gray_max": 73
+    },
+    {
+      "id": 70,
+      "label": "HL4'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        70
+      ],
+      "gray_min": 0,
+      "gray_max": 67
+    },
+    {
+      "id": 71,
+      "label": "HL5'",
+      "kind": "handoff_lane",
+      "ok": true,
+      "detected": [
+        71
+      ],
+      "gray_min": 0,
+      "gray_max": 66
+    }
+  ]
+}
