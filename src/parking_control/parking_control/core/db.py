@@ -9,6 +9,13 @@ import mysql.connector
 DUPLICATE_KEY_ERRNO = 1062  # zone lock 획득 실패 판정에 사용
 
 
+def _zone_owner(robot_id, task_id):
+    """zone_locks 소유자 검증. robot_id/task_id 중 정확히 하나만 허용."""
+    if (robot_id is None) == (task_id is None):
+        raise ValueError("robot_id와 task_id 중 정확히 하나만 지정해야 합니다")
+    return robot_id, task_id
+
+
 class ParkingDB:
 
     def __init__(self, host="localhost", user="parking",
@@ -115,9 +122,11 @@ class ParkingDB:
             " VALUES (%s, %s, %s)",
             (task_id, request_type, vehicle_id))
 
-    def update_task(self, task_id, state=None, robot_id=None, slot_id=None):
+    def update_task(self, task_id, state=None, robot_id=None,
+                    follower_robot_id=None, slot_id=None):
         sets, params = [], []
         for column, value in (("state", state), ("robot_id", robot_id),
+                              ("follower_robot_id", follower_robot_id),
                               ("slot_id", slot_id)):
             if value is not None:
                 sets.append(f"{column} = %s")
@@ -133,28 +142,37 @@ class ParkingDB:
 
     # ---- zone_locks ----
 
-    def try_acquire_zone(self, zone_id, robot_id) -> bool:
-        """INSERT 성공 = 락 획득. PK 중복(1062) = 다른 로봇이 보유 중."""
+    def try_acquire_zone(self, zone_id, robot_id=None, task_id=None) -> bool:
+        """INSERT 성공 = 락 획득. PK 중복(1062) = 다른 소유자가 보유 중.
+
+        robot_id(로봇 개인) / task_id(로봇 2대 팀) 중 정확히 하나만 준다.
+        """
+        owner_robot, owner_task = _zone_owner(robot_id, task_id)
         try:
             self._query(
-                "INSERT INTO zone_locks (zone_id, robot_id) VALUES (%s, %s)",
-                (zone_id, robot_id))
+                "INSERT INTO zone_locks (zone_id, robot_id, task_id)"
+                " VALUES (%s, %s, %s)",
+                (zone_id, owner_robot, owner_task))
             return True
         except mysql.connector.Error as err:
             if err.errno == DUPLICATE_KEY_ERRNO:
                 return False
             raise
 
-    def release_zones(self, robot_id, zone_ids=None):
-        """zone_ids가 None이면 해당 로봇의 보유 락 전체 해제."""
+    def release_zones(self, robot_id=None, task_id=None, zone_ids=None):
+        """zone_ids가 None이면 해당 소유자의 보유 락 전체 해제."""
+        owner_robot, owner_task = _zone_owner(robot_id, task_id)
+        owner_column = "robot_id" if owner_robot is not None else "task_id"
+        owner_value = owner_robot if owner_robot is not None else owner_task
         if zone_ids is None:
-            self._query("DELETE FROM zone_locks WHERE robot_id = %s", (robot_id,))
+            self._query(
+                f"DELETE FROM zone_locks WHERE {owner_column} = %s", (owner_value,))
         elif zone_ids:
             placeholders = ", ".join(["%s"] * len(zone_ids))
             self._query(
-                f"DELETE FROM zone_locks WHERE robot_id = %s"
+                f"DELETE FROM zone_locks WHERE {owner_column} = %s"
                 f" AND zone_id IN ({placeholders})",
-                (robot_id, *zone_ids))
+                (owner_value, *zone_ids))
 
     def reap_expired_locks(self, timeout_sec) -> int:
         """죽은 로봇의 만료 락 회수. 회수한 개수를 반환."""

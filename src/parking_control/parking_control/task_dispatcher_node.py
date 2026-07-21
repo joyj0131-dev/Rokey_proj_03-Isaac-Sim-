@@ -7,6 +7,8 @@
   - acquire_zones / release_zones (AcquireZones/ReleaseZones): 존 락.
     zone_lock_mode 파라미터가 'stub'이면 무조건 승인(로봇 1대 MVP),
     'db'이면 zone_locks 테이블 INSERT 성패로 판정 (다중로봇 단계).
+    요청자는 robot_id(로봇 개인, 통로 구간용) 또는 task_id(로봇 2대 팀,
+    슬롯처럼 함께 점유해야 하는 zone용) 중 정확히 하나를 채운다.
 
 로봇 선택은 Allocator 전략(allocator 파라미터: nearest | hungarian)에 위임한다.
 """
@@ -151,6 +153,8 @@ class TaskDispatcherNode(Node):
         goal.slot_pose.position.x = float(x)
         goal.slot_pose.position.y = float(y)
         goal.slot_pose.orientation.w = 1.0
+        goal.leader_robot_id = robot_id
+        # follower_robot_id: 로봇 2대 편성(Stage C)까지는 빈 문자열로 둔다.
         self.get_logger().info(
             f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송")
         send_future = self._execute_client.send_goal_async(goal)
@@ -180,17 +184,29 @@ class TaskDispatcherNode(Node):
 
     # ---- 존 락 ----
 
+    def _owner(self, request):
+        """robot_id(로봇 개인)/task_id(로봇 2대 팀) 중 정확히 하나를 뽑는다.
+        both/neither면 (None, None)을 반환해 호출부가 거부하게 한다."""
+        owner_robot = request.robot_id or None
+        owner_task = request.task_id or None
+        if (owner_robot is None) == (owner_task is None):
+            return None, None
+        return owner_robot, owner_task
+
     def _handle_acquire(self, request, response):
         mode = self.get_parameter("zone_lock_mode").value
         zone_ids = list(request.zone_ids)
-        if zone_ids != sorted(zone_ids):
-            # 데드락 방지 규칙: 오름차순 획득만 허용
+        owner_robot, owner_task = self._owner(request)
+        owner_key = owner_robot or owner_task
+        if owner_key is None or zone_ids != sorted(zone_ids):
+            # robot_id/task_id 둘 다(또는 둘 다 아님) 왔거나, 오름차순이 아님
+            # (오름차순 규칙은 데드락 방지용)
             response.granted = False
             response.retry_after_sec = 0.0
             return response
 
         if mode == "stub":
-            held = self._stub_held.setdefault(request.robot_id, set())
+            held = self._stub_held.setdefault(owner_key, set())
             held.update(zone_ids)
             response.granted = True
             response.held_zones = sorted(held)
@@ -198,11 +214,13 @@ class TaskDispatcherNode(Node):
 
         acquired = []
         for zone_id in zone_ids:
-            if self._db.try_acquire_zone(zone_id, request.robot_id):
+            if self._db.try_acquire_zone(
+                    zone_id, robot_id=owner_robot, task_id=owner_task):
                 acquired.append(zone_id)
             else:
                 # 전부 못 잡으면 잡은 것도 되돌린다 (부분 보유 대기 = 데드락 씨앗)
-                self._db.release_zones(request.robot_id, acquired)
+                self._db.release_zones(
+                    robot_id=owner_robot, task_id=owner_task, zone_ids=acquired)
                 response.granted = False
                 response.retry_after_sec = float(
                     self.get_parameter("zone_retry_sec").value)
@@ -214,11 +232,18 @@ class TaskDispatcherNode(Node):
     def _handle_release(self, request, response):
         mode = self.get_parameter("zone_lock_mode").value
         zone_ids = list(request.zone_ids)
+        owner_robot, owner_task = self._owner(request)
+        owner_key = owner_robot or owner_task
+        if owner_key is None:
+            response.success = False
+            return response
+
         if mode == "stub":
-            held = self._stub_held.setdefault(request.robot_id, set())
+            held = self._stub_held.setdefault(owner_key, set())
             held.difference_update(zone_ids or set(held))
         else:
-            self._db.release_zones(request.robot_id, zone_ids or None)
+            self._db.release_zones(
+                robot_id=owner_robot, task_id=owner_task, zone_ids=zone_ids or None)
         response.success = True
         return response
 
