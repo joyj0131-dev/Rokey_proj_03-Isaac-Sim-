@@ -23,7 +23,7 @@ from isaac_runtime import restart_with_isaac_python
 
 ROOT = Path(__file__).resolve().parent
 ISAAC_ENVO = ROOT.parent
-FIELD_USD = ROOT / "parking_robot_field_dual.usd"
+FIELD_USD = ROOT / "parking_robot_field_dual_markers.usd"
 BRIDGE_RCLPY = Path(
     "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
     "/exts/isaacsim.ros2.bridge/humble/rclpy"
@@ -43,7 +43,8 @@ def _arg_value(name: str, default=None):
 
 
 RUN_SECONDS = float(_arg_value("--seconds", "0")) or None
-KEEP_HANDOFF_VEHICLES = "--keep-handoff-vehicles" in sys.argv[1:]
+# 새 인계장의 대기 차량 2대는 E2E 미션의 대상이므로 기본 유지.
+KEEP_HANDOFF_VEHICLES = "--hide-handoff-vehicles" not in sys.argv[1:]
 
 
 def _isaac_pose_to_ros(position, orientation_wxyz):
