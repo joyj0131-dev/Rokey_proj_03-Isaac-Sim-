@@ -58,6 +58,51 @@ def _isaac_pose_to_ros(position, orientation_wxyz):
     return x_world, -z_world, yaw
 
 
+CAM_RES = (640, 480)
+
+
+def _add_front_camera_bridge(robot_id: str) -> None:
+    """robot_N 전방 카메라를 C++ OmniGraph로 ROS 토픽에 발행한다.
+
+    aruco_sim_bringup.py 검증 패턴 그대로: CameraHelper(rgb) + CameraInfoHelper
+    (camera_info 는 CameraHelper 의 type 이 아니라 별도 노드 — 기존 함정).
+    """
+    import omni.graph.core as og
+    import omni.replicator.core as rep
+    import omni.usd
+
+    cam_prim = (f"/World/Robots/{robot_id}/cam_front_link/depth_cam_front"
+                "/Camera_Pseudo_Depth_Front")
+    stage = omni.usd.get_context().get_stage()
+    if not stage.GetPrimAtPath(cam_prim):
+        raise RuntimeError(f"전방 카메라 프림이 없습니다: {cam_prim}")
+    rp = rep.create.render_product(cam_prim, CAM_RES)
+    graph_path = f"/World/CamGraph_{robot_id}"
+    og.Controller.edit(
+        {"graph_path": graph_path, "evaluator_name": "execution"},
+        {
+            og.Controller.Keys.CREATE_NODES: [
+                ("OnTick", "omni.graph.action.OnPlaybackTick"),
+                ("CamRgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+                ("CamInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
+            ],
+            og.Controller.Keys.SET_VALUES: [
+                ("CamRgb.inputs:renderProductPath", rp.path),
+                ("CamRgb.inputs:topicName", f"/{robot_id}/front_cam/image_raw"),
+                ("CamRgb.inputs:type", "rgb"),
+                ("CamRgb.inputs:frameId", f"{robot_id}/front_cam"),
+                ("CamInfo.inputs:renderProductPath", rp.path),
+                ("CamInfo.inputs:topicName", f"/{robot_id}/front_cam/camera_info"),
+                ("CamInfo.inputs:frameId", f"{robot_id}/front_cam"),
+            ],
+            og.Controller.Keys.CONNECT: [
+                ("OnTick.outputs:tick", "CamRgb.inputs:execIn"),
+                ("OnTick.outputs:tick", "CamInfo.inputs:execIn"),
+            ],
+        },
+    )
+
+
 def _add_virtual_target(stage):
     from pxr import Gf, UsdGeom
 
@@ -86,6 +131,7 @@ def main() -> None:
         sys.path.insert(0, str(ISAAC_ENVO))
         from mecanum_drive import (
             WHEEL_JOINTS,
+            cmd_vel_from_wheel_velocities,
             configure_hub_drives,
             wheel_velocities_from_cmd_vel,
         )
@@ -117,6 +163,7 @@ def main() -> None:
                 raise RuntimeError("HandoffQueue를 찾지 못했습니다.")
             handoff.SetActive(False)
         _add_virtual_target(stage)
+        _add_front_camera_bridge("robot_1")
 
         for robot_id in ROBOT_IDS:
             configure_hub_drives(
@@ -187,7 +234,10 @@ def main() -> None:
 
             return callback
 
+        from geometry_msgs.msg import TwistStamped
+
         odom_publishers = {}
+        wheel_twist_publishers = {}
         subscriptions = []
         for robot_id in ROBOT_IDS:
             subscriptions.append(
@@ -200,6 +250,9 @@ def main() -> None:
             )
             odom_publishers[robot_id] = node.create_publisher(
                 Odometry, f"/{robot_id}/odom", 10
+            )
+            wheel_twist_publishers[robot_id] = node.create_publisher(
+                TwistStamped, f"/{robot_id}/wheel_twist", 10
             )
 
         print(
@@ -241,6 +294,20 @@ def main() -> None:
                 message.pose.pose.orientation.z = math.sin(ros_yaw * 0.5)
                 message.pose.pose.orientation.w = math.cos(ros_yaw * 0.5)
                 odom_publishers[robot_id].publish(message)
+
+                # 휠 FK twist (로봇 로컬) — 데드레커닝용. GT와 무관한 진짜 측정치.
+                joint_vel = robot["articulation"].get_joint_velocities()
+                row = joint_vel[0] if joint_vel.ndim == 2 else joint_vel
+                omegas = {w: float(row[robot["wheel_indices"][w]])
+                          for w in robot["wheel_indices"]}
+                fk_vx, fk_vy, fk_wz = cmd_vel_from_wheel_velocities(omegas)
+                tw = TwistStamped()
+                tw.header.stamp = message.header.stamp
+                tw.header.frame_id = f"{robot_id}/base_link"
+                tw.twist.linear.x = fk_vx
+                tw.twist.linear.y = fk_vy
+                tw.twist.angular.z = -fk_wz   # odom과 같은 REP-103 부호로
+                wheel_twist_publishers[robot_id].publish(tw)
 
                 if now - last_log >= 1.0:
                     vx, vy, wz = robot["last_command"]

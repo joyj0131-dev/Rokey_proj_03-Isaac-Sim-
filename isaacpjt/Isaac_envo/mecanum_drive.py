@@ -73,6 +73,23 @@ def wheel_velocities_from_cmd_vel(vx, vy, wz):
     }
 
 
+def cmd_vel_from_wheel_velocities(omegas):
+    """IK의 최소자승 역: 휠 각속도 dict -> (vx, vy, wz) 로봇 로컬 twist.
+
+    IK가 선형이므로 4x3 행렬의 pseudo-inverse 로 정확히 복원된다. 계수는
+    IK 함수에서 수치적으로 추출한다(상수 중복 금지 — IK 가 바뀌면 FK 도 따라간다).
+    """
+    import numpy as np
+
+    wheels = list(WHEEL_JOINTS)
+    basis = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    A = np.array([[wheel_velocities_from_cmd_vel(*b)[w] for b in basis]
+                  for w in wheels])                       # (4, 3)
+    vec = np.array([float(omegas[w]) for w in wheels])    # (4,)
+    vx, vy, wz = np.linalg.lstsq(A, vec, rcond=None)[0]
+    return float(vx), float(vy), float(wz)
+
+
 def _quat_from_z_to(direction, Gf):
     """Quaternion (Quatf) rotating local +Z onto the given unit direction."""
     z = Gf.Vec3d(0.0, 0.0, 1.0)
