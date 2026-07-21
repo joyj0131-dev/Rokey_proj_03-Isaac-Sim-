@@ -82,10 +82,7 @@ def _require_mock_controls() -> None:
 # ----------------------------------------------------------------------
 @app.get("/")
 def read_index():
-    return FileResponse(
-        STATIC_DIR / "index.html",
-        headers={"Cache-Control": "no-store"},
-    )
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 # ----------------------------------------------------------------------
