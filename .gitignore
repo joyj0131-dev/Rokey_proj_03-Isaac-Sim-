@@ -44,3 +44,7 @@ venv/
 # LiDAR 데모 산출물 (재생성 가능 — 코드만 커밋)
 src/parking_control/config/sample_lidar_pointcloud.npy
 src/parking_control/scripts/lidar/*.png
+
+skills-lock.json
+DEBUG_LOG.md
+HANDOFF.md
