@@ -24,7 +24,9 @@ from parking_robot_interfaces.action import ExecuteParkingTask
 from parking_robot_interfaces.srv import AcquireZones, FindEmptySlot, \
     ReleaseZones, RequestParkingTask
 
-from parking_control.core.allocator import RobotState, TaskRequest, make_allocator
+from parking_control.core.allocator import (
+    RobotState, TaskRequest, make_allocator, pick_follower,
+)
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
 from parking_control.core.pathfinder import PathFinder
@@ -93,8 +95,10 @@ class TaskDispatcherNode(Node):
 
         robots = [RobotState(r["robot_id"], float(r["x"] or 0), float(r["y"] or 0))
                   for r in self._db.idle_robots()]
-        if not robots:
-            response.message = "가용(IDLE) 로봇 없음"
+        if len(robots) < 2:
+            response.message = (
+                f"가용(IDLE) 로봇 2대 필요 (현재 {len(robots)}대) — "
+                "차량 1대는 로봇 2대(front/rear)가 함께 옮깁니다")
             return response
 
         task_id = str(uuid.uuid4())
@@ -104,27 +108,39 @@ class TaskDispatcherNode(Node):
         if not assignments:
             response.message = "도달 가능한 로봇 없음"
             return response
-        robot_id = assignments[0].robot_id
+        leader_id = assignments[0].robot_id
+        leader = next(r for r in robots if r.robot_id == leader_id)
+        follower = pick_follower(leader, robots)
+        if follower is None:
+            response.message = "팔로워로 배정할 로봇이 없음"
+            return response
+        follower_id = follower.robot_id
 
         self._db.upsert_vehicle(request.vehicle_id)
         self._db.create_task(task_id, request.request_type, request.vehicle_id)
-        self._db.update_task(task_id, robot_id=robot_id)
-        self._db.set_robot_status(robot_id, "BUSY")
+        self._db.update_task(task_id, robot_id=leader_id,
+                             follower_robot_id=follower_id)
+        self._db.set_robot_status(leader_id, "BUSY")
+        self._db.set_robot_status(follower_id, "BUSY")
 
         if exit_slot_id is not None:
             # 슬롯을 이미 알고 있으니(EXIT) find_empty_slot을 건너뛰고 바로 진행.
             self._db.update_task(task_id, slot_id=exit_slot_id, state="PROCESSING")
             x, y = self._map.node_pos(exit_slot_id)
-            self._send_execute_goal(task_id, request, robot_id, exit_slot_id, x, y)
+            self._send_execute_goal(
+                task_id, request, leader_id, follower_id, exit_slot_id, x, y)
         else:
             # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
             future = self._find_slot_client.call_async(FindEmptySlot.Request())
             future.add_done_callback(
-                lambda f: self._on_slot_found(f, task_id, request, robot_id))
+                lambda f: self._on_slot_found(
+                    f, task_id, request, leader_id, follower_id))
 
         response.accepted = True
         response.task_id = task_id
-        response.message = f"{robot_id} 배정 (거리 {assignments[0].cost:.2f}m)"
+        response.message = (
+            f"리더 {leader_id}(거리 {assignments[0].cost:.2f}m) / "
+            f"팔로워 {follower_id} 배정")
         self.get_logger().info(f"작업 접수 {task_id[:8]}: {response.message}")
         return response
 
@@ -133,18 +149,19 @@ class TaskDispatcherNode(Node):
         path = self._pathfinder.find_path(start, task.target_node)
         return None if path is None else path.length
 
-    def _on_slot_found(self, future, task_id, request, robot_id):
+    def _on_slot_found(self, future, task_id, request, leader_id, follower_id):
         result = future.result()
         if result is None or not result.success:
-            self._fail_task(task_id, robot_id, "빈 슬롯 확보 실패")
+            self._fail_task(task_id, leader_id, follower_id, "빈 슬롯 확보 실패")
             return
         self._db.update_task(task_id, slot_id=result.slot_id,
                              state="PROCESSING")
         self._send_execute_goal(
-            task_id, request, robot_id, result.slot_id,
+            task_id, request, leader_id, follower_id, result.slot_id,
             result.slot_pose.position.x, result.slot_pose.position.y)
 
-    def _send_execute_goal(self, task_id, request, robot_id, slot_id, x, y):
+    def _send_execute_goal(self, task_id, request, leader_id, follower_id,
+                           slot_id, x, y):
         goal = ExecuteParkingTask.Goal()
         goal.task_id = task_id
         goal.request_type = request.request_type
@@ -153,33 +170,36 @@ class TaskDispatcherNode(Node):
         goal.slot_pose.position.x = float(x)
         goal.slot_pose.position.y = float(y)
         goal.slot_pose.orientation.w = 1.0
-        goal.leader_robot_id = robot_id
-        # follower_robot_id: 로봇 2대 편성(Stage C)까지는 빈 문자열로 둔다.
+        goal.leader_robot_id = leader_id
+        goal.follower_robot_id = follower_id
         self.get_logger().info(
-            f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송")
+            f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송 "
+            f"(리더 {leader_id}, 팔로워 {follower_id})")
         send_future = self._execute_client.send_goal_async(goal)
         send_future.add_done_callback(
-            lambda f: self._on_goal_response(f, task_id, robot_id))
+            lambda f: self._on_goal_response(f, task_id, leader_id, follower_id))
 
-    def _on_goal_response(self, future, task_id, robot_id):
+    def _on_goal_response(self, future, task_id, leader_id, follower_id):
         goal_handle = future.result()
         if goal_handle is None or not goal_handle.accepted:
-            self._fail_task(task_id, robot_id, "orchestrator가 goal 거부")
+            self._fail_task(task_id, leader_id, follower_id, "orchestrator가 goal 거부")
             return
         goal_handle.get_result_async().add_done_callback(
-            lambda f: self._on_task_result(f, task_id, robot_id))
+            lambda f: self._on_task_result(f, task_id, leader_id, follower_id))
 
-    def _on_task_result(self, future, task_id, robot_id):
+    def _on_task_result(self, future, task_id, leader_id, follower_id):
         result = future.result().result
         state = "DONE" if result.success else "FAILED"
         self._db.update_task(task_id, state=state)
-        self._db.set_robot_status(robot_id, "IDLE")
+        self._db.set_robot_status(leader_id, "IDLE")
+        self._db.set_robot_status(follower_id, "IDLE")
         self.get_logger().info(
             f"작업 {task_id[:8]} 종료: {state} ({result.message})")
 
-    def _fail_task(self, task_id, robot_id, reason):
+    def _fail_task(self, task_id, leader_id, follower_id, reason):
         self._db.update_task(task_id, state="FAILED")
-        self._db.set_robot_status(robot_id, "IDLE")
+        self._db.set_robot_status(leader_id, "IDLE")
+        self._db.set_robot_status(follower_id, "IDLE")
         self.get_logger().warn(f"작업 {task_id[:8]} 실패: {reason}")
 
     # ---- 존 락 ----

@@ -3,7 +3,7 @@
 import math
 
 from parking_control.core.allocator import (
-    NearestAllocator, RobotState, TaskRequest,
+    NearestAllocator, RobotState, TaskRequest, pick_follower,
 )
 
 TARGETS = {"T1": (0.0, 0.0), "T2": (10.0, 0.0)}
@@ -82,3 +82,22 @@ def test_hungarian_skips_unreachable():
     # rB는 어디에도 못 가므로 rA 하나만 배정된다
     assert len(result) == 1
     assert result[0].robot_id == "rA"
+
+
+# ---- pick_follower: 로봇 2대(leader/follower) 팀 편성 ----
+
+def test_pick_follower_picks_closest_excluding_leader():
+    leader = RobotState("r_leader", 0.0, 0.0)
+    candidates = [
+        leader,
+        RobotState("r_far", 8.0, 0.0),
+        RobotState("r_near", 1.0, 0.0),
+    ]
+    follower = pick_follower(leader, candidates)
+    assert follower.robot_id == "r_near"
+
+
+def test_pick_follower_no_candidates_returns_none():
+    leader = RobotState("r_leader", 0.0, 0.0)
+    assert pick_follower(leader, [leader]) is None
+    assert pick_follower(leader, []) is None

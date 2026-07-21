@@ -59,6 +59,25 @@ class NearestAllocator(Allocator):
         return assignments
 
 
+def pick_follower(leader: RobotState, candidates):
+    """리더와 가장 가까운 로봇(직선거리)을 팔로워로 고른다.
+
+    차량 하나를 로봇 2대(front/rear)가 함께 옮기는 구조라, task 하나에
+    반드시 로봇 2대가 필요하다. 리더는 기존 Allocator(nearest/hungarian)로
+    고르고, 팔로워는 그 리더와 가장 가까운 idle 로봇으로 고른다 — 둘이
+    합류 지점까지 이동하는 거리를 최소화하기 위함이다. candidates에 리더가
+    섞여 있어도 자기 자신은 건너뛴다. 후보가 없으면 None.
+    """
+    best = None
+    for robot in candidates:
+        if robot.robot_id == leader.robot_id:
+            continue
+        dist = ((robot.x - leader.x) ** 2 + (robot.y - leader.y) ** 2) ** 0.5
+        if best is None or dist < best[1]:
+            best = (robot, dist)
+    return best[0] if best else None
+
+
 def make_allocator(name: str) -> Allocator:
     """ROS 파라미터 문자열 → 구현 선택."""
     if name == "nearest":
