@@ -30,6 +30,7 @@ setup(
         'console_scripts': [
             'aruco_detector = parkbot_aruco.aruco_detector:main',
             'marker_localizer_node = parkbot_aruco.marker_localizer_node:main',
+            'aruco_navigator = parkbot_aruco.aruco_navigator_node:main',
         ],
     },
 )
