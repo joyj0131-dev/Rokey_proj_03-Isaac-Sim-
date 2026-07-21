@@ -174,11 +174,15 @@ def main() -> None:
         def make_command_callback(robot_id):
             def callback(message):
                 robots[robot_id]["last_command_at"] = time.monotonic()
+                # angular.z 부호 반전: REP-103(+wz=반시계) 실측 정합 (2026-07-21).
+                # mecanum IK의 +wz는 이 씬에서 시계방향 회전을 만든다
+                # (DEBUG_LOG "wz=+0.3 → -51.5도" 실측과 동일). ROS 경계에서만
+                # 뒤집고 공용 mecanum_drive 모듈은 건드리지 않는다.
                 drive(
                     robot_id,
                     message.linear.x,
                     message.linear.y,
-                    message.angular.z,
+                    -message.angular.z,
                 )
 
             return callback
