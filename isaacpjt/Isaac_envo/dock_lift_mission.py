@@ -12,7 +12,7 @@ import sys
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -37,11 +37,15 @@ class DockLiftMission(Node):
         self.plan = DockLiftPlan(g("rear_target_z"), g("front_target_z"),
                                  g("center_x"), carry_distance=1.0)
         self.z = {r: None for r in ROBOTS}
+        self.veh_y = None   # 차량 세로 높이(리프트)
+        self.veh_z = None   # 차량 운반 진행축
         grp = ReentrantCallbackGroup()
         for r in ROBOTS:
             self.create_subscription(Odometry, f"/{r}/odom",
                                      lambda m, rid=r: self._odom(rid, m), 10,
                                      callback_group=grp)
+        self.create_subscription(PoseStamped, "/vehicle/pose", self._veh, 10,
+                                 callback_group=grp)
         self.cmd = {r: self.create_publisher(Twist, f"/{r}/cmd_vel", 10) for r in ROBOTS}
         self.arm = {r: self.create_client(SetBool, f"/{r}/arm_control",
                                           callback_group=grp) for r in ROBOTS}
@@ -50,6 +54,49 @@ class DockLiftMission(Node):
 
     def _odom(self, rid, m):
         self.z[rid] = m.pose.pose.position.z
+
+    def _veh(self, m):
+        self.veh_y = m.pose.position.y   # world Y = 세로 높이(리프트)
+        self.veh_z = m.pose.position.z   # world Z = 운반 진행축
+
+    def _call_arms(self, opening):
+        for r in ROBOTS:
+            if not self.arm[r].wait_for_service(timeout_sec=5.0):
+                return False
+        futs = []
+        for r in ROBOTS:
+            req = SetBool.Request(); req.data = opening
+            futs.append(self.arm[r].call_async(req))
+        end = time.time() + 6.0
+        while time.time() < end and not all(f.done() for f in futs):
+            time.sleep(0.05)   # 응답은 다른 스레드가 채움
+        return all(f.done() and f.result() and f.result().success for f in futs)
+
+    def _grip_and_check(self):
+        """팔 전개 서비스 호출 후, 팔 램프+리프트가 일어날 시간을 준 뒤 상승량 측정."""
+        y0 = self.veh_y
+        if not self._call_arms(True):
+            return 0.0
+        end = time.time() + 12.0   # 램프(0.02/틱)+정착 대기
+        while time.time() < end:
+            time.sleep(0.05)
+        return (self.veh_y - y0) if (self.veh_y is not None and y0 is not None) else 0.0
+
+    def _carry(self):
+        """편대 직진 운반: 두 로봇이 차량을 world +Z 로 밀어 이동.
+        rear facing +1 -> forward=+Z, front facing -1 -> forward=-Z 이므로
+        차량을 +Z 로 밀려면 rear 는 forward(+), front 는 backward(-)."""
+        z0 = self.veh_z
+        end = time.time() + STEP_TIMEOUT
+        while time.time() < end:
+            self._pub("robot_rear", CARRY_SPEED)
+            self._pub("robot_front", -CARRY_SPEED)
+            time.sleep(1.0 / CONTROL_HZ)
+            carried = (self.veh_z - z0) if (self.veh_z is not None and z0 is not None) else 0.0
+            if carried >= self.plan.carry_distance:
+                break
+        self._stop_all()
+        return (self.veh_z - z0) if (self.veh_z is not None and z0 is not None) else 0.0
 
     def _pub(self, rid, vx):
         t = Twist(); t.linear.x = float(vx)   # 로컬 forward; 러너가 메카넘 IK 처리
@@ -96,10 +143,19 @@ class DockLiftMission(Node):
             resp.success = False
             resp.message = "진입 타임아웃"
             return resp
-        # (Task 6: 파지 + 운반)
-        resp.success = True
-        resp.message = (f"진입 완료 rear_z={self.z['robot_rear']:.2f} "
-                        f"front_z={self.z['robot_front']:.2f}")
+        self.get_logger().info("파지·리프트 시작")
+        car_lift = self._grip_and_check()
+        if self.plan.next_phase("grip", self.z["robot_rear"], self.z["robot_front"],
+                                car_lift, 0.0) != "carry":
+            self._stop_all()
+            resp.success = False
+            resp.message = f"리프트 실패 car_lift={car_lift:.4f}m"
+            self.get_logger().warn(resp.message)
+            return resp
+        self.get_logger().info(f"리프트 {car_lift:.3f}m — 운반 시작")
+        carried = self._carry()
+        resp.success = carried >= self.plan.carry_distance * 0.8
+        resp.message = f"완료: 리프트 {car_lift:.3f}m, 운반 {carried:.3f}m"
         self.get_logger().info(resp.message)
         return resp
 

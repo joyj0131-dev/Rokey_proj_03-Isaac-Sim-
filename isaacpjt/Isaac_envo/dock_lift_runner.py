@@ -256,10 +256,13 @@ def main():
         if str(BRIDGE_RCLPY) not in sys.path:
             sys.path.insert(0, str(BRIDGE_RCLPY))
         import rclpy
-        from geometry_msgs.msg import Twist
+        from geometry_msgs.msg import Twist, PoseStamped
         from nav_msgs.msg import Odometry
+        from isaacsim.core.prims import RigidPrim
         rclpy.init()
         node = rclpy.create_node("dock_lift_runner_bridge")
+        veh_pub = node.create_publisher(PoseStamped, "/vehicle/pose", 10)
+        veh_rb = RigidPrim(COUPE_PATH)   # 리프트(world Y)·운반(world Z) 측정용
 
         def make_cb(key):
             def cb(msg):
@@ -326,6 +329,15 @@ def main():
                 od.pose.pose.orientation.z = math.sin(yaw * 0.5)
                 od.pose.pose.orientation.w = math.cos(yaw * 0.5)
                 odom_pub[key].publish(od)
+            # 차량 world pose (리프트=y, 운반=z 판정용)
+            vp = np.asarray(veh_rb.get_world_poses()[0]).reshape(-1)[:3]
+            ps = PoseStamped()
+            ps.header.stamp = node.get_clock().now().to_msg()
+            ps.header.frame_id = "map"
+            ps.pose.position.x = float(vp[0])
+            ps.pose.position.y = float(vp[1])
+            ps.pose.position.z = float(vp[2])
+            veh_pub.publish(ps)
         app.close()
     finally:
         pass
