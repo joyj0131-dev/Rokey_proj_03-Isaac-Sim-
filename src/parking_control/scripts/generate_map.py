@@ -28,7 +28,7 @@ DEFAULT_SEED_SQL = PKG_ROOT / "db" / "002_seed.sql"
 
 def build_map(space_count=10, parking_start=1, parking_end=8,
               space_width=3.40, space_length=6.60, aisle_width=9.00,
-              border_margin=1.10):
+              border_margin=1.10, handoff_length=23.0):
     """환경 파라미터에서 노드/엣지/존을 계산한다."""
     half_w = space_count * space_width * 0.5
     # 슬롯 중심의 USD z (통로 중심선 기준 거리) → ROS y = -usd_z
@@ -52,6 +52,26 @@ def build_map(space_count=10, parking_start=1, parking_end=8,
                              kind="entrance")
     edges.append(dict(u="entrance", v="J0", zone="Z_ENTRANCE"))
     zones.append("Z_ENTRANCE")
+
+    # 인계장(서측 실외) — 2026-07-21 재설계: 실내와 같은 단면(중앙 통로+양쪽 베이).
+    # 정션 x는 ArUco 인계장 차선 마커 열(중심 ±k*3.4)과 동일 — 마커가 곧 보정점.
+    handoff_center_x = -half_w - border_margin - handoff_length * 0.5   # -29.6
+    hj_xs = [round(handoff_center_x + k * space_width, 3)
+             for k in range(3, -4, -1)]                                 # -19.4 … -39.8
+    for i, x in enumerate(hj_xs):
+        nodes[f"HJ{i}"] = dict(x=x, y=0.0, kind="junction")
+    edges.append(dict(u="entrance", v="HJ0", zone="ZH_GATE"))
+    zones.append("ZH_GATE")
+    for i in range(len(hj_xs) - 1):
+        zone_id = f"ZH{i + 1:02d}"
+        zones.append(zone_id)
+        edges.append(dict(u=f"HJ{i}", v=f"HJ{i + 1}", zone=zone_id))
+    # 인계 베이 2개. H_A: usd z=+7.8(A쪽)→ros y=-7.8 / H_B: 반대.
+    for name, usd_z_sign in (("H_A", 1.0), ("H_B", -1.0)):
+        nodes[name] = dict(x=round(handoff_center_x, 3),
+                           y=round(-usd_z_sign * row_center, 3),
+                           kind="handoff_bay")
+        edges.append(dict(u=name, v="HJ3"))   # HJ3 = 베이 열 정션(-29.6)
 
     # 주차 슬롯 + 로봇 대기/충전 도크. A행 usd z=+row_center → ros y=-row_center.
     special = {0: ("dock_wait", "waiting"),
@@ -137,13 +157,15 @@ def main():
     parser.add_argument("--space-length", type=float, default=6.60)
     parser.add_argument("--aisle-width", type=float, default=9.00)
     parser.add_argument("--border-margin", type=float, default=1.10)
+    parser.add_argument("--handoff-length", type=float, default=23.0)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--seed-sql", type=Path, default=DEFAULT_SEED_SQL)
     args = parser.parse_args()
 
     data = build_map(space_count=args.space_count, space_width=args.space_width,
                      space_length=args.space_length, aisle_width=args.aisle_width,
-                     border_margin=args.border_margin)
+                     border_margin=args.border_margin,
+                     handoff_length=args.handoff_length)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w") as f:

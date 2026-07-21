@@ -73,3 +73,15 @@ def test_slot_coordinates_regression(pf):
     assert len(pf.map.nodes_of_kind("slot")) == 16
     assert pf.map.graph.nodes["A1"]["accessible"] is True
     assert pf.map.graph.nodes["A3"]["accessible"] is False
+
+
+def test_handoff_bay_route_reaches_indoor_slot():
+    """인계 베이(H_B) → 실내 슬롯(B3) 경로가 성립해야 E2E 미션 배차가 가능하다."""
+    pf = PathFinder(ParkingMap.load(MAP_YAML))
+    result = pf.find_path("H_B", "B3")
+    assert result is not None
+    assert result.nodes[0] == "H_B"
+    assert "entrance" in result.nodes          # 서측 개구부를 지난다
+    assert "ZH_GATE" in result.zones           # 인계장 게이트 존
+    assert any(z.startswith("ZH") and z != "ZH_GATE" for z in result.zones)
+    assert 20.0 < result.length < 60.0         # H_B(-29.6,+7.8)→B3 대략 30m대

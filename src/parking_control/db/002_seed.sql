@@ -11,6 +11,13 @@ INSERT INTO zones (zone_id) VALUES ('Z07') ON DUPLICATE KEY UPDATE zone_id = zon
 INSERT INTO zones (zone_id) VALUES ('Z08') ON DUPLICATE KEY UPDATE zone_id = zone_id;
 INSERT INTO zones (zone_id) VALUES ('Z09') ON DUPLICATE KEY UPDATE zone_id = zone_id;
 INSERT INTO zones (zone_id) VALUES ('Z10') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH01') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH02') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH03') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH04') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH05') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH06') ON DUPLICATE KEY UPDATE zone_id = zone_id;
+INSERT INTO zones (zone_id) VALUES ('ZH_GATE') ON DUPLICATE KEY UPDATE zone_id = zone_id;
 INSERT INTO zones (zone_id) VALUES ('Z_ENTRANCE') ON DUPLICATE KEY UPDATE zone_id = zone_id;
 
 INSERT INTO parking_slots (slot_id, x, y, is_accessible) VALUES ('A1', -11.9, -7.8, TRUE) ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), is_accessible = VALUES(is_accessible);
@@ -41,6 +48,15 @@ INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J7', 'J8', 3.4, '
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J8', 'J9', 3.4, 'Z09') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J10', 'J9', 3.4, 'Z10') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J0', 'entrance', 1.1, 'Z_ENTRANCE') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ0', 'entrance', 1.3, 'ZH_GATE') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ0', 'HJ1', 3.4, 'ZH01') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ1', 'HJ2', 3.4, 'ZH02') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ2', 'HJ3', 3.4, 'ZH03') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ3', 'HJ4', 3.4, 'ZH04') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ4', 'HJ5', 3.4, 'ZH05') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ5', 'HJ6', 3.4, 'ZH06') ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ3', 'H_A', 7.8, NULL) ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
+INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('HJ3', 'H_B', 7.8, NULL) ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J0', 'dock_wait_A', 7.983, NULL) ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('J1', 'dock_wait_A', 7.983, NULL) ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
 INSERT INTO parking_lot_edges (u, v, dist_m, zone_id) VALUES ('A1', 'J1', 7.983, NULL) ON DUPLICATE KEY UPDATE dist_m = VALUES(dist_m), zone_id = VALUES(zone_id);
