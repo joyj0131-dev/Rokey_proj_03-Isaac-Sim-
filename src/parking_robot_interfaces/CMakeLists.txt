@@ -9,6 +9,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/VehicleInfo.msg"
   "msg/TaskState.msg"
   "msg/ObstacleAlert.msg"
+  "msg/FormationStop.msg"
   "srv/FindEmptySlot.srv"
   "srv/RequestParkingTask.srv"
   "srv/GetTaskStatus.srv"
