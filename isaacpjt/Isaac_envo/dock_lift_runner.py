@@ -271,12 +271,44 @@ def main():
             node.create_subscription(Twist, f"/robot_{key}/cmd_vel", make_cb(key), 10)
             odom_pub[key] = node.create_publisher(Odometry, f"/robot_{key}/odom", 10)
 
+        # --- 팔 파지/리프트 서비스 (내부 rclpy, ARM_TARGETS 램프) ---
+        from std_srvs.srv import SetBool
+        arm_idx = {k: {n: arts[k].dof_names.index(n) for n in ARM_TARGETS} for k in arts}
+        arm_cmd = {k: 0.0 for k in arts}       # 목표 scale (0=접힘, 1=전개)
+        arm_applied = {k: 0.0 for k in arts}
+
+        def apply_arms(key):
+            tgt, cur = arm_cmd[key], arm_applied[key]
+            if abs(tgt - cur) > 1e-4:
+                cur += max(-0.02, min(0.02, tgt - cur))   # 0.02/틱 램프
+                arm_applied[key] = cur
+            pos = np.array(arts[key].get_joint_positions(), dtype=np.float32, copy=True)
+            for n, deg in ARM_TARGETS.items():
+                v = math.radians(deg * cur)
+                if pos.ndim == 2:
+                    pos[0, arm_idx[key][n]] = v
+                else:
+                    pos[arm_idx[key][n]] = v
+            arts[key].set_joint_position_targets(pos)
+
+        def make_arm_cb(key):
+            def cb(req, resp):
+                arm_cmd[key] = 1.0 if req.data else 0.0
+                resp.success = True
+                resp.message = "arm target set: " + ("open" if req.data else "fold")
+                print(f"ARM_CMD robot_{key} -> {'open' if req.data else 'fold'}", flush=True)
+                return resp
+            return cb
+        for key in arts:
+            node.create_service(SetBool, f"/robot_{key}/arm_control", make_arm_cb(key))
+
         print(f"DOCK_LIFT_RUNNER_READY robots=['robot_rear','robot_front'] "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
         while app.is_running():
             app.update()
             rclpy.spin_once(node, timeout_sec=0.0)
             for key, cfg in ROBOTS.items():
+                apply_arms(key)   # 매 틱 팔 램프 적용
                 pos, orn = arts[key].get_world_poses()
                 pos = np.asarray(pos).reshape(-1)[:3]
                 orn = np.asarray(orn).reshape(-1)[:4]
