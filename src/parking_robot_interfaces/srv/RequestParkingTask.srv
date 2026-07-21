@@ -1,7 +1,6 @@
 # [초안] user_request_gateway의 입고/출차 요청 접수 서비스 (SR-12).
 string request_type   # ENTRY, EXIT
 string vehicle_id
-string target_slot_id # ENTRY 선택 목표(A1~B8), 빈 문자열이면 자동 빈 슬롯 배정
 ---
 bool accepted
 string task_id

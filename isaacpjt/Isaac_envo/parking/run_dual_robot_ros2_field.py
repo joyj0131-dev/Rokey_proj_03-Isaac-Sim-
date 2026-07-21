@@ -5,8 +5,6 @@
   /robot_1/cmd_vel  -> robot_1 바퀴 속도
   /robot_2/cmd_vel  -> robot_2 바퀴 속도
   /robot_1/odom, /robot_2/odom -> ROS map 좌표계 pose
-  /robot_1/arm_command, /robot_2/arm_command (Float32 0~1) -> 롤러 암 전개
-  /robot_1/arm_progress, /robot_2/arm_progress (Float32) -> 실제 전개 진행률
 
 기본적으로 외부 인계 차량 H1~H6를 런타임에서만 숨기고 H1 위치에 가상
 목표 영역을 표시한다. 원본 parking_environment.usd는 수정하지 않는다.
@@ -33,13 +31,6 @@ BRIDGE_RCLPY = Path(
 ROBOT_IDS = ("robot_1", "robot_2")
 VIRTUAL_TARGET_USD = (-21.85, 0.0, 2.35)
 CMD_TIMEOUT_SEC = 0.6
-ARM_JOINT_TARGETS_DEG = {
-    "arm_left_front_joint": 90.0,
-    "arm_left_rear_joint": -90.0,
-    "arm_right_front_joint": -90.0,
-    "arm_right_rear_joint": 90.0,
-}
-ARM_RAMP_PER_SEC = 0.55
 
 
 def _arg_value(name: str, default=None):
@@ -108,7 +99,6 @@ def main() -> None:
         import omni.timeline
         import omni.usd
         from isaacsim.core.prims import Articulation
-        from pxr import UsdPhysics
 
         if not FIELD_USD.is_file():
             raise FileNotFoundError(
@@ -131,17 +121,6 @@ def main() -> None:
             configure_hub_drives(
                 stage, f"/World/Robots/{robot_id}/joints"
             )
-            for joint_name in ARM_JOINT_TARGETS_DEG:
-                joint = stage.GetPrimAtPath(
-                    f"/World/Robots/{robot_id}/joints/{joint_name}"
-                )
-                drive_api = UsdPhysics.DriveAPI.Get(joint, "angular")
-                if not drive_api:
-                    drive_api = UsdPhysics.DriveAPI.Apply(joint, "angular")
-                drive_api.CreateStiffnessAttr(2000.0)
-                drive_api.CreateDampingAttr(150.0)
-                drive_api.CreateMaxForceAttr(5000.0)
-                drive_api.CreateTargetPositionAttr(0.0)
 
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
@@ -158,21 +137,14 @@ def main() -> None:
                 wheel: articulation.dof_names.index(joint)
                 for wheel, joint in WHEEL_JOINTS.items()
             }
-            arm_indices = {
-                joint: articulation.dof_names.index(joint)
-                for joint in ARM_JOINT_TARGETS_DEG
-            }
             robots[robot_id] = {
                 "articulation": articulation,
                 "wheel_indices": wheel_indices,
-                "arm_indices": arm_indices,
                 "velocities": np.zeros(
                     articulation.get_joint_positions().shape, dtype=np.float32
                 ),
                 "last_command_at": 0.0,
                 "last_command": (0.0, 0.0, 0.0),
-                "arm_target": 0.0,
-                "arm_progress": 0.0,
             }
 
         def drive(robot_id, vx, vy, wz):
@@ -194,7 +166,6 @@ def main() -> None:
         import rclpy
         from geometry_msgs.msg import Twist
         from nav_msgs.msg import Odometry
-        from std_msgs.msg import Float32
 
         rclpy.init()
         node = rclpy.create_node("dual_hwia_parking_field_bridge")
@@ -212,7 +183,6 @@ def main() -> None:
             return callback
 
         odom_publishers = {}
-        arm_publishers = {}
         subscriptions = []
         for robot_id in ROBOT_IDS:
             subscriptions.append(
@@ -226,21 +196,6 @@ def main() -> None:
             odom_publishers[robot_id] = node.create_publisher(
                 Odometry, f"/{robot_id}/odom", 10
             )
-            arm_publishers[robot_id] = node.create_publisher(
-                Float32, f"/{robot_id}/arm_progress", 10
-            )
-
-            def arm_callback(message, rid=robot_id):
-                robots[rid]["arm_target"] = max(0.0, min(1.0, float(message.data)))
-
-            subscriptions.append(
-                node.create_subscription(
-                    Float32,
-                    f"/{robot_id}/arm_command",
-                    arm_callback,
-                    10,
-                )
-            )
 
         print(
             "ROS2_DUAL_FIELD_READY "
@@ -252,32 +207,12 @@ def main() -> None:
 
         start = time.monotonic()
         last_log = 0.0
-        last_step_at = time.monotonic()
         while app.is_running():
             app.update()
             rclpy.spin_once(node, timeout_sec=0.0)
             now = time.monotonic()
-            dt = min(0.05, max(0.0, now - last_step_at))
-            last_step_at = now
 
             for robot_id, robot in robots.items():
-                arm_delta = robot["arm_target"] - robot["arm_progress"]
-                arm_step = ARM_RAMP_PER_SEC * dt
-                robot["arm_progress"] += max(-arm_step, min(arm_step, arm_delta))
-                joint_targets = np.array(
-                    robot["articulation"].get_joint_positions(),
-                    dtype=np.float32,
-                    copy=True,
-                )
-                for joint_name, degrees in ARM_JOINT_TARGETS_DEG.items():
-                    index = robot["arm_indices"][joint_name]
-                    radians = math.radians(degrees * robot["arm_progress"])
-                    if joint_targets.ndim == 2:
-                        joint_targets[0, index] = radians
-                    else:
-                        joint_targets[index] = radians
-                robot["articulation"].set_joint_position_targets(joint_targets)
-
                 if (
                     robot["last_command_at"] > 0.0
                     and now - robot["last_command_at"] > CMD_TIMEOUT_SEC
@@ -301,9 +236,6 @@ def main() -> None:
                 message.pose.pose.orientation.z = math.sin(ros_yaw * 0.5)
                 message.pose.pose.orientation.w = math.cos(ros_yaw * 0.5)
                 odom_publishers[robot_id].publish(message)
-                arm_message = Float32()
-                arm_message.data = float(robot["arm_progress"])
-                arm_publishers[robot_id].publish(arm_message)
 
                 if now - last_log >= 1.0:
                     vx, vy, wz = robot["last_command"]
