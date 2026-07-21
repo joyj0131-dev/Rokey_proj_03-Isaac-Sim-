@@ -204,7 +204,7 @@ def main():
         import omni.timeline
         from isaacsim.core.prims import Articulation
 
-        build_stage(app)
+        stage = build_stage(app)
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
         for _ in range(30):
@@ -215,6 +215,28 @@ def main():
             art = Articulation(f"{cfg['xform']}/base_link")
             art.initialize()
             arts[key] = art
+
+        # 메카넘 허브 드라이브 설정 + cmd_vel -> 휠 구동 (dual runner 검증 코드)
+        sys.path.insert(0, str(WORK_DIR))
+        from mecanum_drive import (WHEEL_JOINTS, configure_hub_drives,
+                                   wheel_velocities_from_cmd_vel)
+        for key, cfg in ROBOTS.items():
+            configure_hub_drives(stage, f"{cfg['xform']}/joints")
+        wheel_idx = {k: {w: arts[k].dof_names.index(j) for w, j in WHEEL_JOINTS.items()}
+                     for k in arts}
+        vel_buf = {k: np.zeros(arts[k].get_joint_positions().shape, dtype=np.float32)
+                   for k in arts}
+
+        def drive(key, vx, vy, wz):
+            omegas = wheel_velocities_from_cmd_vel(vx, vy, wz)
+            buf = vel_buf[key]; buf[...] = 0.0
+            for w, om in omegas.items():
+                i = wheel_idx[key][w]
+                if buf.ndim == 2:
+                    buf[0, i] = om
+                else:
+                    buf[i] = om
+            arts[key].set_joint_velocity_targets(buf)
 
         if "--headless-test" in sys.argv[1:]:
             def _p(a):
@@ -229,7 +251,49 @@ def main():
                   f"disp={ {k: round(v,4) for k,v in disp.items()} }", flush=True)
             app.close()
             return
-        # (Task 2~3에서 ROS2 루프 추가)
+
+        # --- ROS2 브리지 (내부 rclpy): cmd_vel 구독 / odom 발행 ---
+        if str(BRIDGE_RCLPY) not in sys.path:
+            sys.path.insert(0, str(BRIDGE_RCLPY))
+        import rclpy
+        from geometry_msgs.msg import Twist
+        from nav_msgs.msg import Odometry
+        rclpy.init()
+        node = rclpy.create_node("dock_lift_runner_bridge")
+
+        def make_cb(key):
+            def cb(msg):
+                # angular.z 반전(REP-103 정합, Plan 2 실측). 진입/운반은 직진이라 보통 0.
+                drive(key, msg.linear.x, msg.linear.y, -msg.angular.z)
+            return cb
+        odom_pub = {}
+        for key in ROBOTS:
+            node.create_subscription(Twist, f"/robot_{key}/cmd_vel", make_cb(key), 10)
+            odom_pub[key] = node.create_publisher(Odometry, f"/robot_{key}/odom", 10)
+
+        print(f"DOCK_LIFT_RUNNER_READY robots=['robot_rear','robot_front'] "
+              f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
+        while app.is_running():
+            app.update()
+            rclpy.spin_once(node, timeout_sec=0.0)
+            for key, cfg in ROBOTS.items():
+                pos, orn = arts[key].get_world_poses()
+                pos = np.asarray(pos).reshape(-1)[:3]
+                orn = np.asarray(orn).reshape(-1)[:4]
+                w, x, y, z = (float(v) for v in orn)
+                fwd_x = 1.0 - 2.0 * (y * y + z * z)
+                fwd_z = 2.0 * (x * z - w * y)
+                yaw = math.atan2(-fwd_z, fwd_x)
+                od = Odometry()
+                od.header.stamp = node.get_clock().now().to_msg()
+                od.header.frame_id = "map"
+                od.child_frame_id = f"robot_{key}/base_link"
+                od.pose.pose.position.x = float(pos[0])
+                od.pose.pose.position.y = float(pos[1])
+                od.pose.pose.position.z = float(pos[2])   # world z = 진입/운반 축
+                od.pose.pose.orientation.z = math.sin(yaw * 0.5)
+                od.pose.pose.orientation.w = math.cos(yaw * 0.5)
+                odom_pub[key].publish(od)
         app.close()
     finally:
         pass
