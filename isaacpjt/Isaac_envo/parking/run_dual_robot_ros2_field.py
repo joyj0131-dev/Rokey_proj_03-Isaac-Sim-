@@ -301,6 +301,8 @@ def main() -> None:
 
                 # 휠 FK twist (로봇 로컬) — 데드레커닝용. GT와 무관한 진짜 측정치.
                 joint_vel = robot["articulation"].get_joint_velocities()
+                if joint_vel is None:
+                    continue   # 타임라인 정지/종료 중이면 이번 프레임은 건너뜀
                 row = joint_vel[0] if joint_vel.ndim == 2 else joint_vel
                 omegas = {w: float(row[robot["wheel_indices"][w]])
                           for w in robot["wheel_indices"]}
