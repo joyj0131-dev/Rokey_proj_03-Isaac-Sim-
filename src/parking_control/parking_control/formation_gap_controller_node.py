@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """formation_gap_controller: 로봇 2대(leader/follower) 간격 유지 + 공동 정지.
 
-로봇 1대마다 이 노드를 하나씩 띄운다(role 파라미터로 leader/follower
-구분). 2026-07-21 논의로 확정한 설계:
+로봇 1대마다 이 노드를 하나씩 상시 띄워둔다(실제 로봇의 온보드 소프트웨어
+처럼 — task_dispatcher가 필요할 때마다 껐다 켰다 하는 프로세스가 아니다).
+평소엔 idle 상태로 아무것도 발행하지 않고 대기하다가, task_dispatcher가
+formation_assignment 토픽으로 "너는 지금부터 task T의 leader/follower다"를
+보내면 그때부터만 아래 로직이 켜진다(_on_assignment). 작업이 끝나면
+active=false 배정이 다시 와서 idle로 되돌아간다.
+
+2026-07-21 논의로 확정한 제어 설계:
 
   - follower는 leader의 odom을 구독해서 "leader 로컬 좌표계 기준 뒤로
     gap_m 떨어진 지점"을 목표로 추종한다 (core/gap_hold_controller.py).
@@ -27,6 +33,9 @@
     경우는 자동으로 안 풀린다 — 그 원인(힘 센서 이상 등)이 실제로
     해결됐는지 이 노드는 알 방법이 없으므로, 사람이 개입해서 해제해야
     한다(자동 복구 로직은 TODO).
+  - leader 로봇의 파트너 odom 토픽은 "/<partner_robot_id>/odom" 컨벤션을
+    그대로 가정한다 — 실제 로봇 네임스페이스 규칙이 이것과 다르게 정해지면
+    여기도 맞춰 바꿔야 한다.
 """
 
 import rclpy
@@ -34,7 +43,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 
-from parking_robot_interfaces.msg import FormationStop
+from parking_robot_interfaces.msg import FormationAssignment, FormationStop
 
 from parking_control.core.formation_costop import is_stale, should_stop
 from parking_control.core.gap_hold_controller import (
@@ -53,10 +62,7 @@ class FormationGapControllerNode(Node):
     def __init__(self):
         super().__init__("formation_gap_controller")
 
-        self.declare_parameter("robot_id", "")
-        self.declare_parameter("task_id", "")
-        self.declare_parameter("role", "follower")   # leader | follower
-        self.declare_parameter("partner_odom_topic", "")
+        self.declare_parameter("robot_id", "")   # 이 노드가 대표하는 로봇의 고정 식별자
         self.declare_parameter("gap_m", 2.9)
         self.declare_parameter("watchdog_timeout_sec", 0.5)
         self.declare_parameter("control_rate_hz", 10.0)
@@ -67,8 +73,6 @@ class FormationGapControllerNode(Node):
 
         p = self.get_parameter
         self._robot_id = p("robot_id").value
-        self._task_id = p("task_id").value
-        self._role = p("role").value
         self._watchdog_timeout = float(p("watchdog_timeout_sec").value)
         self._controller = GapHoldController(
             gap_m=float(p("gap_m").value),
@@ -77,6 +81,12 @@ class FormationGapControllerNode(Node):
             max_linear=float(p("max_linear").value),
             max_angular=float(p("max_angular").value))
 
+        # 아래는 formation_assignment로 배정이 올 때까지는 전부 빈 상태(idle).
+        self._active = False
+        self._task_id = ""
+        self._role = None
+        self._partner_robot_id = ""
+        self._partner_sub = None
         self._own_pose = None
         self._partner_pose = None
         self._last_partner_odom_at = None
@@ -87,20 +97,17 @@ class FormationGapControllerNode(Node):
         self._cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self._stop_pub = self.create_publisher(FormationStop, "formation_stop", 10)
         self.create_subscription(Odometry, "odom", self._on_own_odom, 10)
-        partner_topic = p("partner_odom_topic").value
-        if partner_topic:
-            self.create_subscription(
-                Odometry, partner_topic, self._on_partner_odom, 10)
         self.create_subscription(
             FormationStop, "formation_stop", self._on_formation_stop, 10)
+        self.create_subscription(
+            FormationAssignment, "formation_assignment", self._on_assignment, 10)
 
         rate = float(p("control_rate_hz").value)
         self.create_timer(1.0 / rate, self._on_tick)
 
         self.get_logger().info(
-            f"formation_gap_controller 시작 (robot_id={self._robot_id}, "
-            f"role={self._role}, task_id={self._task_id}, "
-            f"partner_odom={partner_topic or '(미설정)'})")
+            f"formation_gap_controller 시작 (robot_id={self._robot_id}) — "
+            "배정 대기 중(idle)")
 
     # ---- 구독 콜백 ----
 
@@ -111,8 +118,44 @@ class FormationGapControllerNode(Node):
         self._partner_pose = _pose_from_odom(msg)
         self._last_partner_odom_at = self._now_sec()
 
+    def _on_assignment(self, msg):
+        if msg.robot_id != self._robot_id:
+            return
+
+        if self._partner_sub is not None:
+            self.destroy_subscription(self._partner_sub)
+            self._partner_sub = None
+
+        if not msg.active:
+            if self._active:
+                self.get_logger().info(
+                    f"배정 해제(task {self._task_id[:8]}) — idle로 복귀")
+            self._active = False
+            self._task_id = ""
+            self._role = None
+            self._partner_robot_id = ""
+            return
+
+        # 새 작업 시작 — 이전 작업의 흔적(공동정지 플래그 등)을 들고 가지 않는다.
+        self._task_id = msg.task_id
+        self._role = msg.role
+        self._partner_robot_id = msg.partner_robot_id
+        self._partner_pose = None
+        self._last_partner_odom_at = None
+        self._peer_requested_stop = False
+        self._was_stopped = False
+        self._active = True
+
+        partner_topic = f"/{msg.partner_robot_id}/odom"
+        self._partner_sub = self.create_subscription(
+            Odometry, partner_topic, self._on_partner_odom, 10)
+        self.get_logger().info(
+            f"배정 수신: task {msg.task_id[:8]} role={msg.role} "
+            f"partner={msg.partner_robot_id}({partner_topic})")
+
     def _on_formation_stop(self, msg):
-        if msg.task_id != self._task_id or msg.source_robot_id == self._robot_id:
+        if (not self._active or msg.task_id != self._task_id
+                or msg.source_robot_id == self._robot_id):
             return
         if msg.stop:
             self._peer_requested_stop = True
@@ -125,6 +168,9 @@ class FormationGapControllerNode(Node):
         return self.get_clock().now().nanoseconds / 1e9
 
     def _on_tick(self):
+        if not self._active:
+            return   # 배정 전에는 아무것도 발행하지 않는다
+
         now = self._now_sec()
         peer_stale = is_stale(now, self._last_partner_odom_at, self._watchdog_timeout)
         stop_now = should_stop(self._self_fault, peer_stale, self._peer_requested_stop)

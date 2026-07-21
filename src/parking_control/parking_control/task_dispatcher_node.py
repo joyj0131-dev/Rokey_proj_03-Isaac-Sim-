@@ -11,6 +11,11 @@
     슬롯처럼 함께 점유해야 하는 zone용) 중 정확히 하나를 채운다.
 
 로봇 선택은 Allocator 전략(allocator 파라미터: nearest | hungarian)에 위임한다.
+
+작업이 시작되면(goal 전송 시점) formation_assignment 토픽으로 리더/팔로워
+로봇 각각에게 역할·파트너를 배정해 formation_gap_controller(간격유지+공동
+정지)를 활성화하고, 작업이 끝나거나 실패하면 같은 토픽으로 배정을
+해제한다(각 로봇은 idle로 복귀).
 """
 
 import uuid
@@ -21,6 +26,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 
 from parking_robot_interfaces.action import ExecuteParkingTask
+from parking_robot_interfaces.msg import FormationAssignment
 from parking_robot_interfaces.srv import AcquireZones, FindEmptySlot, \
     ReleaseZones, RequestParkingTask
 
@@ -62,6 +68,8 @@ class TaskDispatcherNode(Node):
         self._execute_client = ActionClient(
             self, ExecuteParkingTask, "execute_parking_task",
             callback_group=group)
+        self._formation_pub = self.create_publisher(
+            FormationAssignment, "formation_assignment", 10)
 
         self.create_service(RequestParkingTask, "dispatch_parking_task",
                             self._handle_dispatch, callback_group=group)
@@ -144,6 +152,17 @@ class TaskDispatcherNode(Node):
         self.get_logger().info(f"작업 접수 {task_id[:8]}: {response.message}")
         return response
 
+    def _publish_formation(self, task_id, leader_id, follower_id, active):
+        """로봇 2대의 formation_gap_controller에게 역할/파트너를 배정(또는
+        해제)한다. 각 로봇이 자기 robot_id로 필터링해서 받아간다."""
+        pairs = ((leader_id, "leader", follower_id),
+                (follower_id, "follower", leader_id))
+        for robot_id, role, partner_id in pairs:
+            self._formation_pub.publish(FormationAssignment(
+                robot_id=robot_id, task_id=task_id if active else "",
+                role=role if active else "", partner_robot_id=partner_id,
+                active=active))
+
     def _cost(self, robot, task):
         start = self._map.nearest_node(robot.x, robot.y)
         path = self._pathfinder.find_path(start, task.target_node)
@@ -172,6 +191,7 @@ class TaskDispatcherNode(Node):
         goal.slot_pose.orientation.w = 1.0
         goal.leader_robot_id = leader_id
         goal.follower_robot_id = follower_id
+        self._publish_formation(task_id, leader_id, follower_id, active=True)
         self.get_logger().info(
             f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송 "
             f"(리더 {leader_id}, 팔로워 {follower_id})")
@@ -193,6 +213,7 @@ class TaskDispatcherNode(Node):
         self._db.update_task(task_id, state=state)
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
+        self._publish_formation(task_id, leader_id, follower_id, active=False)
         self.get_logger().info(
             f"작업 {task_id[:8]} 종료: {state} ({result.message})")
 
@@ -200,6 +221,7 @@ class TaskDispatcherNode(Node):
         self._db.update_task(task_id, state="FAILED")
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
+        self._publish_formation(task_id, leader_id, follower_id, active=False)
         self.get_logger().warn(f"작업 {task_id[:8]} 실패: {reason}")
 
     # ---- 존 락 ----
