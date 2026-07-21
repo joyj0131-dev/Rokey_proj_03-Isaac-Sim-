@@ -378,6 +378,17 @@ class MockDataSource(DataSource):
             return False
         if any(robot.status in {"ERROR", "OFFLINE"} for robot in robots):
             return False
+        # 협업 로봇 중 하나의 경로에서 장애물이 감지되면 두 로봇을 함께
+        # 정지한다. 경보 해제 후 route_progress를 유지한 채 남은 경로부터
+        # 다시 진행한다.
+        obstacle_active = any(
+            alert.active
+            and alert.category == AlertCategory.OBSTACLE
+            and (alert.robot_id is None or alert.robot_id in request.robot_ids)
+            for alert in self.store.alerts
+        )
+        if obstacle_active:
+            return False
 
         route = self._paired_route(request)
         if not route:

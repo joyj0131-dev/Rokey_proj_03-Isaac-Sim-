@@ -41,6 +41,9 @@ let lastDashboardReceivedAt = null;
 let messageHideTimer = null;
 let recentWorkflowEvents = [];
 const lastRequestStates = new Map();
+const robotSpeechBubbles = new Map();
+const seenSpeechAlertIds = new Set();
+let activeObstacleAlertId = null;
 
 function shortRobotName(robotId) {
   const match = String(robotId).match(/(\d+)$/);
@@ -153,59 +156,76 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-function renderSummary(summary, robots, sensors, system) {
+function renderSummary(summary, robots, sensors, system, alerts = []) {
   const robotHealthy = robots.filter((robot) => !["ERROR", "OFFLINE"].includes(robot.status)).length;
   const lidarOnline = sensors.filter((sensor) => sensor.status === "ONLINE").length;
-  const lidarValue = system.mode === "mock"
-    ? `Mock ${sensors.length}/${sensors.length}`
-    : `${lidarOnline === sensors.length ? "정상" : "연결"} ${lidarOnline}/${sensors.length}`;
+  const lidarHealthy = system.mode === "mock" ? sensors.length : lidarOnline;
   const totalSlots = summary.total_slots;
   const items = [
     {
+      icon: "P",
       label: "빈 주차면",
-      value: `${summary.empty_slots}/${totalSlots}`,
+      value: `${summary.empty_slots} / ${totalSlots}`,
+      badge: "가용",
       tone: "success",
     },
     {
-      label: "주차 중",
+      icon: "🚗",
+      label: "주차 차량",
       value: summary.occupied_slots,
-      tone: "neutral",
+      unit: "대",
+      badge: "정상",
+      tone: "occupied",
     },
     {
+      icon: "▤",
       label: "진행 요청",
       value: summary.active_requests,
+      unit: "건",
+      badge: summary.active_requests > 0 ? "진행 중" : "대기",
       tone: "primary",
     },
     {
-      label: "로봇 정상",
-      value: `${robotHealthy}/${robots.length}`,
+      icon: "🤖",
+      label: "로봇 상태",
+      value: `${robotHealthy} / ${robots.length}`,
+      badge: robotHealthy === robots.length ? "정상" : "확인 필요",
       tone: robotHealthy === robots.length ? "success" : "warning",
     },
     {
-      label: "LiDAR",
-      value: lidarValue,
+      icon: "◉",
+      label: "LiDAR 상태",
+      value: `${lidarHealthy} / ${sensors.length}`,
+      badge: system.mode === "mock"
+        ? "MOCK"
+        : lidarOnline === sensors.length ? "정상" : "연결 필요",
       tone: system.mode === "mock" ? "primary" : lidarOnline === sensors.length ? "success" : "warning",
     },
   ];
 
-  document.getElementById("taskTabCount").textContent = summary.active_requests;
+  const taskAttentionCount = summary.active_requests + alerts.length;
+  const taskTabCount = document.getElementById("taskTabCount");
+  taskTabCount.textContent = taskAttentionCount;
+  taskTabCount.title = `진행 작업 ${summary.active_requests}건 · 미해제 경고 ${alerts.length}건`;
   document.getElementById("summaryCards").innerHTML = `
     <div class="status-overview-items">
       ${items
     .map(
       (item) => `
         <div class="status-overview-item ${item.tone}">
-          <span>${item.label}</span>
-          <strong>${item.value}</strong>
+          <div class="status-overview-heading">
+            <span class="status-overview-icon" aria-hidden="true">${item.icon}</span>
+            <span class="status-overview-label">${item.label}</span>
+          </div>
+          <div class="status-overview-value">
+            <strong>${item.value}</strong>
+            ${item.unit ? `<span class="status-overview-unit">${item.unit}</span>` : ""}
+            ${item.badge ? `<span class="status-overview-badge">${item.badge}</span>` : ""}
+          </div>
         </div>
       `
     )
     .join("")}
-    </div>
-    <div class="legend" aria-label="주차면 상태 범례">
-      <span><i class="legend-dot empty"></i>빈 공간</span>
-      <span><i class="legend-dot reserved"></i>예약</span>
-      <span><i class="legend-dot occupied"></i>주차 중</span>
     </div>
   `;
 }
@@ -219,7 +239,7 @@ const LOT_SLOT_HEIGHT = 126;
 const LOT_DOCK_WIDTH = 92;
 const LOT_DOCK_HEIGHT = 106;
 const LOT_ROBOT_CARD_WIDTH = 84;
-const LOT_ROBOT_CARD_HEIGHT = 72;
+const LOT_ROBOT_CARD_HEIGHT = 84;
 
 const dockRoleLabels = {
   waiting: "대기",
@@ -233,30 +253,29 @@ function computeLotTransform(points) {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const marginX = 48;
+  const marginLeft = 96;
+  const marginRight = 48;
   const marginY = 78;
   const spanX = maxX - minX || 1;
   const spanY = maxY - minY || 1;
-  const drawableWidth = LOT_MAP_WIDTH - marginX * 2;
+  const drawableWidth = LOT_MAP_WIDTH - marginLeft - marginRight;
   const drawableHeight = LOT_MAP_HEIGHT - marginY * 2;
 
   return {
-    sx: (x) => marginX + ((x - minX) / spanX) * drawableWidth,
+    sx: (x) => marginLeft + ((x - minX) / spanX) * drawableWidth,
     // y는 위로 갈수록 커지도록 뒤집는다 (화면 좌표는 아래로 갈수록 커짐).
     sy: (y) => LOT_MAP_HEIGHT - marginY - ((y - minY) / spanY) * drawableHeight,
   };
 }
 
-function robotMapSubtitle(robot, requests) {
+function robotMapSubtitle(robot, requests, isPaused = false) {
+  if (isPaused) return "장애물 감지";
   const request = robot.current_task_id == null
     ? null
     : requests.find((item) => item.id === robot.current_task_id);
-  if (!request) {
-    if (robot.status === "CHARGING") return "충전 구역";
-    if (robot.status === "OFFLINE") return "데이터 미수신";
-    if (robot.status === "ERROR") return "상태 확인 필요";
-    return "작업 없음";
-  }
+  // 대기·충전·오류 여부는 상단 상태 배지로 충분히 전달된다. 도면에서는
+  // 실제 작업이 있을 때만 한 줄 설명을 추가하고 나머지는 상세 패널에 둔다.
+  if (!request) return "";
 
   const stageLabels = {
     ROBOT_ASSIGNED: "작업 준비",
@@ -268,7 +287,7 @@ function robotMapSubtitle(robot, requests) {
   return stageLabels[request.status] || `${request.slot_id || "주차면"} 작업`;
 }
 
-function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = []) {
+function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], alerts = []) {
   const svg = document.getElementById("lotMap");
   const emptyMessage = document.getElementById("lotMapEmpty");
 
@@ -289,33 +308,44 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = []) 
   }
   emptyMessage.classList.add("hidden");
 
-  const allPoints = [...placedSlots, ...placedRobots, ...docks];
-  if (entrance) allPoints.push(entrance);
-  const { sx, sy } = computeLotTransform(allPoints);
+  // 이동하는 로봇 좌표를 축척 기준에 포함하면 주차면 진입 시 로봇의
+  // 편대 간격만큼 경계가 늘어나 도면 전체가 흔들린다. 고정 시설물만으로
+  // 좌표계를 만들고, 로봇은 고정된 좌표계 위에서만 이동시킨다.
+  const fixedPoints = [
+    ...placedSlots,
+    ...docks,
+    ...sensors.filter((sensor) => sensor.x != null && sensor.y != null),
+  ];
+  if (entrance) fixedPoints.push(entrance);
+  const layoutPoints = fixedPoints.length ? fixedPoints : placedRobots;
+  const { sx, sy } = computeLotTransform(layoutPoints);
   const parts = [];
 
-  // 통로: 반복 점선 대신 실제 주행 영역으로 표현한다.
+  // 입구는 지도 시작점을 알리는 공간 표지로만 간결하게 표시한다.
   const aisleY = entrance ? entrance.y : docks[0] && docks[0].y;
-  if (aisleY != null) {
-    const xs = allPoints.map((p) => p.x);
+  if (aisleY != null && entrance) {
+    const xs = layoutPoints.map((p) => p.x);
     const laneY = sy(aisleY);
     const laneStart = sx(Math.min(...xs));
     const laneEnd = sx(Math.max(...xs));
+    const b4 = placedSlots.find((slot) => slot.id === "B4");
+    const b5 = placedSlots.find((slot) => slot.id === "B5");
+    const zoneLabelX = b4 && b5
+      ? (sx(b4.x) + sx(b5.x)) / 2
+      : (laneStart + laneEnd) / 2;
 
     parts.push(`
-      <rect class="lot-aisle-area" x="${laneStart}" y="${laneY - 24}"
-        width="${laneEnd - laneStart}" height="48" rx="12"></rect>
-      <text class="lot-aisle-label" x="${(laneStart + laneEnd) / 2}" y="${laneY + 4}">
-        →　로봇 주행 통로　→
+      <text class="lot-driving-zone-label" x="${zoneLabelX}" y="${laneY + 5}">
+        로봇 주행 구역
       </text>
-    `);
-  }
-
-  if (entrance) {
-    const cx = sx(entrance.x);
-    const cy = sy(entrance.y);
-    parts.push(`
-      <text class="lot-entrance-label" x="${cx}" y="${cy - 10}">입구 ▶</text>
+      <g class="lot-access-tag exit" aria-label="주차장 출구">
+        <rect x="${laneStart - 82}" y="${laneY - 34}" width="68" height="25" rx="8"></rect>
+        <text x="${laneStart - 48}" y="${laneY - 17}">← 출구</text>
+      </g>
+      <g class="lot-access-tag entrance" aria-label="주차장 입구">
+        <rect x="${laneStart - 82}" y="${laneY + 9}" width="68" height="25" rx="8"></rect>
+        <text x="${laneStart - 48}" y="${laneY + 26}">→ 입구</text>
+      </g>
     `);
   }
 
@@ -338,7 +368,8 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = []) 
   if (showLidarMarkers) {
     for (const sensor of sensors) {
       const cx = sx(sensor.x);
-      const cy = sy(sensor.y) - 42;
+      // 센서의 실제 x 좌표는 유지하고, y=0인 주행 구역 중앙선에 표시한다.
+      const cy = sy(sensor.y);
       const isSelected = selectedMapItem?.type === "sensor" && selectedMapItem.id === sensor.id;
       parts.push(`
         <g class="lot-selectable" role="button" tabindex="0"
@@ -381,28 +412,57 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = []) 
     const cx = sx(robot.x);
     const cy = sy(robot.y);
     const isSelected = selectedMapItem?.type === "robot" && selectedMapItem.id === robot.id;
-    const statusText = statusLabels[robot.status] || robot.status;
-    const badgeWidth = robot.status === "OFFLINE" ? 46 : statusText.length >= 4 ? 40 : 34;
+    const currentRequest = robot.current_task_id == null
+      ? null
+      : requests.find((request) => request.id === robot.current_task_id);
+    const pairedRobotIds = currentRequest ? assignedRobotIds(currentRequest) : [robot.id];
+    const obstacleAlert = alerts.find(
+      (alert) => alert.category === "OBSTACLE" &&
+        (alert.robot_id == null || pairedRobotIds.includes(alert.robot_id))
+    );
+    const visualStatus = obstacleAlert ? "PAUSED" : robot.status;
+    const statusText = obstacleAlert ? "일시 정지" : statusLabels[robot.status] || robot.status;
+    const badgeWidth = visualStatus === "OFFLINE" ? 46 : statusText.length >= 4 ? 40 : 34;
     const badgeX = cx + LOT_ROBOT_CARD_WIDTH / 2 - badgeWidth - 7;
+    const speech = robotSpeechBubbles.get(robot.id);
+    if (speech && speech.expiresAt <= Date.now()) {
+      robotSpeechBubbles.delete(robot.id);
+    }
+    const activeSpeech = robotSpeechBubbles.get(robot.id);
+    const robotSubtitle = robotMapSubtitle(robot, requests, Boolean(obstacleAlert));
+    const robotIconY = robotSubtitle ? cy + 2 : cy + 10;
+    const speechWidth = activeSpeech
+      ? Math.max(54, Math.min(96, activeSpeech.text.length * 9 + 20))
+      : 0;
     parts.push(`
-      <g class="lot-selectable lot-robot-marker ${robot.status}" role="button" tabindex="0"
+      <g class="lot-selectable lot-robot-marker ${visualStatus}" role="button" tabindex="0"
         data-entity-type="robot" data-entity-id="${robot.id}" aria-label="${shortRobotName(robot.id)} ${statusText}">
+        ${activeSpeech ? `
+          <g class="lot-robot-speech" aria-hidden="true">
+            <rect x="${cx - speechWidth / 2}" y="${cy - 69}"
+              width="${speechWidth}" height="23" rx="11"></rect>
+            <path d="M ${cx - 5} ${cy - 46} L ${cx} ${cy - 39} L ${cx + 5} ${cy - 46} Z"></path>
+            <text x="${cx}" y="${cy - 53}">${activeSpeech.text}</text>
+          </g>
+        ` : ""}
         <rect
-          class="lot-robot-card ${robot.status} ${isSelected ? "selected" : ""}"
+          class="lot-robot-card ${visualStatus} ${isSelected ? "selected" : ""}"
           x="${cx - LOT_ROBOT_CARD_WIDTH / 2}" y="${cy - LOT_ROBOT_CARD_HEIGHT / 2}"
           width="${LOT_ROBOT_CARD_WIDTH}" height="${LOT_ROBOT_CARD_HEIGHT}" rx="12"
         ></rect>
-        <text class="lot-robot-name" x="${cx - LOT_ROBOT_CARD_WIDTH / 2 + 9}" y="${cy - 21}">
+        <text class="lot-robot-name" x="${cx - LOT_ROBOT_CARD_WIDTH / 2 + 9}" y="${cy - 26}">
           ${shortRobotName(robot.id)}
         </text>
-        <rect class="lot-robot-badge ${robot.status}"
-          x="${badgeX}" y="${cy - 31}" width="${badgeWidth}" height="16" rx="8"></rect>
-        <text class="lot-robot-badge-label ${robot.status}"
-          x="${badgeX + badgeWidth / 2}" y="${cy - 20}">${statusText}</text>
-        <text class="lot-robot-icon" x="${cx}" y="${cy + 3}" aria-hidden="true">🤖</text>
-        <text class="lot-robot-subtitle" x="${cx}" y="${cy + 28}">
-          ${robotMapSubtitle(robot, requests)}
-        </text>
+        <rect class="lot-robot-badge ${visualStatus}"
+          x="${badgeX}" y="${cy - 36}" width="${badgeWidth}" height="17" rx="8.5"></rect>
+        <text class="lot-robot-badge-label ${visualStatus}"
+          x="${badgeX + badgeWidth / 2}" y="${cy - 24}">${statusText}</text>
+        <text class="lot-robot-icon" x="${cx}" y="${robotIconY}" aria-hidden="true">🤖</text>
+        ${robotSubtitle ? `
+          <text class="lot-robot-subtitle" x="${cx}" y="${cy + 33}">
+            ${robotSubtitle}
+          </text>
+        ` : ""}
       </g>
     `);
   }
@@ -427,7 +487,8 @@ function selectMapItem(type, id) {
     latestDashboard.robots,
     latestDashboard.map,
     latestDashboard.sensors,
-    latestDashboard.requests
+    latestDashboard.requests,
+    latestDashboard.alerts
   );
   renderSelectionDetail(latestDashboard);
 }
@@ -448,7 +509,8 @@ function toggleLidarMarkers() {
     latestDashboard.robots,
     latestDashboard.map,
     latestDashboard.sensors || [],
-    latestDashboard.requests || []
+    latestDashboard.requests || [],
+    latestDashboard.alerts || []
   );
   renderSelectionDetail(latestDashboard);
 }
@@ -510,12 +572,7 @@ function renderSelectionDetail(dashboard) {
     const currentRequest = (dashboard.requests || []).find(
       (request) => request.slot_id === slot.id && !["COMPLETED", "CANCELLED"].includes(request.status)
     );
-    const onlineSensors = sensors.filter((sensor) => sensor.status === "ONLINE").length;
-    const sensorLabel = dashboard.system?.mode === "mock"
-      ? `Mock ${sensors.length}/${sensors.length}`
-      : onlineSensors === sensors.length
-        ? `정상 ${onlineSensors}/${sensors.length}`
-        : `확인 필요 ${onlineSensors}/${sensors.length}`;
+    const assignedIds = currentRequest ? assignedRobotIds(currentRequest) : [];
     detail.innerHTML = `
       <span class="detail-kicker">주차면 상세</span>
       <div class="detail-title-row">
@@ -524,10 +581,15 @@ function renderSelectionDetail(dashboard) {
       </div>
       <dl class="detail-list">
         <div><dt>상태</dt><dd>${statusLabels[slot.status]}</dd></div>
-        <div><dt>차량 번호</dt><dd>${slot.vehicle_number || "차량 없음"}</dd></div>
-        <div><dt>현재 작업</dt><dd>${currentRequest ? `${requestTypeLabels[currentRequest.request_type]} #${currentRequest.id} · ${requestStatusLabel(currentRequest)}` : "없음"}</dd></div>
-        <div><dt>LiDAR 수신</dt><dd>${sensorLabel}</dd></div>
-        <div><dt>구역 유형</dt><dd>${slot.is_accessible ? "교통약자 주차면" : "일반 주차면"}</dd></div>
+        ${slot.vehicle_number ? `
+          <div><dt>차량 번호</dt><dd>${slot.vehicle_number}</dd></div>
+        ` : ""}
+        ${currentRequest ? `
+          <div><dt>현재 작업</dt><dd>${requestTypeLabels[currentRequest.request_type]} 요청 #${currentRequest.id} · ${requestStatusLabel(currentRequest)}</dd></div>
+        ` : ""}
+        ${assignedIds.length ? `
+          <div><dt>할당 로봇</dt><dd>${assignedRobotLabel(currentRequest)}</dd></div>
+        ` : ""}
       </dl>
     `;
     return;
@@ -558,7 +620,13 @@ function renderSelectionDetail(dashboard) {
     ? null
     : (dashboard.requests || []).find((request) => request.id === robot.current_task_id);
   const robotAlert = (dashboard.alerts || []).find(
-    (alert) => alert.robot_id === robot.id || (!alert.robot_id && alert.category === "OBSTACLE")
+    (alert) => alert.robot_id === robot.id ||
+      (!alert.robot_id && alert.category === "OBSTACLE") ||
+      (
+        alert.category === "OBSTACLE" &&
+        currentRequest &&
+        assignedRobotIds(currentRequest).includes(alert.robot_id)
+      )
   );
   const communicationLabel = robot.status === "OFFLINE"
     ? "데이터 미수신"
@@ -575,6 +643,7 @@ function renderSelectionDetail(dashboard) {
     ? currentRequest.slot_id || "주차면 배정 중"
     : "없음";
   const safetyLabel = robotAlert?.message || robot.error_message || "이상 없음";
+  const isObstaclePaused = robotAlert?.category === "OBSTACLE";
   const updateLabel = lastDashboardReceivedAt
     ? lastDashboardReceivedAt.toLocaleTimeString("ko-KR", {
         hour: "2-digit",
@@ -586,7 +655,7 @@ function renderSelectionDetail(dashboard) {
     <span class="detail-kicker">로봇 상세</span>
     <div class="detail-title-row">
       <h3>🤖 ${shortRobotName(robot.id)}</h3>
-      <span class="badge ${robot.status}">${robotOperationLabel(robot, currentRequest)}</span>
+      <span class="badge ${isObstaclePaused ? "PAUSED" : robot.status}">${isObstaclePaused ? "장애물 정지" : robotOperationLabel(robot, currentRequest)}</span>
     </div>
     <dl class="detail-list robot-detail-list">
       <div><dt>시스템 ID</dt><dd>${robot.id}</dd></div>
@@ -628,10 +697,53 @@ function workflowEventForStatus(request) {
   };
 }
 
-function captureRequestEvents(requests) {
+function showRobotSpeech(robotIds, text, durationMs = 2000) {
+  const expiresAt = Date.now() + durationMs;
+  for (const robotId of robotIds) {
+    robotSpeechBubbles.set(robotId, { text, expiresAt });
+  }
+}
+
+function showRequestStatusSpeech(request, system) {
+  const robotIds = assignedRobotIds(request);
+  if (!robotIds.length) return;
+  const isDemo = system?.mode === "mock";
+  const messages = isDemo
+    ? {
+        ROBOT_ASSIGNED: "출발!",
+        RETURNING: "복귀합니다",
+        COMPLETED: "도착!",
+      }
+    : {
+        ROBOT_ASSIGNED: "이동 시작",
+        RETURNING: "대기 구역 복귀",
+        COMPLETED: "복귀 완료",
+      };
+  const message = messages[request.status];
+  if (message) showRobotSpeech(robotIds, message);
+}
+
+function captureAlertSpeech(alerts, robots, system) {
+  for (const alert of alerts) {
+    if (seenSpeechAlertIds.has(alert.id)) continue;
+    seenSpeechAlertIds.add(alert.id);
+    if (alert.category !== "OBSTACLE") continue;
+    const targetIds = alert.robot_id
+      ? [alert.robot_id]
+      : robots.filter((robot) => robot.status === "BUSY").map((robot) => robot.id);
+    showRobotSpeech(
+      targetIds,
+      system?.mode === "mock" ? "장애물 발견!" : "장애물 감지",
+      2500
+    );
+  }
+}
+
+function captureRequestEvents(requests, system) {
   if (!requests.length) {
     lastRequestStates.clear();
     recentWorkflowEvents = [];
+    robotSpeechBubbles.clear();
     return;
   }
 
@@ -647,8 +759,12 @@ function captureRequestEvents(requests) {
       if (request.status !== "WAITING") {
         recentWorkflowEvents.push(workflowEventForStatus(request));
       }
+      if (!["COMPLETED", "CANCELLED"].includes(request.status)) {
+        showRequestStatusSpeech(request, system);
+      }
     } else if (previousStatus !== request.status) {
       recentWorkflowEvents.push(workflowEventForStatus(request));
+      showRequestStatusSpeech(request, system);
     }
     lastRequestStates.set(request.id, request.status);
   }
@@ -667,7 +783,7 @@ function renderRecentEvents(alerts) {
     ...recentWorkflowEvents,
   ]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .slice(0, 3);
+    .slice(0, 12);
 
   const container = document.getElementById("recentEventList");
   if (!events.length) {
@@ -761,6 +877,13 @@ function renderRequests(requests, system) {
 function renderAlerts(alerts) {
   const panel = document.getElementById("alertPanel");
   const list = document.getElementById("alertList");
+  const activeObstacle = alerts.find((alert) => alert.category === "OBSTACLE");
+  const obstacleButton = document.getElementById("obstacleButton");
+  activeObstacleAlertId = activeObstacle?.id ?? null;
+  obstacleButton.textContent = activeObstacle
+    ? "장애물 제거 · 재개"
+    : "장애물 감지 · 정지";
+  obstacleButton.classList.toggle("resume", Boolean(activeObstacle));
 
   if (!alerts.length) {
     panel.classList.add("hidden");
@@ -824,6 +947,9 @@ function renderSystem(system) {
   document
     .getElementById("mockVehicleGuide")
     .classList.toggle("hidden", !system.mock_controls);
+  document
+    .getElementById("obstacleButton")
+    .classList.toggle("hidden", !system.mock_controls);
 }
 
 function showMessage(message, isError = false) {
@@ -846,6 +972,7 @@ function updateLiveStatus(isOnline, system) {
   const status = document.getElementById("liveUpdateStatus");
   if (!status) return;
 
+  status.classList.remove("hidden");
   status.classList.remove("pending", "offline");
   if (!isOnline) {
     status.classList.add("offline");
@@ -854,7 +981,8 @@ function updateLiveStatus(isOnline, system) {
   }
 
   if (system?.mode === "mock") {
-    status.querySelector("span").textContent = "MOCK · 테스트 데이터";
+    // 전역 헤더의 Mock Mode 배지와 중복되므로 도면 내부 표시는 숨긴다.
+    status.classList.add("hidden");
     return;
   }
 
@@ -884,12 +1012,33 @@ async function refreshDashboard() {
       }
     }
 
-    renderSummary(data.summary, data.robots, data.sensors || [], data.system);
-    renderLotMap(data.slots, data.robots, data.map, data.sensors || [], data.requests);
+    // 첫 화면에서도 상세 패널이 비어 보이지 않도록 주차된 주차면을
+    // 우선 선택하고, 없으면 첫 번째 주차면을 기본값으로 사용한다.
+    if (!selectedMapItem) {
+      const defaultSlot = data.slots.find((slot) => slot.status === "OCCUPIED") || data.slots[0];
+      if (defaultSlot) selectedMapItem = { type: "slot", id: defaultSlot.id };
+    }
+
+    renderSummary(
+      data.summary,
+      data.robots,
+      data.sensors || [],
+      data.system,
+      data.alerts || []
+    );
+    captureRequestEvents(data.requests, data.system);
+    captureAlertSpeech(data.alerts || [], data.robots, data.system);
+    renderLotMap(
+      data.slots,
+      data.robots,
+      data.map,
+      data.sensors || [],
+      data.requests,
+      data.alerts || []
+    );
     renderSelectionDetail(data);
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || []);
-    captureRequestEvents(data.requests);
     renderRecentEvents(data.alerts || []);
     renderSystem(data.system);
     updateLiveStatus(true, data.system);
@@ -947,6 +1096,7 @@ document
       }
       event.target.reset();
       await refreshDashboard();
+      activateWorkspaceTab("live");
     } catch (error) {
       showMessage(error.message, true);
     }
@@ -993,7 +1143,11 @@ document
   .getElementById("obstacleButton")
   .addEventListener("click", async () => {
     try {
-      await apiRequest("/mock/obstacle", { method: "POST" });
+      if (activeObstacleAlertId != null) {
+        await apiRequest(`/alerts/${activeObstacleAlertId}/resolve`, { method: "POST" });
+      } else {
+        await apiRequest("/mock/obstacle", { method: "POST" });
+      }
       await refreshDashboard();
     } catch (error) {
       showMessage(error.message, true);
