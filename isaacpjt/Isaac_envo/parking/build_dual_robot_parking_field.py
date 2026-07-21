@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parent
 PARKING_USD = ROOT / "parking_environment_with_markers.usd"
 PROJECT_ROOT = ROOT.parent.parent
 ROBOT_PACKAGE = PROJECT_ROOT / "hwia_parking_robot_final_caster_package"
-ROBOT_USD = ROBOT_PACKAGE / "hwia_depth_cam_mecha_roller.usd"
+# 바퀴를 3cm 내려 지상고를 올린 변형(make_lowered_wheel_asset.py 산출, 원본 비파괴).
+# 원본과 리프트 테스트는 그대로 두므로 검증된 물리에 영향 없음.
+ROBOT_USD = ROBOT_PACKAGE / "hwia_depth_cam_mecha_roller_lowered.usd"
 ROBOT_REF = f"../../{ROBOT_PACKAGE.name}/{ROBOT_USD.name}"
 OUTPUT_USD = ROOT / "parking_robot_field_dual_markers.usd"
 
