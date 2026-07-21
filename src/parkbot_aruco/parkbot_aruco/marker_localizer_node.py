@@ -16,6 +16,7 @@ M2(검출, aruco_pose)와 M3(월드 측위, marker_localizer)를 한 노드에�
     ros2 run parkbot_aruco marker_localizer_node --ros-args -p fuse:=true
 """
 
+import math
 import os
 
 import numpy as np
@@ -52,12 +53,14 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("max_reproj_px", 3.0)
         self.declare_parameter("fuse", False)              # 오도메트리 융합(구독 필요)
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
+        self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
 
         image_topic = self.get_parameter("image_topic").value
         info_topic = self.get_parameter("camera_info_topic").value
         map_param = self.get_parameter("marker_map").value
         self.max_reproj = float(self.get_parameter("max_reproj_px").value)
         self.log_every = max(1, int(self.get_parameter("log_every").value))
+        self.frame = self.get_parameter("frame").value
         self.T_base_cam = np.array(
             self.get_parameter("t_base_cam").value, dtype=np.float64).reshape(4, 4)
 
@@ -122,9 +125,20 @@ class MarkerLocalizerNode(Node):
 
             ps = PoseStamped()
             ps.header = msg.header
-            ps.pose.position.x = fix.x
-            ps.pose.position.y = 0.0
-            ps.pose.position.z = fix.z
+            if self.frame == "ros_map":
+                # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2
+                # (psi=atan2(fwd_x,fwd_z). 부호는 GT 대조 실측으로 확정 —
+                #  verify_leader_localization.py)
+                ps.header.frame_id = "map"
+                ps.pose.position.x = fix.x
+                ps.pose.position.y = -fix.z
+                ros_yaw = math.radians(fix.yaw_deg) - math.pi / 2.0
+                ps.pose.orientation.z = math.sin(ros_yaw / 2.0)
+                ps.pose.orientation.w = math.cos(ros_yaw / 2.0)
+            else:
+                ps.pose.position.x = fix.x
+                ps.pose.position.y = 0.0
+                ps.pose.position.z = fix.z
             self.pub_pose.publish(ps)
 
 
