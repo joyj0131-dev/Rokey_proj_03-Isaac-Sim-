@@ -95,13 +95,18 @@ def get_system():
     alerts = snapshot["alerts"]
 
     has_error = any(alert.level == "ERROR" for alert in alerts)
-    has_warning = any(alert.level == "WARNING" for alert in alerts)
+    sensors = datasource.get_sensor_status()
+    has_warning = any(alert.level == "WARNING" for alert in alerts) or (
+        config.PARKING_MODE == "ros2"
+        and any(sensor["status"] != "ONLINE" for sensor in sensors)
+    )
 
     health = "ERROR" if has_error else "WARNING" if has_warning else "OK"
 
     return {
         "mode": config.PARKING_MODE,
         "mock_controls": datasource.supports_mock_controls,
+        "mock_auto_advance": datasource.mock_auto_advance,
         "health": health,
     }
 
@@ -112,9 +117,13 @@ def get_dashboard():
     slots = snapshot["slots"]
     requests = snapshot["requests"]
     alerts = snapshot["alerts"]
+    sensors = datasource.get_sensor_status()
 
     has_error = any(alert.level == "ERROR" for alert in alerts)
-    has_warning = any(alert.level == "WARNING" for alert in alerts)
+    has_warning = any(alert.level == "WARNING" for alert in alerts) or (
+        config.PARKING_MODE == "ros2"
+        and any(sensor["status"] != "ONLINE" for sensor in sensors)
+    )
 
     return {
         "robots": snapshot["robots"],
@@ -122,7 +131,9 @@ def get_dashboard():
         "requests": list(reversed(requests)),
         "alerts": list(reversed(alerts)),
         "map": datasource.get_map_info(),
+        "sensors": sensors,
         "summary": {
+            "total_slots": len(slots),
             "empty_slots": sum(slot.status == "EMPTY" for slot in slots),
             "occupied_slots": sum(slot.status == "OCCUPIED" for slot in slots),
             "active_requests": sum(
@@ -134,6 +145,7 @@ def get_dashboard():
         "system": {
             "mode": config.PARKING_MODE,
             "mock_controls": datasource.supports_mock_controls,
+            "mock_auto_advance": datasource.mock_auto_advance,
             "health": (
                 "ERROR" if has_error else "WARNING" if has_warning else "OK"
             ),

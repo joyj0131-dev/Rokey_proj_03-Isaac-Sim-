@@ -8,92 +8,11 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <nav class="sidebar-nav">
-        <button type="button" class="sidebar-link active">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-              <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.1" />
-              <rect x="9" y="1.5" width="5.5" height="5.5" rx="1.1" />
-              <rect x="1.5" y="9" width="5.5" height="5.5" rx="1.1" />
-              <rect x="9" y="9" width="5.5" height="5.5" rx="1.1" />
-            </svg>
-          </span>
-          <span class="sidebar-label">통합 관제</span>
-        </button>
-
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 5h9M8 2.5 11 5 8 7.5" />
-              <path d="M14 11H5M8 8.5 5 11 8 13.5" />
-            </svg>
-          </span>
-          <span class="sidebar-label">입·출차 요청</span>
-        </button>
-
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2.5 4.5h11M2.5 8h9M2.5 11.5h7" />
-            </svg>
-          </span>
-          <span class="sidebar-label">작업 관리</span>
-        </button>
-
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-              <path d="M6 2.5v11M10.5 2.5v11" />
-            </svg>
-          </span>
-          <span class="sidebar-label">주차면 관리</span>
-        </button>
-
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="8" cy="8" r="6" />
-              <path d="M8 4.5V8l3 1.8" />
-            </svg>
-          </span>
-          <span class="sidebar-label">이벤트 이력</span>
-        </button>
-
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-              <path d="M2 4.5h5.5M11 4.5h3M2 8h3M7.5 8h6.5M2 11.5h8M13 11.5h1" />
-              <circle cx="8.7" cy="4.5" r="1.3" fill="currentColor" stroke="none" />
-              <circle cx="5" cy="8" r="1.3" fill="currentColor" stroke="none" />
-              <circle cx="11" cy="11.5" r="1.3" fill="currentColor" stroke="none" />
-            </svg>
-          </span>
-          <span class="sidebar-label">시스템 설정</span>
-        </button>
-      </nav>
-
-      <div class="sidebar-footer">
-        <button type="button" class="sidebar-link">
-          <span class="sidebar-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5.5 3.5 1.5 8l4 4.5M10.5 3.5l4 4.5-4 4.5" />
-            </svg>
-          </span>
-          <span class="sidebar-label">개발자 도구</span>
-        </button>
-      </div>
-    </aside>
-
     <div class="app-main">
       <header class="topbar">
         <div class="brand-area">
           <div class="brand-icon">P</div>
-          <div>
-            <p class="eyebrow">AUTONOMOUS PARKING SYSTEM</p>
-            <h1>주차로봇 통합 관제센터</h1>
-          </div>
+          <h1>주차로봇 통합 관제센터</h1>
         </div>
 
         <div class="header-actions">
@@ -105,162 +24,192 @@
         </div>
       </header>
 
+      <nav class="workspace-tabs" aria-label="관제 화면 선택" role="tablist">
+        <button
+          type="button"
+          class="workspace-tab active"
+          role="tab"
+          aria-selected="true"
+          aria-controls="tab-live"
+          data-tab="live"
+        >
+          실시간 도면
+        </button>
+        <button
+          type="button"
+          class="workspace-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-requests"
+          data-tab="requests"
+        >
+          입·출차 요청
+        </button>
+        <button
+          type="button"
+          class="workspace-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-tasks"
+          data-tab="tasks"
+        >
+          작업·이벤트
+          <span id="taskTabCount" class="tab-count">0</span>
+        </button>
+      </nav>
+
       <main class="dashboard">
-    <section id="summaryCards" class="summary-grid"></section>
-
-    <section id="alertPanel" class="panel alert-panel hidden">
-      <div class="panel-header">
-        <div>
-          <p class="panel-label">SYSTEM ALERTS</p>
-          <h2>에러 · 장애물 감지</h2>
-          <p class="panel-description">
-            로봇 오류와 장애물 감지 이벤트를 표시합니다.
-          </p>
-        </div>
-      </div>
-
-      <div id="alertList" class="alert-list"></div>
-    </section>
-
-    <section class="content-grid">
-      <article class="panel request-panel">
-        <div class="panel-header">
-          <div>
-            <p class="panel-label">USER REQUEST</p>
-            <h2>입고 · 출차 요청</h2>
-            <p class="panel-description">
-              차량 번호를 입력하여 주차 작업을 등록합니다.
-            </p>
+        <section id="alertPanel" class="panel alert-panel hidden" aria-live="polite">
+          <div class="panel-header">
+            <div>
+              <h2>에러 · 장애물 감지</h2>
+              <p class="panel-description">
+                긴급 알림은 어떤 탭을 보고 있어도 항상 표시됩니다.
+              </p>
+            </div>
           </div>
-        </div>
+          <div id="alertList" class="alert-list"></div>
+        </section>
 
-        <form id="requestForm">
-          <div class="request-fields">
-            <label>
-              <span>요청 유형</span>
-              <select id="requestType">
-                <option value="PARK_IN">입고 요청</option>
-                <option value="PARK_OUT">출차 요청</option>
-              </select>
-            </label>
+        <section
+          id="tab-live"
+          class="tab-panel active"
+          role="tabpanel"
+          data-panel="live"
+        >
+          <section id="summaryCards" class="status-overview" aria-label="주차장 상태 요약"></section>
 
-            <label>
-              <span>차량 번호</span>
-              <input
-                id="vehicleNumber"
-                type="text"
-                placeholder="예: 12가3456"
-                autocomplete="off"
-                required
-              />
-            </label>
-          </div>
+          <section class="panel live-floor-panel">
+            <div class="panel-header live-panel-header">
+              <div class="live-title-group">
+                <h2>주차장 실시간 도면</h2>
+                <span class="live-refresh-copy">작업 중 0.5초 · 평시 2초 갱신</span>
+              </div>
 
-          <button type="submit" class="primary-button">
-            요청 등록
-          </button>
-        </form>
+              <div class="map-header-status">
+                <button
+                  id="lidarVisibilityButton"
+                  type="button"
+                  class="map-toggle-button"
+                  aria-pressed="false"
+                >
+                  LiDAR 위치 켜기
+                </button>
+                <div id="liveUpdateStatus" class="live-update-status pending">
+                  <i></i>
+                  <span>연결 확인 중</span>
+                </div>
+              </div>
+            </div>
 
-        <div class="test-guide">
-          <span class="guide-title">출차 테스트 차량</span>
-          <span class="vehicle-chip">12가3456</span>
-          <span class="vehicle-chip">34나7890</span>
-        </div>
+            <div class="live-floor-layout">
+              <div class="lot-map-wrap">
+                <svg id="lotMap" viewBox="0 0 1100 430" preserveAspectRatio="xMidYMid meet"></svg>
+                <p id="lotMapEmpty" class="lot-map-empty hidden">
+                  위치 정보가 있는 슬롯/로봇이 없습니다.
+                </p>
+              </div>
 
-        <div id="messageBox" class="message-box hidden"></div>
-      </article>
+              <aside id="selectionDetail" class="selection-detail" aria-live="polite">
+                <span class="detail-kicker">선택 정보</span>
+                <h3>도면에서 항목을 선택하세요</h3>
+                <p>주차면이나 로봇을 누르면 상태를 자세히 확인할 수 있습니다.</p>
+              </aside>
+            </div>
+          </section>
 
-      <article class="panel">
-        <div class="panel-header">
-          <div>
-            <p class="panel-label">ROBOT FLEET</p>
-            <h2>로봇 상태</h2>
-            <p class="panel-description">
-              로봇의 작업 상태와 배터리를 확인합니다.
-            </p>
-          </div>
-        </div>
+          <section class="recent-events" aria-labelledby="recentEventsTitle">
+            <div class="recent-events-heading">
+              <h2 id="recentEventsTitle">최근 이벤트</h2>
+              <button type="button" class="text-button" data-open-tab="tasks">전체 보기</button>
+            </div>
+            <div id="recentEventList" class="recent-event-list"></div>
+          </section>
+        </section>
 
-        <div id="robotList" class="robot-list"></div>
-      </article>
-    </section>
+        <section
+          id="tab-requests"
+          class="tab-panel"
+          role="tabpanel"
+          data-panel="requests"
+          hidden
+        >
+          <article class="panel request-panel request-workspace">
+            <div class="panel-header">
+              <div>
+                <h2>입고 · 출차 요청</h2>
+                <p class="panel-description">
+                  차량 번호를 입력하여 주차 작업을 등록합니다.
+                </p>
+              </div>
+            </div>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="panel-label">LIVE FLOOR PLAN</p>
-          <h2>주차장 실시간 도면</h2>
-          <p class="panel-description">
-            A/B 주차면과 로봇의 실제 위치를 2초마다 자동 갱신합니다.
-          </p>
-        </div>
+            <form id="requestForm">
+              <div class="request-fields">
+                <label>
+                  <span>요청 유형</span>
+                  <select id="requestType">
+                    <option value="PARK_IN">입고 요청</option>
+                    <option value="PARK_OUT">출차 요청</option>
+                  </select>
+                </label>
+                <label>
+                  <span>차량 번호</span>
+                  <input
+                    id="vehicleNumber"
+                    type="text"
+                    placeholder="예: 12가3456"
+                    autocomplete="off"
+                    required
+                  />
+                </label>
+              </div>
+              <button type="submit" class="primary-button">요청 등록</button>
+            </form>
 
-        <div class="map-header-status">
-          <div id="liveUpdateStatus" class="live-update-status pending">
-            <i></i>
-            <span>연결 확인 중</span>
-          </div>
-          <div class="legend">
-            <span><i class="legend-dot empty"></i>빈 공간</span>
-            <span><i class="legend-dot reserved"></i>예약</span>
-            <span><i class="legend-dot occupied"></i>주차 중</span>
-          </div>
-        </div>
-      </div>
+            <div id="mockVehicleGuide" class="test-guide">
+              <span class="guide-title">테스트 차량 자동 입력</span>
+              <button type="button" class="vehicle-chip" data-vehicle-number="12가3456">12가3456</button>
+              <button type="button" class="vehicle-chip" data-vehicle-number="34나7890">34나7890</button>
+            </div>
+            <div id="messageBox" class="message-box hidden"></div>
+          </article>
+        </section>
 
-      <div class="lot-map-wrap">
-        <svg id="lotMap" viewBox="0 0 1100 430" preserveAspectRatio="xMidYMid meet"></svg>
-        <p id="lotMapEmpty" class="lot-map-empty hidden">
-          위치 정보가 있는 슬롯/로봇이 없습니다.
-        </p>
-      </div>
-    </section>
+        <section
+          id="tab-tasks"
+          class="tab-panel"
+          role="tabpanel"
+          data-panel="tasks"
+          hidden
+        >
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>작업 요청 목록</h2>
+                <p class="panel-description">
+                  등록된 입고·출차 작업의 진행 단계와 이벤트를 확인합니다.
+                </p>
+              </div>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="panel-label">PARKING MAP</p>
-          <h2>주차면 현황</h2>
-          <p class="panel-description">
-            각 주차면의 사용 상태와 차량 번호를 표시합니다.
-          </p>
-        </div>
-
-        <div class="legend">
-          <span><i class="legend-dot empty"></i>빈 공간</span>
-          <span><i class="legend-dot reserved"></i>예약</span>
-          <span><i class="legend-dot occupied"></i>주차 중</span>
-        </div>
-      </div>
-
-      <div id="slotGrid" class="slot-grid"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="panel-label">TASK MONITOR</p>
-          <h2>작업 요청 목록</h2>
-          <p class="panel-description">
-            등록된 입고·출차 작업의 진행 단계를 확인합니다.
-          </p>
-        </div>
-
-        <div id="mockControls" class="panel-actions">
-          <button id="obstacleButton" class="secondary-button warn">
-            장애물 감지 시뮬레이션
-          </button>
-          <button id="errorButton" class="secondary-button danger">
-            로봇 오류 시뮬레이션
-          </button>
-          <button id="resetButton" class="secondary-button">
-            Mock 초기화
-          </button>
-        </div>
-      </div>
-
-      <div id="requestTable"></div>
-    </section>
+              <details id="mockControls" class="mock-tools">
+                <summary>테스트 도구</summary>
+                <div class="panel-actions mock-tools-actions">
+                  <button id="obstacleButton" class="secondary-button warn">
+                    장애물 감지
+                  </button>
+                  <button id="errorButton" class="secondary-button danger">
+                    로봇 오류
+                  </button>
+                  <button id="resetButton" class="secondary-button">
+                    Mock 초기화
+                  </button>
+                </div>
+              </details>
+            </div>
+            <div id="requestTable"></div>
+          </section>
+        </section>
       </main>
     </div>
   </div>

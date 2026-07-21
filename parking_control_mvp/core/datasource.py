@@ -29,6 +29,7 @@ class DataSource(ABC):
     #: Mock 제어(다음 단계 / 초기화 / 이벤트 시뮬레이션) 지원 여부.
     #: 실제 시스템(ROS2) 모드에서는 False가 되어 UI에서 관련 버튼이 숨겨진다.
     supports_mock_controls: bool = False
+    mock_auto_advance: bool = False
 
     def __init__(self, store: StateStore) -> None:
         self.store = store
@@ -65,4 +66,8 @@ class DataSource(ABC):
         슬롯/로봇처럼 매번 바뀌는 값이 아니라 지도 자체의 고정 배치라
         StateStore가 아니라 여기서 별도로 제공한다. 기본값은 빈 레이아웃.
         """
-        return {"docks": [], "entrance": None}
+        return {"docks": [], "entrance": None, "sensors": []}
+
+    def get_sensor_status(self) -> list[dict]:
+        """웹 도면에 표시할 센서 연결 상태. 구현이 없으면 빈 목록."""
+        return []

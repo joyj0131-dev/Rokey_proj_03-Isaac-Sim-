@@ -18,8 +18,9 @@ class RequestType(str, Enum):
 class RequestStatus(str, Enum):
     """작업 진행 단계.
 
-    task_dispatcher 예상 흐름(6단계)에 맞춘 상태 정의:
-    요청 대기 → 로봇 할당 → 차량 접근 → 차량 리프트 → 주차 위치 이동 → 완료
+    task_dispatcher 예상 흐름에 복귀 감시 단계를 더한 상태 정의:
+    요청 대기 → 로봇 할당 → 차량 접근 → 차량 리프트 → 주차 위치 이동
+    → 대기 구역 복귀 → 완료
     """
 
     WAITING = "WAITING"                  # 요청 대기
@@ -27,6 +28,7 @@ class RequestStatus(str, Enum):
     APPROACHING = "APPROACHING"          # 차량 접근
     LIFTING = "LIFTING"                  # 차량 리프트
     MOVING_TO_SLOT = "MOVING_TO_SLOT"    # 주차 위치 이동
+    RETURNING = "RETURNING"              # 작업 후 대기 구역 복귀
     COMPLETED = "COMPLETED"              # 완료
     CANCELLED = "CANCELLED"              # 취소
 
@@ -37,7 +39,8 @@ STATUS_TRANSITIONS: dict[RequestStatus, RequestStatus] = {
     RequestStatus.ROBOT_ASSIGNED: RequestStatus.APPROACHING,
     RequestStatus.APPROACHING: RequestStatus.LIFTING,
     RequestStatus.LIFTING: RequestStatus.MOVING_TO_SLOT,
-    RequestStatus.MOVING_TO_SLOT: RequestStatus.COMPLETED,
+    RequestStatus.MOVING_TO_SLOT: RequestStatus.RETURNING,
+    RequestStatus.RETURNING: RequestStatus.COMPLETED,
 }
 
 TERMINAL_STATUSES = {RequestStatus.COMPLETED, RequestStatus.CANCELLED}
@@ -55,6 +58,8 @@ class ParkingRequest(BaseModel):
     vehicle_number: str
     slot_id: str | None
     robot_id: str | None
+    #: 협업 운반에 참여하는 로봇 목록. robot_id는 기존 API 호환용 대표 로봇.
+    robot_ids: list[str] = Field(default_factory=list)
     status: RequestStatus
     created_at: str
     #: task_dispatcher가 발급한 task_id (UUID). mock 모드에서는 None.

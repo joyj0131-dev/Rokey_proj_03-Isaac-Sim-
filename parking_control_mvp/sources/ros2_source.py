@@ -18,12 +18,16 @@ DETECTING/NAVIGATING/ALIGNING/LIFTING로 세분화한다. NAVIGATING은 리프�
 """
 
 import threading
+import time
+from collections import deque
 from datetime import datetime
 
 import mysql.connector
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import PointCloud2
 
 from parking_robot_interfaces.msg import ObstacleAlert, TaskState
 from parking_robot_interfaces.srv import RequestParkingTask
@@ -59,9 +63,11 @@ _TASK_STATE_BEFORE_LIFT = {
     "NAVIGATING": RequestStatus.APPROACHING,
     "ALIGNING": RequestStatus.APPROACHING,
     "LIFTING": RequestStatus.LIFTING,
+    "RETURNING": RequestStatus.RETURNING,
 }
 _TASK_STATE_AFTER_LIFT = {
     "NAVIGATING": RequestStatus.MOVING_TO_SLOT,
+    "RETURNING": RequestStatus.RETURNING,
 }
 
 # parking_slot_manager_node / task_dispatcher_node 어느 쪽도 find_empty_slot
@@ -76,6 +82,11 @@ _SLOT_STATUS_FROM_TASK = {
     ("EXIT", "PROCESSING"): "OCCUPIED",
     ("EXIT", "DONE"): "EMPTY",
 }
+
+_LIDAR_CONTRACTS = (
+    ("L1", "서쪽", -7.82, 0.0, "/parking/lidar/ceiling_01/points"),
+    ("L2", "동쪽", 7.82, 0.0, "/parking/lidar/ceiling_02/points"),
+)
 
 
 def _now() -> str:
@@ -163,7 +174,19 @@ class Ros2DataSource(DataSource):
         self._task_id_map: dict[str, int] = {}     # external_task_id -> internal id
         self._lifted_tasks: set[str] = set()        # LIFTING을 관측한 external_task_id
         self._fine_status: dict[str, RequestStatus] = {}  # task_state 토픽 기반 세부 상태
-        self._map_info: dict = {"docks": [], "entrance": None}
+        self._map_info: dict = {
+            "docks": [],
+            "entrance": None,
+            "sensors": [
+                {"id": sensor_id, "zone": zone, "x": x, "y": y}
+                for sensor_id, zone, x, y, _topic in _LIDAR_CONTRACTS
+            ],
+        }
+        self._sensor_lock = threading.Lock()
+        self._sensor_received: dict[str, deque] = {
+            sensor_id: deque(maxlen=30)
+            for sensor_id, _zone, _x, _y, _topic in _LIDAR_CONTRACTS
+        }
 
     # ------------------------------------------------------------------
     # 기동/종료
@@ -182,6 +205,13 @@ class Ros2DataSource(DataSource):
         self._node.create_subscription(
             TaskState, config.TASK_STATE_TOPIC, self._on_task_state, 10
         )
+        for sensor_id, _zone, _x, _y, topic in _LIDAR_CONTRACTS:
+            self._node.create_subscription(
+                PointCloud2,
+                topic,
+                lambda _msg, sid=sensor_id: self._on_lidar(sid),
+                qos_profile_sensor_data,
+            )
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
@@ -198,6 +228,10 @@ class Ros2DataSource(DataSource):
         try:
             parking_map = ParkingMap.load(_default_map_yaml())
             self._map_info = _extract_map_info(parking_map)
+            self._map_info["sensors"] = [
+                {"id": sensor_id, "zone": zone, "x": x, "y": y}
+                for sensor_id, zone, x, y, _topic in _LIDAR_CONTRACTS
+            ]
         except Exception as exc:  # 지도 파일이 없어도 나머지 기능은 계속 동작
             self._node.get_logger().warn(
                 f"parking_map.yaml 로드 실패, 도면에 도크/입구 생략: {exc}"
@@ -264,6 +298,7 @@ class Ros2DataSource(DataSource):
                         vehicle_number=row["vehicle_id"],
                         slot_id=row["slot_id"],
                         robot_id=row["robot_id"],
+                        robot_ids=[row["robot_id"]] if row["robot_id"] else [],
                         status=status,
                         created_at=(
                             created_at.isoformat(timespec="seconds")
@@ -328,6 +363,33 @@ class Ros2DataSource(DataSource):
 
     def get_map_info(self) -> dict:
         return self._map_info
+
+    def _on_lidar(self, sensor_id: str) -> None:
+        with self._sensor_lock:
+            self._sensor_received[sensor_id].append(time.monotonic())
+
+    def get_sensor_status(self) -> list[dict]:
+        now = time.monotonic()
+        statuses = []
+        with self._sensor_lock:
+            for sensor_id, _zone, _x, _y, topic in _LIDAR_CONTRACTS:
+                received = self._sensor_received[sensor_id]
+                age = now - received[-1] if received else None
+                rate = None
+                if len(received) >= 2:
+                    elapsed = received[-1] - received[0]
+                    if elapsed > 0:
+                        rate = round((len(received) - 1) / elapsed, 1)
+                statuses.append(
+                    {
+                        "id": sensor_id,
+                        "topic": topic,
+                        "status": "ONLINE" if age is not None and age <= 3.0 else "OFFLINE",
+                        "rate_hz": rate,
+                        "last_seen_sec": round(age, 1) if age is not None else None,
+                    }
+                )
+        return statuses
 
     # ------------------------------------------------------------------
     # 토픽 콜백 (rclpy 스핀 스레드에서 호출됨)
@@ -434,6 +496,7 @@ class Ros2DataSource(DataSource):
                 vehicle_number=vehicle_number,
                 slot_id=payload.slot_id,
                 robot_id=None,
+                robot_ids=[],
                 status=RequestStatus.WAITING,
                 created_at=_now(),
                 external_task_id=response.task_id,
