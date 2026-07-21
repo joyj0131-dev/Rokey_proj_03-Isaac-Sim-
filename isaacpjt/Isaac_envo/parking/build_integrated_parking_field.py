@@ -26,7 +26,7 @@ PROJECT_ROOT = ROOT.parent.parent
 ROBOT_PACKAGE = PROJECT_ROOT / "hwia_parking_robot_final_caster_package"
 # 이 프로젝트의 최종 로봇은 메카넘이다. 폴백을 두지 않는다 — 없으면 즉시 실패해야
 # 조용히 다른 로봇으로 굴러가는 일이 없다.
-ROBOT_USD = ROBOT_PACKAGE / "hwia_parking_robot_final_caster_mecha_roller.usd"
+ROBOT_USD = ROBOT_PACKAGE / "hwia_depth_cam_mecha_roller.usd"
 # OUTPUT_USD가 Isaac_envo/parking/ 에 있으므로 두 단계 올라간다.
 ROBOT_REF = f"../../{ROBOT_PACKAGE.name}/{ROBOT_USD.name}"
 OUTPUT_USD = ROOT / "parking_robot_field.usd"

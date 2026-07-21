@@ -40,11 +40,20 @@ def _style(ax, title):
         spine.set_color(GRID)
 
 
-def render(points, results, lidar_positions, out_path, parking_map):
+def render(points, results, lidar_positions, out_path, parking_map,
+           people_count=None):
     import matplotlib.pyplot as plt
+    from matplotlib import font_manager
     from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
-    plt.rcParams["font.family"] = "NanumGothic"
+    # Isaac Python의 font cache가 시스템 CJK 폰트를 놓칠 수 있어 직접 등록한다.
+    noto_cjk = Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
+    if noto_cjk.is_file():
+        font_manager.fontManager.addfont(noto_cjk)
+        plt.rcParams["font.family"] = font_manager.FontProperties(
+            fname=noto_cjk).get_name()
+    else:
+        plt.rcParams["font.family"] = ["NanumGothic", "sans-serif"]
     plt.rcParams["axes.unicode_minus"] = False
 
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
@@ -129,7 +138,8 @@ def render(points, results, lidar_positions, out_path, parking_map):
     POINTS_PER_PERSON = 55
     in_aisle = (np.abs(y) < aisle_half) & (np.abs(x) < half_w) & \
         (z > HEIGHT_THRESHOLD_M)
-    n_people_est = max(0, round(in_aisle.sum() / POINTS_PER_PERSON))
+    n_people_est = (max(0, round(in_aisle.sum() / POINTS_PER_PERSON))
+                    if people_count is None else people_count)
     summary_lines = [
         f"- 차량: 총 {n_occupied}대 주차 ({n_occupied}/{n_total}면)",
         f"- 사람(추정): {n_people_est}명",
@@ -173,6 +183,10 @@ def main():
                         default=PKG_ROOT / "config" / "parking_map.yaml")
     parser.add_argument("--lidar-pos", type=str, default="0,0",
                         help="LiDAR 좌표들, 'x1,y1;x2,y2' 형식 (기본: 중앙 1대)")
+    parser.add_argument("--status-json", type=Path,
+                        help="실시간 live_occupancy.json으로 점유 결과를 덮어씀")
+    parser.add_argument("--people-count", type=int,
+                        help="알려진 사람 수(미지정 시 포인트 휴리스틱 사용)")
     parser.add_argument("-o", "--output", type=Path,
                         default=Path("lidar_analysis.png"))
     args = parser.parse_args()
@@ -180,12 +194,21 @@ def main():
     points = np.load(args.pointcloud)
     parking_map = ParkingMap.load(args.map_yaml)
     results = detect(points, parking_map)
+    if args.status_json:
+        import json
+        live_slots = json.loads(
+            args.status_json.read_text(encoding="utf-8"))["slots"]
+        for slot_id, live in live_slots.items():
+            if slot_id in results:
+                results[slot_id]["occupied"] = live["status"] == "OCCUPIED"
+                results[slot_id]["point_count"] = live["point_count"]
     lidar_positions = [
         tuple(map(float, pair.split(",")))
         for pair in args.lidar_pos.split(";")
     ]
 
-    render(points, results, lidar_positions, args.output, parking_map)
+    render(points, results, lidar_positions, args.output, parking_map,
+           args.people_count)
 
 
 if __name__ == "__main__":

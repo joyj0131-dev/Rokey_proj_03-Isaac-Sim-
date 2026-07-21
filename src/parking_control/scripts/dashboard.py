@@ -128,14 +128,15 @@ def collect_state():
                 params=MAP.meta["params"])
 
 
-def send_dispatch(vehicle_id):
+def send_dispatch(vehicle_id, target_slot_id=""):
     """입고 요청 버튼 → ros2 service call (환경에 ros2가 있어야 동작)."""
     cmd = (
         "source /opt/ros/humble/setup.bash 2>/dev/null;"
         f"source {PKG_ROOT.parent.parent}/install/setup.bash 2>/dev/null;"
         "ros2 service call /dispatch_parking_task"
         " parking_robot_interfaces/srv/RequestParkingTask"
-        f" '{{request_type: ENTRY, vehicle_id: {vehicle_id}}}'"
+        f" '{{request_type: ENTRY, vehicle_id: {vehicle_id}, "
+        f"target_slot_id: {target_slot_id}}}'"
     )
     try:
         out = subprocess.run(["bash", "-c", cmd], capture_output=True,
@@ -213,7 +214,14 @@ text { font-family:system-ui, sans-serif; }
     <div class="card"><h2>실시간 작업 로그</h2><div id="log"></div></div>
     <div class="card"><h2>최근 작업 (tasks)</h2><table id="tasks"></table></div>
     <div class="card"><h2>입고 요청 보내기</h2>
-      <button id="go">ENTRY 요청 전송</button>
+      <label for="target-slot">목표 주차면</label>
+      <select id="target-slot">
+        <option>A1</option><option>A2</option><option>A3</option><option>A4</option>
+        <option>A5</option><option>A6</option><option>A7</option><option>A8</option>
+        <option>B1</option><option>B2</option><option>B3</option><option>B4</option>
+        <option>B5</option><option>B6</option><option>B7</option><option>B8</option>
+      </select>
+      <button id="go">선택 주차면으로 ENTRY</button>
       <div id="msg">dispatcher 노드가 떠 있어야 동작합니다</div></div>
   </div>
 </div>
@@ -327,9 +335,10 @@ document.getElementById('go').onclick = async () => {
   const btn = document.getElementById('go'); btn.disabled = true;
   document.getElementById('msg').textContent = '전송 중...';
   const vid = 'CAR_UI_' + Math.floor(Math.random()*9000+1000);
+  const slot = document.getElementById('target-slot').value;
   try {
     const r = await (await fetch('/api/dispatch', {method:'POST',
-      body: JSON.stringify({vehicle_id: vid})})).json();
+      body: JSON.stringify({vehicle_id: vid, target_slot_id: slot})})).json();
     document.getElementById('msg').textContent =
       (r.ok ? '✅ 접수됨 ' : '❌ 실패 ') + (r.detail || '');
   } catch (e) { document.getElementById('msg').textContent = '오류: ' + e; }
@@ -365,7 +374,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length) or b"{}")
             vehicle_id = str(payload.get("vehicle_id", "CAR_UI"))[:24]
-            self._send(json.dumps(send_dispatch(vehicle_id)),
+            target_slot_id = str(payload.get("target_slot_id", ""))[:3].upper()
+            self._send(json.dumps(send_dispatch(vehicle_id, target_slot_id)),
                        "application/json")
         else:
             self.send_error(404)

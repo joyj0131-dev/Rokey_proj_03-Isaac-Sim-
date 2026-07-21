@@ -7,7 +7,7 @@ Isaac driver sends back. Hold an arrow to keep moving (terminal key-repeat);
 release and the robot stops after a short idle.
 
 Run on any machine with ROS 2 Humble, on the SAME domain + whitelist as Isaac:
-  export ROS_DOMAIN_ID=126
+  export ROS_DOMAIN_ID=122
   export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
   export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/.ros/fastdds_whitelist.xml"
   source /opt/ros/humble/setup.bash

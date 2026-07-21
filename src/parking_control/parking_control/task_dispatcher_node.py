@@ -91,6 +91,21 @@ class TaskDispatcherNode(Node):
             response.message = f"알 수 없는 request_type: {request.request_type}"
             return response
 
+        requested_slot_id = request.target_slot_id.strip().upper()
+        requested_slot = None
+        if request.request_type == "ENTRY" and requested_slot_id:
+            candidates = {
+                row["slot_id"]: row for row in self._db.find_empty_slots(
+                    include_accessible=True)
+            }
+            requested_slot = candidates.get(requested_slot_id)
+            if requested_slot is None or requested_slot_id not in self._map.graph:
+                response.message = (
+                    f"요청 주차면 {requested_slot_id}을 사용할 수 없습니다 "
+                    "(존재하지 않거나 이미 점유/예약됨)"
+                )
+                return response
+
         # EXIT는 "빈 슬롯 찾기"가 아니라 "이 차가 지금 어느 칸에 있는지" 조회다.
         exit_slot_id = None
         if request.request_type == "EXIT":
@@ -110,7 +125,7 @@ class TaskDispatcherNode(Node):
             return response
 
         task_id = str(uuid.uuid4())
-        target_node = exit_slot_id or "entrance"
+        target_node = exit_slot_id or requested_slot_id or "entrance"
         task = TaskRequest(task_id=task_id, target_node=target_node)
         assignments = self._allocator.assign(robots, [task], self._cost)
         if not assignments:
@@ -131,12 +146,17 @@ class TaskDispatcherNode(Node):
         self._db.set_robot_status(leader_id, "BUSY")
         self._db.set_robot_status(follower_id, "BUSY")
 
-        if exit_slot_id is not None:
-            # 슬롯을 이미 알고 있으니(EXIT) find_empty_slot을 건너뛰고 바로 진행.
-            self._db.update_task(task_id, slot_id=exit_slot_id, state="PROCESSING")
-            x, y = self._map.node_pos(exit_slot_id)
+        selected_slot_id = exit_slot_id or (
+            requested_slot_id if requested_slot is not None else None
+        )
+        if selected_slot_id is not None:
+            # EXIT 또는 UI가 목표를 명시한 ENTRY는 빈 슬롯 자동 탐색을 건너뛴다.
+            self._db.update_task(
+                task_id, slot_id=selected_slot_id, state="PROCESSING"
+            )
+            x, y = self._map.node_pos(selected_slot_id)
             self._send_execute_goal(
-                task_id, request, leader_id, follower_id, exit_slot_id, x, y)
+                task_id, request, leader_id, follower_id, selected_slot_id, x, y)
         else:
             # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
             future = self._find_slot_client.call_async(FindEmptySlot.Request())
@@ -148,7 +168,9 @@ class TaskDispatcherNode(Node):
         response.task_id = task_id
         response.message = (
             f"리더 {leader_id}(거리 {assignments[0].cost:.2f}m) / "
-            f"팔로워 {follower_id} 배정")
+            f"팔로워 {follower_id} 배정"
+            + (f" / 목표 {requested_slot_id}" if requested_slot_id else "")
+        )
         self.get_logger().info(f"작업 접수 {task_id[:8]}: {response.message}")
         return response
 
