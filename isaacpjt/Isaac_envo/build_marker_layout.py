@@ -103,24 +103,13 @@ def _marker_material(stage, path, texture_path):
     return material
 
 
-def build():
-    from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+def author_markers(stage):
+    """스테이지에 마커 42장 + ID별 머티리얼을 authoring 한다 (marker_layout 이 단일 출처).
 
-    if not SOURCE_USD.is_file():
-        raise FileNotFoundError(f"주차장 USD가 없습니다: {SOURCE_USD}")
-    if OUTPUT_USD.exists():
-        OUTPUT_USD.unlink()
-
-    stage = Usd.Stage.CreateNew(str(OUTPUT_USD))
-    # 원본을 서브레이어로 깔면 원본 파일은 한 바이트도 바뀌지 않는다.
-    stage.GetRootLayer().subLayerPaths.append(f"./{SOURCE_USD.name}")
-    UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
-    UsdGeom.SetStageMetersPerUnit(stage, 1.0)
-
-    world = stage.GetPrimAtPath("/World")
-    if not world or not world.IsValid():
-        raise RuntimeError("서브레이어에서 /World를 찾지 못했습니다.")
-    stage.SetDefaultPrim(world)
+    build()의 서브레이어 프리뷰와 build_parking_with_markers.py 의 flatten 빌드가
+    같은 함수를 쓰므로 두 산출물의 마커는 항상 동일하다.
+    """
+    from pxr import Gf, Sdf, UsdGeom, UsdShade
 
     root = UsdGeom.Xform.Define(stage, "/World/ArucoMarkerPreview").GetPath()
     looks = Sdf.Path("/World/Looks")
@@ -194,6 +183,28 @@ def build():
         prim.CreateAttribute("aruco:position", Sdf.ValueTypeNames.Float3).Set(
             Gf.Vec3f(x, 0.0, z)
         )
+
+
+def build():
+    from pxr import Usd, UsdGeom
+
+    if not SOURCE_USD.is_file():
+        raise FileNotFoundError(f"주차장 USD가 없습니다: {SOURCE_USD}")
+    if OUTPUT_USD.exists():
+        OUTPUT_USD.unlink()
+
+    stage = Usd.Stage.CreateNew(str(OUTPUT_USD))
+    # 원본을 서브레이어로 깔면 원본 파일은 한 바이트도 바뀌지 않는다.
+    stage.GetRootLayer().subLayerPaths.append(f"./{SOURCE_USD.name}")
+    UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
+    UsdGeom.SetStageMetersPerUnit(stage, 1.0)
+
+    world = stage.GetPrimAtPath("/World")
+    if not world or not world.IsValid():
+        raise RuntimeError("서브레이어에서 /World를 찾지 못했습니다.")
+    stage.SetDefaultPrim(world)
+
+    author_markers(stage)
 
     stage.GetRootLayer().Save()
 

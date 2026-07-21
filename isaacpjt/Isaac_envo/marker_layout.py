@@ -25,10 +25,11 @@ SPACE_LENGTH = 6.60
 AISLE_WIDTH = 9.00
 BORDER_MARGIN = 1.10
 PARKING_INDICES = tuple(range(1, 9))     # 1~8만 주차면. 0/9는 로봇 대기/충전 도크
-HANDOFF_LENGTH = 23.0
-HANDOFF_WIDTH = 11.4
-HANDOFF_BAY_LENGTH = 6.35                # 베이 길이축은 x
-HANDOFF_BAY_WIDTH = 3.75
+# 인계장 — 2026-07-21 재설계(parking_environment_with_markers.usd 기준).
+# 주차구역과 같은 단면: 중앙 통로(z=0) 양쪽 z=±7.8 에 대기 베이. 차량은 세로(길이축 z).
+# 이전 6베이·3열 배치(HANDOFF_COLUMNS)와 우회 차선(BYPASS)은 폐기됐다.
+HANDOFF_LENGTH = 23.0                    # x 방향 (WEST_X-23 ~ WEST_X)
+HANDOFF_WIDTH = 24.0                     # z 방향. 07-21 확대(11.4 → 24)
 
 HALF_W = SPACE_COUNT * SPACE_WIDTH * 0.5          # 17.0
 HALF_D = AISLE_WIDTH * 0.5 + SPACE_LENGTH         # 11.1
@@ -80,15 +81,10 @@ ID_BLOCK_CAP = {
     "gateway": 10, "handoff_bay": 10, "handoff_lane": 20,
 }
 
-# 인계장 베이 열 x 중심 (build_parking_environment.py와 동일 식)
-HANDOFF_COLUMNS = tuple(WEST_X - 3.75 - c * 7.05 for c in range(3))   # -21.85 -28.90 -35.95
-HANDOFF_LANE_Z = 2.35                              # 베이 중심 z (2열)
-# 베이 사이 x 간격이 0.70 m뿐이라 열 사이로는 못 지나간다. 바깥 여백을 통로로 쓴다.
-HANDOFF_BYPASS_Z = (HANDOFF_WIDTH * 0.5 + HANDOFF_LANE_Z + HANDOFF_BAY_WIDTH * 0.5) * 0.5
-
-HANDOFF_VEHICLE_LABELS = (
-    "H1_SUV", "H2_Wagon", "H3_Sport", "H4_Offroad", "H5_Hatchback", "H6_Minivan",
-)
+# 인계장 기하 (07-21 재설계). 베이 z가 실내 슬롯 행(±7.8)과 같아 마커 규칙도 동일하다.
+HANDOFF_CENTER_X = WEST_X - HANDOFF_LENGTH * 0.5             # -29.6 (베이 열 x)
+HANDOFF_BAY_Z = AISLE_WIDTH * 0.5 + SPACE_LENGTH * 0.5       # 7.8
+HANDOFF_BAY_LABELS = ("H_A", "H_B")                          # +z(A쪽) / -z(B쪽)
 
 
 def slot_columns():
@@ -131,31 +127,39 @@ def markers():
         out.append(("gateway", "GW" if sign > 0 else "GW'", WEST_X, sign * LANE_Z,
                     "실내↔인계장 경계"))
 
-    # 4) 인계장 베이 기준점. 베이 길이축이 x이므로 로봇은 x 방향에서 진입한다.
-    #    베이의 실내쪽(동쪽) 끝을 기준점으로 삼는다.
-    for idx, label in enumerate(HANDOFF_VEHICLE_LABELS):
-        column = idx // 2
-        lane = idx % 2
-        bx = HANDOFF_COLUMNS[column]
-        bz = HANDOFF_LANE_Z if lane == 0 else -HANDOFF_LANE_Z
+    # 4) 인계 베이 기준점 (07-21 재설계). 베이가 실내 슬롯과 같은 단면(z=±7.8,
+    #    길이축 z)이므로 슬롯 마커와 같은 규칙을 쓴다: 베이 입구(z=±4.5)에서
+    #    통로 쪽 2.0 m 앞(z=±2.5), x는 베이 열 중심. 로봇 2대는 실내 슬롯과
+    #    동일하게 통로에서 z 방향으로 줄지어 하부 진입한다.
+    for label, sign in ((HANDOFF_BAY_LABELS[0], 1.0), (HANDOFF_BAY_LABELS[1], -1.0)):
         out.append((
             "handoff_bay", label,
-            bx + HANDOFF_BAY_LENGTH * 0.5, bz,
-            "인계 베이 진입 기준점",
+            HANDOFF_CENTER_X, sign * LANE_Z,
+            "인계 베이 기준점 + 하부 진입 정렬",
         ))
 
-    # 5) 인계장 우회 차선. 베이 열 사이 x 간격이 0.70 m라 통과 불가하므로
-    #    남북 바깥 여백(z≈±4.9)을 서쪽으로 달리는 차선을 둔다. 라우팅은 제안 단계.
-    lane_x = [WEST_X - 2.0]
-    while lane_x[-1] - 3.40 > HANDOFF_MIN_X + 1.5:
-        lane_x.append(lane_x[-1] - 3.40)
+    # 5) 인계장 통로 차선. 실내 차선(z=±2.5)을 게이트 마커 너머 서쪽으로 연장한다.
+    #    x 격자는 베이 열(HANDOFF_CENTER_X)에 앵커를 두고 3.40 m 간격 —
+    #    베이 기준점(4번)이 격자의 중심 열이 되어 차선과 자연히 이어진다.
+    #    동쪽 끝(-19.4)과 게이트(-18.1) 사이는 1.3 m로 자투리, 서쪽 끝(-39.8)은
+    #    서벽(-41.1)에서 1.3 m 여유.
+    lane_x = [HANDOFF_CENTER_X + k * SPACE_WIDTH for k in (3, 2, 1, -1, -2, -3)]
     for sign in (1.0, -1.0):
-        for k, x in enumerate(lane_x):
+        for x in lane_x:
+            k = round((x - HANDOFF_CENTER_X) / SPACE_WIDTH)
+            tag = f"H{'E' if k > 0 else 'W'}{abs(k)}"
             out.append((
-                "handoff_lane", f"HL{k}" if sign > 0 else f"HL{k}'",
-                x, sign * HANDOFF_BYPASS_Z,
-                "인계장 우회 차선 (라우팅 미확정)",
+                "handoff_lane", tag if sign > 0 else tag + "'",
+                x, sign * LANE_Z,
+                "인계장 통로 차선",
             ))
+
+    # 6) 인계장 A↔B 전환 마커. 실내 crossing과 같은 규칙(차선 열과 같은 x).
+    #    베이 열 양옆 2칸(±6.8) 열에 둔다. 순서상 실내 crossing(ID 30~33) 뒤에
+    #    붙으므로 실내 ID는 밀리지 않는다.
+    for tag, x in (("HE", HANDOFF_CENTER_X + 2 * SPACE_WIDTH),
+                   ("HW", HANDOFF_CENTER_X - 2 * SPACE_WIDTH)):
+        out.append(("crossing", tag, x, 0.0, "인계장 A↔B 전환"))
 
     return out
 
