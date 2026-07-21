@@ -33,12 +33,16 @@ class ArucoNavigatorNode(Node):
         p = self.declare_parameter
         p("initial_x", -15.3); p("initial_y", -7.8); p("initial_yaw", 0.0)
         p("pos_tol", 0.20); p("yaw_tol_deg", 10.0)
-        p("k_lin", 0.8); p("k_yaw", 1.2); p("max_lin", 0.35); p("max_yaw", 0.5)
+        p("k_lin", 0.8); p("k_yaw", 1.2); p("max_lin", 0.35); p("max_yaw", 0.15)
+        # 휠 FK가 실제 회전을 과소보고(롤러 슬립). wz=0.15 동작점 실측 3.089 —
+        # 반드시 max_yaw=0.15와 함께 쓸 것: 빠른 회전(0.4+)은 방향까지 비결정적.
+        p("fk_yaw_scale", 3.089)
         g = lambda k: self.get_parameter(k).value
         self.est = PoseEstimator(g("initial_x"), g("initial_y"), g("initial_yaw"))
         self.pos_tol, self.yaw_tol = g("pos_tol"), math.radians(g("yaw_tol_deg"))
         self.k_lin, self.k_yaw = g("k_lin"), g("k_yaw")
         self.max_lin, self.max_yaw = g("max_lin"), g("max_yaw")
+        self.fk_yaw_scale = float(g("fk_yaw_scale"))
         self._last_twist_stamp = None
         self.fix_count = 0
 
@@ -56,7 +60,7 @@ class ArucoNavigatorNode(Node):
         if self._last_twist_stamp is not None:
             dt = max(0.0, min(0.1, t - self._last_twist_stamp))
             self.est.predict(m.twist.linear.x, m.twist.linear.y,
-                             m.twist.angular.z, dt)
+                             m.twist.angular.z * self.fk_yaw_scale, dt)
         self._last_twist_stamp = t
 
     def _on_fix(self, m):

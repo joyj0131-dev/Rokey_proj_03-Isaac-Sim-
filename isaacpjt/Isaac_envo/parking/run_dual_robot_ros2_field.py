@@ -221,10 +221,9 @@ def main() -> None:
         def make_command_callback(robot_id):
             def callback(message):
                 robots[robot_id]["last_command_at"] = time.monotonic()
-                # angular.z 부호 반전: REP-103(+wz=반시계) 실측 정합 (2026-07-21).
-                # mecanum IK의 +wz는 이 씬에서 시계방향 회전을 만든다
-                # (DEBUG_LOG "wz=+0.3 → -51.5도" 실측과 동일). ROS 경계에서만
-                # 뒤집고 공용 mecanum_drive 모듈은 건드리지 않는다.
+                # angular.z 반전: REP-103(+wz=반시계) 정합. IK+는 물리적으로 CW다 —
+                # 깨끗한 상태의 다수 실측(verify PASS, yaw probe, M-시리즈 GT -51.5°)
+                # 으로 확정. 반대 측정 2건은 차량 충돌 직후의 오염 데이터였다.
                 drive(
                     robot_id,
                     message.linear.x,
@@ -265,8 +264,13 @@ def main() -> None:
 
         start = time.monotonic()
         last_log = 0.0
+        # 시뮬 시간 누적 (물리 1스텝 = 1/60s). wheel_twist 데드레커닝은 반드시
+        # 시뮬 시간으로 적분해야 한다 — 렌더링 부하로 시뮬이 실시간보다 느리면
+        # (실측 ~0.4x) 벽시계 dt 적분은 이동량을 2.5배 과대평가한다.
+        sim_t = 0.0
         while app.is_running():
             app.update()
+            sim_t += 1.0 / 60.0
             rclpy.spin_once(node, timeout_sec=0.0)
             now = time.monotonic()
 
@@ -302,11 +306,12 @@ def main() -> None:
                           for w in robot["wheel_indices"]}
                 fk_vx, fk_vy, fk_wz = cmd_vel_from_wheel_velocities(omegas)
                 tw = TwistStamped()
-                tw.header.stamp = message.header.stamp
+                tw.header.stamp.sec = int(sim_t)
+                tw.header.stamp.nanosec = int((sim_t % 1.0) * 1e9)
                 tw.header.frame_id = f"{robot_id}/base_link"
                 tw.twist.linear.x = fk_vx
                 tw.twist.linear.y = fk_vy
-                tw.twist.angular.z = -fk_wz   # odom과 같은 REP-103 부호로
+                tw.twist.angular.z = -fk_wz   # cmd 반전과 짝 (REP-103 부호)
                 wheel_twist_publishers[robot_id].publish(tw)
 
                 if now - last_log >= 1.0:
