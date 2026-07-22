@@ -339,7 +339,21 @@ class HandoffMission(Node):
         반대편에 있어 이 식 하나로 선속도가 자동으로 반대 방향이 되고,
         angular.z(=omega)는 항상 같게 나온다 — pivot_rotate_controller.py와
         동일한 설계, 좌표 규약만 이 파일 것으로.
+
+        위치 유지 보정(hold): 위 접선속도 공식은 "명령이 완벽히 실행됐을 때"만
+        중심이 안 밀리는 이상적인 식이다. 실측으로 확인된 앞뒤 로봇 하중차
+        (front_bias)때문에 같은 명령을 받아도 한쪽이 덜/더 나가서 접선속도가
+        완벽히 상쇄되지 않고, 이 함수는 원래 각도(diff)만 보고 위치는 안 봐서
+        그 밀림을 전혀 눈치채지 못했다(픽업 직후 단독 회전에서 대각선으로
+        밀리는 문제 실측 확인). 그래서 회전 시작 시점의 중심 좌표(start_cx,
+        start_cz)를 기억해두고, 매 틱 "지금 중심이 거기서 얼마나 밀렸는지"를
+        _carry_axis의 부축 유지(SIDE_K/SIDE_MAX)와 같은 방식으로 계산해
+        접선속도에 더해 되돌린다 — 각도 따로, 위치 따로 보던 걸 하나로 합친 것.
         """
+        if self.pose["robot_rear"] is None or self.pose["robot_front"] is None:
+            return False
+        start_cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
+        start_cz = (self.pose["robot_rear"][1] + self.pose["robot_front"][1]) / 2.0
         end = time.time() + timeout
         while time.time() < end:
             if self.veh_yaw is None:
@@ -351,12 +365,16 @@ class HandoffMission(Node):
             omega = self._clamp(K_YAW * diff, MAX_YAW)
             cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
             cz = (self.pose["robot_rear"][1] + self.pose["robot_front"][1]) / 2.0
+            hold_vx = self._clamp(-SIDE_K * (cx - start_cx), SIDE_MAX)
+            hold_vz = self._clamp(-SIDE_K * (cz - start_cz), SIDE_MAX)
             for rid in ROBOTS:
                 x, z, yaw = self.pose[rid]
                 rx, rz = x - cx, z - cz
                 c, s = math.cos(yaw), math.sin(yaw)
-                fwd = omega * (rz * c + rx * s)
-                left = omega * (rx * c - rz * s)
+                world_vx = omega * rz + hold_vx
+                world_vz = -omega * rx + hold_vz
+                fwd = world_vx * c - world_vz * s
+                left = -(world_vx * s + world_vz * c)
                 self._pub(rid, self._clamp(fwd, MAX_LIN),
                          self._clamp(left, MAX_LIN), omega)
             time.sleep(1.0 / CONTROL_HZ)
