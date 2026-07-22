@@ -49,6 +49,42 @@ function shortRobotName(robotId) {
   return match ? `R${Number(match[1])}` : robotId;
 }
 
+const ROS_EXPECTED_ROBOTS = [
+  { id: "robot_1", x: -15.3, y: -7.8 },
+  { id: "robot_2", x: -15.3, y: 7.8 },
+];
+
+function normalizeRosDashboardRobots(data) {
+  if (data.system?.mode !== "ros2") return data;
+
+  const robots = [...(data.robots || [])];
+  const receivedNames = new Set(robots.map((robot) => shortRobotName(robot.id)));
+
+  for (const expected of ROS_EXPECTED_ROBOTS) {
+    if (receivedNames.has(shortRobotName(expected.id))) continue;
+    robots.push({
+      ...expected,
+      status: "OFFLINE",
+      battery: 0,
+      current_task_id: null,
+      error_message: "ROS2 상태 데이터 미수신",
+    });
+  }
+
+  data.robots = robots.sort((left, right) =>
+    shortRobotName(left.id).localeCompare(shortRobotName(right.id), "ko", {
+      numeric: true,
+    })
+  );
+  if (
+    data.system?.health !== "ERROR" &&
+    data.robots.some((robot) => robot.status === "OFFLINE")
+  ) {
+    data.system.health = "WARNING";
+  }
+  return data;
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("ko-KR", {
@@ -985,7 +1021,7 @@ function updateLiveStatus(isOnline, system) {
 
 async function refreshDashboard() {
   try {
-    const data = await apiRequest("/dashboard");
+    const data = normalizeRosDashboardRobots(await apiRequest("/dashboard"));
     latestDashboard = data;
     lastDashboardReceivedAt = new Date();
 
