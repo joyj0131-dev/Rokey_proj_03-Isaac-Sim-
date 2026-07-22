@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>주차로봇 통합 관제센터</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260721-dashboard4" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="topbar">
+        <div class="brand-area">
+          <div class="brand-icon">P</div>
+          <h1>주차로봇 통합 관제센터</h1>
+        </div>
+
+        <div class="header-actions">
+          <span id="modeBadge" class="mode-badge">Mock Mode</span>
+          <div id="systemStatus" class="system-status">
+            <span class="status-dot"></span>
+            <span id="systemStatusText">시스템 정상</span>
+          </div>
+        </div>
+      </header>
+
+      <nav class="workspace-tabs" aria-label="관제 화면 선택" role="tablist">
+        <button
+          type="button"
+          class="workspace-tab active"
+          role="tab"
+          aria-selected="true"
+          aria-controls="tab-live"
+          data-tab="live"
+        >
+          주차장 현황
+        </button>
+        <button
+          type="button"
+          class="workspace-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-requests"
+          data-tab="requests"
+        >
+          입·출차 요청
+        </button>
+        <button
+          type="button"
+          class="workspace-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-tasks"
+          data-tab="tasks"
+        >
+          작업·이벤트
+          <span id="taskTabCount" class="tab-count">0</span>
+        </button>
+      </nav>
+
+      <main class="dashboard">
+        <section id="alertPanel" class="panel alert-panel hidden" aria-live="polite">
+          <div class="panel-header">
+            <div>
+              <h2>에러 · 장애물 감지</h2>
+              <p class="panel-description">
+                긴급 알림은 어떤 탭을 보고 있어도 항상 표시됩니다.
+              </p>
+            </div>
+          </div>
+          <div id="alertList" class="alert-list"></div>
+        </section>
+
+        <section
+          id="tab-live"
+          class="tab-panel active"
+          role="tabpanel"
+          data-panel="live"
+        >
+          <section id="summaryCards" class="status-overview" aria-label="주차장 상태 요약"></section>
+
+          <section class="panel live-floor-panel">
+            <div class="panel-header live-panel-header">
+              <div class="live-title-group">
+                <div class="live-site-title">
+                  <h2>ROKEY CASTLE A-4동</h2>
+                  <span>주차장 실시간 현황 · 평시 2초 / 작업 중 0.5초 갱신</span>
+                </div>
+                <div class="legend map-legend" aria-label="주차면 상태 범례">
+                  <span><i class="legend-dot empty"></i>빈 공간</span>
+                  <span><i class="legend-dot reserved"></i>예약</span>
+                  <span><i class="legend-dot occupied"></i>주차 중</span>
+                </div>
+              </div>
+
+              <div class="map-header-status">
+                <button
+                  id="lidarVisibilityButton"
+                  type="button"
+                  class="map-toggle-button"
+                  aria-pressed="false"
+                >
+                  LiDAR 위치 켜기
+                </button>
+                <div id="liveUpdateStatus" class="live-update-status pending">
+                  <i></i>
+                  <span>연결 확인 중</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="live-floor-layout">
+              <div class="lot-map-wrap">
+                <svg id="lotMap" viewBox="0 0 1100 430" preserveAspectRatio="xMidYMid meet"></svg>
+                <p id="lotMapEmpty" class="lot-map-empty hidden">
+                  위치 정보가 있는 슬롯/로봇이 없습니다.
+                </p>
+              </div>
+
+              <aside id="selectionDetail" class="selection-detail" aria-live="polite">
+                <span class="detail-kicker">선택 정보</span>
+                <h3>도면에서 항목을 선택하세요</h3>
+                <p>주차면이나 로봇을 누르면 상태를 자세히 확인할 수 있습니다.</p>
+              </aside>
+            </div>
+          </section>
+
+        </section>
+
+        <section
+          id="tab-requests"
+          class="tab-panel"
+          role="tabpanel"
+          data-panel="requests"
+          hidden
+        >
+          <article class="panel request-panel request-workspace">
+            <div class="panel-header">
+              <div>
+                <h2>입고 · 출차 요청</h2>
+                <p class="panel-description">
+                  차량 번호를 입력하여 주차 작업을 등록합니다.
+                </p>
+              </div>
+            </div>
+
+            <form id="requestForm">
+              <div class="request-fields">
+                <label>
+                  <span>요청 유형</span>
+                  <select id="requestType">
+                    <option value="PARK_IN">입고 요청</option>
+                    <option value="PARK_OUT">출차 요청</option>
+                  </select>
+                </label>
+                <label>
+                  <span>차량 번호</span>
+                  <input
+                    id="vehicleNumber"
+                    type="text"
+                    placeholder="예: 12가3456"
+                    autocomplete="off"
+                    required
+                  />
+                </label>
+              </div>
+              <button type="submit" class="primary-button">요청 등록</button>
+            </form>
+
+            <div id="mockVehicleGuide" class="test-guide">
+              <span class="guide-title">테스트 차량 자동 입력</span>
+              <button type="button" class="vehicle-chip" data-vehicle-number="12가3456">12가3456</button>
+              <button type="button" class="vehicle-chip" data-vehicle-number="34나7890">34나7890</button>
+            </div>
+            <div id="messageBox" class="message-box hidden"></div>
+          </article>
+        </section>
+
+        <section
+          id="tab-tasks"
+          class="tab-panel"
+          role="tabpanel"
+          data-panel="tasks"
+          hidden
+        >
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>작업 요청 목록</h2>
+                <p class="panel-description">
+                  등록된 입고·출차 작업의 진행 단계와 이벤트를 확인합니다.
+                </p>
+              </div>
+
+              <div id="mockControls" class="mock-control-actions">
+                <button id="resetButton" type="button" class="secondary-button">
+                  Mock 초기화
+                </button>
+                <button
+                  id="backupButton"
+                  type="button"
+                  class="secondary-button backup-button"
+                  title="현재 Mock 관제 상태를 JSON 파일로 저장합니다."
+                >
+                  백업
+                </button>
+              </div>
+            </div>
+            <div id="requestTable"></div>
+          </section>
+
+          <section class="recent-events" aria-labelledby="recentEventsTitle">
+            <div class="recent-events-heading">
+              <h2 id="recentEventsTitle">이벤트 이력</h2>
+            </div>
+            <div id="recentEventList" class="recent-event-list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20260721-dashboard4"></script>
+</body>
+</html>
