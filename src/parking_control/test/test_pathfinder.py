@@ -75,6 +75,13 @@ def test_slot_coordinates_regression(pf):
     assert pf.map.graph.nodes["A3"]["accessible"] is False
 
 
+def test_slot_axis_matches_layout(pf):
+    """통로가 X축 일렬이고 A/B 두 행 다 슬롯이 Y방향으로 파여있으므로,
+    모든 슬롯이 같은 축(pi/2)을 요구해야 한다."""
+    for slot_id in pf.map.nodes_of_kind("slot"):
+        assert pf.map.slot_axis_rad(slot_id) == pytest.approx(math.pi / 2)
+
+
 def test_handoff_bay_route_reaches_indoor_slot():
     """인계 베이(H_B) → 실내 슬롯(B3) 경로가 성립해야 E2E 미션 배차가 가능하다."""
     pf = PathFinder(ParkingMap.load(MAP_YAML))

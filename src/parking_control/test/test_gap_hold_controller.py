@@ -3,7 +3,8 @@
 import math
 
 from parking_control.core.gap_hold_controller import (
-    GapHoldController, Pose2D, follower_target, yaw_from_quaternion,
+    GapHoldController, Pose2D, follower_target, quaternion_from_yaw,
+    yaw_from_quaternion,
 )
 
 
@@ -63,6 +64,12 @@ def test_yaw_from_quaternion_90_degrees():
     half = math.sin(math.pi / 4)
     yaw = yaw_from_quaternion(0.0, 0.0, half, math.cos(math.pi / 4))
     assert math.isclose(yaw, math.pi / 2, abs_tol=1e-6)
+
+
+def test_quaternion_from_yaw_round_trips_through_yaw_from_quaternion():
+    for yaw in (0.0, math.pi / 2, -math.pi / 2, 1.0, -2.5):
+        x, y, z, w = quaternion_from_yaw(yaw)
+        assert math.isclose(yaw_from_quaternion(x, y, z, w), yaw, abs_tol=1e-9)
 
 
 def test_controller_turns_in_place_when_target_behind():

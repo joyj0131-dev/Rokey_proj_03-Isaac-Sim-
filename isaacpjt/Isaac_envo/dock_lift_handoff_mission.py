@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
-"""인계장 도킹·리프트·B1 슬롯 주차 오케스트레이터 (외부 ROS2 Humble).
+"""인계장 도킹·리프트·슬롯 주차 오케스트레이터 (외부 ROS2 Humble).
 
 /dock_lift(Trigger) 한 번에:
   1. 접근: 두 로봇이 도크에서 Coupe 앞(+z 아일 쪽) 정렬 위치로 옴니 이동(회전 없이)
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. B1 슬롯까지 운반: 통로 정렬(x) → 슬롯 진입(z) 2단계 직선 — 로봇별 yaw 살짝 보정
+  5. 슬롯까지 운반: 통로 정렬(x) → 슬롯 진입(z) 2단계 직선 — 로봇별 yaw 살짝 보정.
+     목표는 target_slot_x/target_slot_z 파라미터(기본값 B1) — 재시작 없이
+     `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
+     ExecuteParkingTask goal의 slot_pose를 받아 이 값을 설정해준다.
   6. 하차: 파지 해제(차량 착지) → 두 로봇 차체 밑에서 이탈(후진)
+  7. 도크 복귀: 빈 로봇 각자 도크 인근(DOCK_X, LANE_Z_*)으로 이동 → 원래 방위(yaw=0)로 회전
+
+방향 정렬(_axis_alignment_rotation/_rotate_car_to_axis, 차량 실측 축을 목표 슬롯 축에
+맞추는 두 로봇 공동 피벗 회전)은 구현은 돼 있지만 지금 흐름엔 안 넣었다 — 입고(주차)
+먼저 안정화하고, 출차 흐름 만들 때 그 자리에 붙이기로 함(target_axis_rad 파라미터도
+그때 씀).
 
 테스트 반복용: 러너의 /sim_checkpoint_staged(Trigger) 호출로 로봇을 게이트 통과 직후
 대기 위치까지 순간이동시킨 뒤 /dock_lift_from_staged(Trigger)를 부르면 1(게이트 통과)만
-건너뛰고 2~6(회전·진입·파지·운반·하차)은 그대로 실제로 실행한다 — 차 밑까지 직접
+건너뛰고 2~7(회전·진입·파지·운반·하차·복귀)은 그대로 실제로 실행한다 — 차 밑까지 직접
 순간이동시키면 차체와 겹쳐 물리가 튕겨나가는 문제가 있어 이렇게 나눔.
 /sim_reset(러너)은 씬을 도크 초기 상태로 되돌린다(재시작 불필요).
 
@@ -98,15 +107,30 @@ class HandoffMission(Node):
         p("center_x", -29.6); p("rear_axle_z", -1.93); p("front_axle_z", 1.66)
         # 진입/운반 속도 — 재시작 없이 `ros2 param set`(또는 speed_control_ui.py)으로 조절.
         p("ingress_speed", INGRESS_SPEED); p("carry_speed", CARRY_SPEED)
+        # 목표 슬롯이 요구하는 축(mod pi, 코/꼬리 무관) — parking_map.yaml의
+        # slot_axis_rad와 같은 값. 이 데모 지도는 통로=X축, 슬롯=Z(깊이)방향이라
+        # 기본이 pi/2다. 실제로는 task_dispatcher의 ExecuteParkingTask.slot_pose
+        # 에서 받아와야 하지만, 이 스크립트는 아직 그 파이프라인과 안 이어져
+        # 있어 파라미터로 받는다.
+        p("target_axis_rad", math.pi / 2)
+        # 목표 슬롯 좌표(world XZ) — 재시작 없이 재설정 가능. 기본값은 그동안 테스트해온
+        # B1(marker_layout.py HANDOFF_BAY_Z 기준). 관제(isaac_parking_bridge_node)가
+        # ExecuteParkingTask.slot_pose를 받으면 이 값을 덮어써서 다른 슬롯으로도
+        # 갈 수 있게 한다 — world_x=slot_pose.position.x, world_z=-slot_pose.position.y
+        # (parking_map.yaml y축과 world z축 부호가 반대인 걸 B1/A1로 실측 확인함).
+        p("target_slot_x", SLOT_B1_X); p("target_slot_z", SLOT_B1_Z)
         g = lambda k: self.get_parameter(k).value
         self.cx = g("center_x")
         self.rear_axle = g("rear_axle_z")
         self.front_axle = g("front_axle_z")
         self.ingress_speed = g("ingress_speed")
         self.carry_speed = g("carry_speed")
+        self.target_slot_x = g("target_slot_x")
+        self.target_slot_z = g("target_slot_z")
         self.add_on_set_parameters_callback(self._on_param)
+        self.target_axis_rad = float(g("target_axis_rad"))
         self.pose = {r: None for r in ROBOTS}   # (x, z, yaw)
-        self.veh_x = self.veh_y = self.veh_z = None
+        self.veh_x = self.veh_y = self.veh_z = self.veh_yaw = None
         grp = ReentrantCallbackGroup()
         for r in ROBOTS:
             self.create_subscription(Odometry, f"/{r}/odom",
@@ -138,6 +162,10 @@ class HandoffMission(Node):
                 self.ingress_speed = prm.value
             elif prm.name == "carry_speed":
                 self.carry_speed = prm.value
+            elif prm.name == "target_slot_x":
+                self.target_slot_x = prm.value
+            elif prm.name == "target_slot_z":
+                self.target_slot_z = prm.value
         return SetParametersResult(successful=True)
 
     def _odom(self, rid, m):
@@ -146,9 +174,16 @@ class HandoffMission(Node):
         self.pose[rid] = (m.pose.pose.position.x, m.pose.pose.position.z, yaw)
 
     def _veh(self, m):
+        q = m.pose.orientation
         self.veh_x = m.pose.position.x
         self.veh_y = m.pose.position.y
         self.veh_z = m.pose.position.z
+        # 지금까지는 position만 썼다 — 회전 판단은 로봇 자기 yaw 평균이 아니라
+        # 차량 자체의 실측 yaw로 하는 게 더 정확하다(그립 슬립이 있어도 차가
+        # 실제로 얼마나 돌았는지는 이 값이 answer). 시뮬레이션 GT라 가능한
+        # 값이고, 실물에서는 천장 LiDAR로 차량 헤딩을 재는 쪽이 이 자리를 대신해야 한다.
+        self.veh_yaw = math.atan2(
+            2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
     def _pub(self, rid, vx, vy=0.0, wz=0.0):
         t = Twist()
@@ -240,6 +275,60 @@ class HandoffMission(Node):
             time.sleep(1.0 / CONTROL_HZ)
         self._pub(rid, 0.0)
         return abs(wrap(target_yaw - self.pose[rid][2])) < YAW_TOL * 3
+
+    def _axis_alignment_rotation(self, current_yaw, target_axis_rad):
+        """차량을 슬롯 축(mod pi, 코/꼬리 무관)에 맞추는 최소 회전량(rad, signed).
+
+        parking_control/core/pivot_rotate_controller.py의 axis_alignment_rotation과
+        같은 식이다. 이 파일은 x,z 평면 규약(_omni_step의 world<->body 변환)이
+        그 모듈의 x,y 규약과 달라, import로 섞어 쓰다 부호를 잘못 옮길 위험을
+        피하려고 이 파일 자체 규약으로 다시 짰다 — 값은 동일하다.
+        """
+        diff = (target_axis_rad - current_yaw) % math.pi
+        if diff > math.pi / 2:
+            diff -= math.pi
+        return diff
+
+    def _rotate_car_to_axis(self, target_axis_rad, timeout=120.0):
+        """차량을 든 채로 두 로봇이 차량 중심(두 로봇 중점) 기준 반대 방향으로
+        피벗 회전해서 target_axis_rad(mod pi)에 맞춘다.
+
+        판단 근거는 로봇 각자 yaw 평균이 아니라 /vehicle/pose 의 실측
+        veh_yaw다 — 그립에 슬립이 있어도 차가 실제로 얼마나 돌았는지는 이
+        값이 정답이다(실물에서는 이 자리를 천장 LiDAR 기반 차량 헤딩 추정이
+        대신해야 한다 — GT는 시뮬레이션 검증용).
+
+        강체 운동학: 중심에서 오프셋 r인 점의 접선속도는 이 파일의 yaw
+        규약(forward=(cosθ,-sinθ))에서 rot90(r)=(r_z,-r_x)이므로
+        world velocity = omega*(r_z, -r_x). 두 로봇은 중심을 사이에 두고
+        반대편에 있어 이 식 하나로 선속도가 자동으로 반대 방향이 되고,
+        angular.z(=omega)는 항상 같게 나온다 — pivot_rotate_controller.py와
+        동일한 설계, 좌표 규약만 이 파일 것으로.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.veh_yaw is None:
+                self._stop_all()
+                return False
+            diff = self._axis_alignment_rotation(self.veh_yaw, target_axis_rad)
+            if abs(diff) < YAW_TOL:
+                break
+            omega = self._clamp(K_YAW * diff, MAX_YAW)
+            cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
+            cz = (self.pose["robot_rear"][1] + self.pose["robot_front"][1]) / 2.0
+            for rid in ROBOTS:
+                x, z, yaw = self.pose[rid]
+                rx, rz = x - cx, z - cz
+                c, s = math.cos(yaw), math.sin(yaw)
+                fwd = omega * (rz * c + rx * s)
+                left = omega * (rx * c - rz * s)
+                self._pub(rid, self._clamp(fwd, MAX_LIN),
+                         self._clamp(left, MAX_LIN), omega)
+            time.sleep(1.0 / CONTROL_HZ)
+        self._stop_all()
+        if self.veh_yaw is None:
+            return False
+        return abs(self._axis_alignment_rotation(self.veh_yaw, target_axis_rad)) < YAW_TOL * 3
 
     def _ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT):
         """차 밑으로 진입하며 축(target_z)에 정렬. 중심선(x=cx)과 방위(face_yaw)를
@@ -365,6 +454,29 @@ class HandoffMission(Node):
                 break
         self._stop_all()
 
+    def _return_to_dock(self):
+        """하차 후 두 로봇을 도크 인근(DOCK_X, LANE_Z_*) — 게이트 통과 전 첫 접근
+        웨이포인트와 동일 지점 — 까지 되돌리고, 원래 방위(yaw=0, +X 향함 —
+        _place_robot_dock 초기값과 동일)로 되돌린다. 빈 로봇이라 편대 유지가
+        필요 없어 각자 독립 이동(_approach_parallel 재사용, 로봇당 웨이포인트 1개).
+        도크(-15.3)와 B1(-11.9) 둘 다 벽(x≈-18.1) 동쪽이라 벽을 다시 지날 필요는 없다."""
+        self.get_logger().info("도크로 복귀: 이동")
+        home = {
+            "robot_rear": [(DOCK_X, LANE_Z_REAR)],
+            "robot_front": [(DOCK_X, LANE_Z_FRONT)],
+        }
+        if not self._approach_parallel(home):
+            self._stop_all()
+            return False
+        self._settle()
+        self.get_logger().info("도크로 복귀: 방위 원위치(yaw=0)")
+        for rid in ROBOTS:
+            if not self._rotate_to(rid, 0.0):
+                self._stop_all()
+                return False
+        self._settle()
+        return True
+
     def _on_dock_lift(self, req, resp):
         if not self._wait_data():
             resp.success = False; resp.message = "데이터 미수신"; return resp
@@ -408,14 +520,19 @@ class HandoffMission(Node):
         return self._grip_carry_release(resp)
 
     def _grip_carry_release(self, resp):
-        """파지·리프트 → B1 운반 → 하차 → 이탈. 로봇이 이미 차 밑(축 정렬)에 있어야 한다."""
+        """파지·리프트 → B1 운반 → 하차 → 이탈. 로봇이 이미 차 밑(축 정렬)에 있어야 한다.
+
+        방향 정렬(_axis_alignment_rotation/_rotate_car_to_axis)은 일부러 뺐다 —
+        주차(입고) 먼저 안정화하고, 회전은 나중에 출차 흐름에서 붙이기로 함
+        (메서드 자체는 남겨뒀으니 그때 그대로 재사용)."""
         self.get_logger().info("파지·리프트")
         lift = self._grip_lift()
         if lift < 0.02:
             self._stop_all(); resp.success = False
             resp.message = f"리프트 실패 {lift:.4f}m"; return resp
-        self.get_logger().info(f"리프트 {lift:.3f}m — B1 슬롯으로 운반")
-        if not self._carry_to_slot(SLOT_B1_X, SLOT_B1_Z):
+        self.get_logger().info(
+            f"리프트 {lift:.3f}m — 슬롯으로 운반(x={self.target_slot_x:.2f}, z={self.target_slot_z:.2f})")
+        if not self._carry_to_slot(self.target_slot_x, self.target_slot_z):
             self._stop_all(); resp.success = False
             resp.message = "슬롯 이동 타임아웃"; return resp
         self.get_logger().info(f"도착(x={self.veh_x:.2f}, z={self.veh_z:.2f}) — 하차")
@@ -424,8 +541,12 @@ class HandoffMission(Node):
             resp.message = "파지 해제 실패"; return resp
         self._settle(0.4)   # 하차 직후라 완전히 줄이진 않음(차량 착지 안정화 여유)
         self._retreat()
+        if not self._return_to_dock():
+            self._stop_all(); resp.success = False
+            resp.message = "도크 복귀 타임아웃"; return resp
         resp.success = True
-        resp.message = (f"완료: 리프트 {lift:.3f}m, B1 주차(x={self.veh_x:.2f}, z={self.veh_z:.2f})")
+        resp.message = (f"완료: 리프트 {lift:.3f}m, 주차(x={self.veh_x:.2f}, z={self.veh_z:.2f}), "
+                        f"도크 복귀")
         self.get_logger().info(resp.message)
         return resp
 
