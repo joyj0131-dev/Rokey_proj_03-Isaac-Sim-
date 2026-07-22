@@ -219,11 +219,16 @@ def main():
     headless = "--gui" not in sys.argv[1:]
     app = SimulationApp({"headless": headless, "width": 1280, "height": 800})
 
-    # 실시간 동기화(대기) 스위치만 끈다 — 물리 스텝 크기(useFixedTimeStepping)는
-    # 그대로 둬서 정확도는 안 건드리고, "다음 스텝까지 실제 시간을 기다리는"
-    # 부분만 없앤다. GUI(--gui)에서도 그대로 적용됨(headless 전용 아님).
+    # 실시간 동기화(대기) 해제. isaacsim.core.throttling 공식 문서상 이 3개가
+    # 세트로 같이 꺼져야 실제로 적용된다 — useFixedTimeStepping만 빼놓으면
+    # 나머지 둘을 꺼도 조합이 안 먹혀 속도 변화가 없는 게 실측 확인됨(팀원이
+    # "정확도 보호" 목적으로 이것만 안 껐었음). 여기서 끄는 건 앱 루프가
+    # 매 스텝을 "실제 경과 시간만큼" 기다리는지 여부고, 물리 서브스텝
+    # 정밀도(PhysX TimeStepsPerSecond=240, _apply_vehicle_context)는 별개라
+    # 안 건드림.
     import carb.settings
     settings = carb.settings.get_settings()
+    settings.set_bool("/app/player/useFixedTimeStepping", False)
     settings.set_bool("/app/runLoops/main/manualModeEnabled", False)
     settings.set_bool("/exts/isaacsim.core.throttling/enable_manualmode", False)
 
