@@ -227,6 +227,11 @@ def main():
     settings.set_bool("/app/runLoops/main/manualModeEnabled", False)
     settings.set_bool("/exts/isaacsim.core.throttling/enable_manualmode", False)
 
+    # 물리 스레드 수 0 = 메인 스레드에서 동기 실행. 기본값(8)은 스레드로 나누고
+    # 합치는 관리 비용이 드는데, 이 씬(로봇 2대+차 1대)처럼 작은 경우 그 비용이
+    # 실제 계산량보다 커서 오히려 단일 스레드가 더 빠를 수 있다(공식 문서 근거).
+    settings.set_int("/persistent/physics/numThreads", 0)
+
     try:
         from isaacsim.core.utils.extensions import enable_extension
         enable_extension("isaacsim.ros2.bridge")
