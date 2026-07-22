@@ -354,21 +354,52 @@ class FormationMotion:
         return ok
 
     # ---- 출차(EXIT) 신규(best-effort) — 슬롯 픽업 / 베이 운반 ----
+    def ingress_parallel(self, targets, timeout=140.0, tol=INGRESS_TOL):
+        """여러 로봇을 '동시에' 각자의 축으로 진입시킨다(ingress_to의 병렬판).
+
+        targets: {rid: (cx, target_z, face_yaw)}. 매 tick 각 로봇에 ingress_to와 동일한
+        폐루프(중심선 cx·방위 face_yaw 유지 + 축 target_z로 옴니 진입) 지령을 동시에 낸다.
+        두 로봇이 서로 다른 차로에서 시작하고 축 순서가 유지되면 겹치지 않는다."""
+        done = {rid: False for rid in targets}
+        end = time.time() + timeout
+        while time.time() < end:
+            for rid, (cx, target_z, face_yaw) in targets.items():
+                if done[rid]:
+                    self._pub(rid, 0.0)
+                    continue
+                x, z, yaw = self.pose[rid]
+                if abs(z - target_z) < tol and abs(x - cx) < tol * 2:
+                    done[rid] = True
+                    self._pub(rid, 0.0)
+                    continue
+                ex, ez = cx - x, target_z - z
+                fwd, left = body_twist_from_world_error(ex, ez, yaw)
+                eyaw = wrap(face_yaw - yaw)
+                self._pub(rid, clamp(K_LIN * fwd, INGRESS_SPEED),
+                          clamp(K_STRAFE * left, INGRESS_SPEED),
+                          clamp(0.6 * eyaw, 0.10))
+            if all(done.values()):
+                break
+            time.sleep(1.0 / CONTROL_HZ)
+        self._stop_all()
+        return all(abs(self.pose[r][1] - targets[r][1]) < max(POS_TOL, tol) * 3 for r in targets)
+
     def pickup_at_slot(self, slot_x, slot_z):
-        """출차: 슬롯에 주차된 차 밑으로 진입(입차 pickup_sequence의 슬롯 버전, best-effort).
+        """출차: 슬롯에 주차된 차 밑으로 '두 로봇이 동시에' 진입(사용자 요구, best-effort).
 
         입차는 방향 유지한 채 차를 넣으므로 축 오프셋은 인계베이와 동일:
-        rear축=slot_z+rear_axle(=slot_z-1.93), front축=slot_z+front_axle(=slot_z+1.66).
-        통로(남쪽)에서 접근해 북쪽으로 진입한다 — 깊은 축(front, 더 북쪽)부터 넣어야 얕은
-        축(rear)이 경로를 막지 않는다(입차가 rear-깊이-먼저였던 것의 좌우 대칭).
+        rear축=slot_z+rear_axle, front축=slot_z+front_axle. 두 로봇을 서로 다른 통로 차로
+        (rear −1.5 / front +1.5)에 세운 뒤 FACE_MZ로 정렬하고, 각자 축으로 '동시' 진입한다.
+        차로 배정상 깊은 축으로 가는 로봇이 항상 그 방향 바깥 차로에서 출발하므로(A/B열 모두)
+        진입 중 z 순서가 유지되어 서로 막지 않는다 — 순차 진입에서 생기던 엉킴을 없앤다.
 
-        TODO(사용자 sim 튜닝): 접근 스테이징 z·진입 순서·통로 차로는 실측 관찰 필요.
+        TODO(사용자 sim 튜닝): 통로 차로·진입 속도/정밀도는 실측 관찰로 미세조정.
         """
         if not self.wait_data():
             return False, "데이터 미수신"
         rear_t = slot_z + self.rear_axle    # 슬롯 rear축 z
         front_t = slot_z + self.front_axle  # 슬롯 front축 z
-        # ① 접근: 두 로봇을 슬롯 열의 통로 차로(rear −1.5 / front +1.5)로(병렬, 안 겹치게)
+        # ① 접근: 두 로봇을 슬롯 열의 통로 차로로(병렬, 서로 다른 차로라 안 겹침)
         approach = {}
         for rid, lane in (("robot_rear", LANE_Z_REAR), ("robot_front", LANE_Z_FRONT)):
             cur = self.pose.get(rid)
@@ -380,19 +411,17 @@ class FormationMotion:
             self._stop_all()
             return False, "슬롯 접근 타임아웃"
         self._settle()
-        # ② front(깊은 축) 먼저 진입 — 통로에서 북쪽으로
-        self.node.get_logger().info("출차: 앞축 로봇 진입(깊이)")
-        self.rotate_to("robot_front", FACE_MZ)
+        # ② 두 로봇 동시에 FACE_MZ로 정렬(빈 몸이라 제자리 회전 무방)
+        self.carry_rotate_to(FACE_MZ)
         self._settle()
-        self.ingress_to("robot_front", front_t, FACE_MZ, timeout=140.0, tol=INGRESS_TOL, cx=slot_x)
+        # ③ 두 로봇 동시에 각자 축으로 진입
+        self.node.get_logger().info("출차: 두 로봇 동시 진입")
+        self.ingress_parallel({
+            "robot_front": (slot_x, front_t, FACE_MZ),
+            "robot_rear": (slot_x, rear_t, FACE_MZ),
+        })
         self._settle(INGRESS_SETTLE)
-        # ③ rear(얕은 축) 진입
-        self.node.get_logger().info("출차: 뒷축 로봇 진입")
-        self.rotate_to("robot_rear", FACE_MZ)
-        self._settle()
-        self.ingress_to("robot_rear", rear_t, FACE_MZ, tol=INGRESS_TOL, cx=slot_x)
-        self._settle(INGRESS_SETTLE)
-        return True, "슬롯 픽업 완료"
+        return True, "슬롯 픽업 완료(동시)"
 
     def carry_to_bay(self, bay_x, bay_z):
         """출차 운반: 슬롯에서 통로로 나와 통로 따라 인계베이로(입차 carry의 역방향, L자).
