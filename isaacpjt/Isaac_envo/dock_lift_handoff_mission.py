@@ -6,16 +6,17 @@
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. 슬롯까지 운반 (_carry_to_slot, 4단계):
-     ① 아일 방향(축 0)으로 제자리 회전 → ② 그 방위로 "전진"하며 통로 정렬
-     (x, carry_speed) → ③ 슬롯이 요구하는 방위(target_axis_rad)로 제자리 회전
-     → ④ 그 방위로 "전진"하며 슬롯 진입(z, slot_entry_speed). 회전을 픽업
-     직후 넓은 자리에서 미리 해두고 그 다음 구간을 옆미끄러짐 아닌 정상
-     전진으로 바꾼 구조 — 옆미끄러짐이 두 로봇 하중차(front_bias)를 더
-     도드라지게 만드는 것으로 보여 바꿨다. 목표는 target_slot_x/
-     target_slot_z/target_axis_rad 파라미터(기본값 B1, pi/2) — 재시작 없이
-     `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
-     ExecuteParkingTask goal의 slot_pose를 받아 이 값들을 설정해준다.
+  5. 슬롯까지 운반 (_carry_to_slot, 3단계 — 회전은 총 한 번만):
+     ① 아일 방향(축 0, 픽업 시점 차량이 이미 이 방향이라 회전 불필요)으로
+     "전진"하며 통로 정렬(x, carry_speed) → ② 슬롯 앞에서 슬롯이 요구하는
+     방위(target_axis_rad)로 제자리 회전(딱 한 번, 여기서만) → ③ 그 방위로
+     "전진"하며 슬롯 진입(z, slot_entry_speed). 통로 횡단(①)을 "옆으로
+     미끄러지며" 하던 걸 "전진"으로 바꿨다 — 옆미끄러짐이 두 로봇
+     하중차(front_bias)를 더 도드라지게 만드는 것으로 보여서다. 목표는
+     target_slot_x/target_slot_z/target_axis_rad 파라미터(기본값 B1, pi/2) —
+     재시작 없이 `ros2 param set`으로 바꿀 수 있고, 관제 쪽은
+     isaac_parking_bridge_node가 ExecuteParkingTask goal의 slot_pose를 받아
+     이 값들을 설정해준다.
   6. 하차: 파지 해제(차량 착지) → 두 로봇 차체 밑에서 이탈(후진)
   7. 도크 복귀: 빈 로봇 각자 실제 도크 위치(home_pose, 1번 시작 전 실측 기록)로
      이동 → 원래 방위(yaw=0)로 회전
@@ -539,28 +540,23 @@ class HandoffMission(Node):
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 직후 4단계로 슬롯까지: ① 아일 방향(축 0)으로 제자리 회전 → ② 그
-        방위를 유지한 채 "전진"으로 슬롯 열까지 이동(x, carry_speed) → ③ 슬롯이
-        요구하는 방위(target_axis_rad)로 제자리 회전 → ④ 그 방위로 "전진"하며
-        슬롯 안으로 진입(z, slot_entry_speed).
+        """파지 직후 3단계로 슬롯까지: ① 아일 방향(축 0)을 유지한 채 "전진"으로
+        슬롯 열까지 이동(x, carry_speed) → ② 슬롯이 요구하는 방위(target_axis_rad)로
+        제자리 회전(딱 한 번, 여기서만) → ③ 그 방위로 "전진"하며 슬롯 안으로
+        진입(z, slot_entry_speed).
 
-        전에는 방위를 FACE_MZ 하나로 고정해두고 통로 횡단(x)도 "옆으로 미끄러지며"
-        이동했는데, 이 옆미끄러짐이 두 로봇 하중차(front_bias)를 더 도드라지게
-        만드는 것으로 보여, 픽업 직후(주변 여유 공간 확보된 지점)에 먼저 돌려서
-        긴 통로 구간을 정상적인 전진 주행으로 바꿨다. 슬롯 진입(④)은 원래도
-        FACE_MZ=target_axis_rad 방위라 동작은 그대로다.
+        차량은 픽업 시점에 이미 아일 방향(축 0)으로 놓여 있어서(배치 시 yaw=0),
+        ①에서 따로 회전할 필요가 없다 — 그래서 회전은 슬롯 앞(②) 딱 한 번만
+        한다. 전에는 방위를 FACE_MZ 하나로 고정해두고 통로 횡단(①)도 "옆으로
+        미끄러지며" 이동했는데, 이 옆미끄러짐이 두 로봇 하중차(front_bias)를 더
+        도드라지게 만드는 것으로 보여, hold_yaw=0으로 바꿔 정상 전진 주행으로
+        처리한다. 슬롯 진입(③)은 원래도 FACE_MZ=target_axis_rad 방위라 동작은
+        그대로다.
 
-        ①③의 명시적 회전(_rotate_car_to_axis)은 한 번 뺐다가(슬롯 앞에서 하면
-        오래 걸리고 그 이후 편차도 안 줄어서) 다시 넣는 것이다 — 이번엔 위치를
-        "지나가는 김에" 맞추는 게 아니라 픽업 직후 넓은 자리에서 미리 해두고,
-        그 다음 ②/④ 구간의 부축 유지 보정이 회전 중 생긴 잔여 편차를 쓸어가는
-        구조라 이전과 다르다. 그래도 처음 실제로 붙여보는 순서라 잔여 편차가
-        남으면 ②/④의 SIDE_K/SIDE_MAX부터 확인할 것."""
-        self.get_logger().info("차량 방위 정렬(아일 방향, 0도) — 전진 주행 준비")
-        if not self._rotate_car_to_axis(0.0):
-            self._stop_all()
-            return False
-        self._settle()
+        ②의 명시적 회전(_rotate_car_to_axis)은 한 번 뺐다가(슬롯 앞에서 하면
+        오래 걸리고 그 이후 편차도 안 줄어서) 다시 넣는 것이다 — 회전 함수
+        자체에 위치 유지 보정을 추가해뒀고(_rotate_car_to_axis 참고), 그 다음
+        ③ 구간의 부축 유지 보정이 남은 잔여 편차를 마저 쓸어간다."""
         self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 전진 주행)")
         if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z,
                                 speed=self.carry_speed, hold_yaw=0.0):
