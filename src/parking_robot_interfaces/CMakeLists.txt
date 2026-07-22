@@ -12,6 +12,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FormationStop.msg"
   "msg/FormationAssignment.msg"
   "srv/FindEmptySlot.srv"
+  "srv/ParkInSlot.srv"
+  "srv/GetSlotInfo.srv"
   "srv/RequestParkingTask.srv"
   "srv/GetTaskStatus.srv"
   "srv/AcquireZones.srv"
