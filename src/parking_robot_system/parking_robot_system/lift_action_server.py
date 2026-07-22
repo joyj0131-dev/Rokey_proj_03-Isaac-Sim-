@@ -38,8 +38,11 @@ ARM_CALL_DEADLINE = 6.0          # 원본 _call_arms의 future 대기 상한(6.0
 LIFT_RISE_MIN = 0.015     # m — 차량 Y가 이만큼 오르면 "들림"으로 판정
 LIFT_WAIT_TIMEOUT = 15.0  # s — 물리 리프트 완료 대기 상한
 LIFT_SETTLE = 2.0         # s — 상승 감지 후 안정 확인(이 시간 유지되면 완료)
-DOWN_SETTLE = 4.0         # s — DOWN(해제) 후 차량 안착 대기(폴백용)
-ARM_FOLD_MIN_TIME = 4.0   # s — DOWN 후 최소 대기(팔이 차 밑에서 완전히 접혀 빠질 시간 보장)
+DOWN_SETTLE = 4.0         # s — DOWN(해제) 후 차량 안착 대기(veh_y 관측 불가 시 폴백용)
+ARM_FOLD_TIME = 6.0       # s — 차량 안착 '후' 팔이 완전히 접힐 때까지 추가 대기.
+# 사용자 요구 순서: ① 차량 완전 안착(veh_y 멈춤) → ② 팔 완전 접힘(이 시간) → ③ 복귀.
+# arm_control은 목표만 설정하고 즉시 반환하며 팔은 이후 틱마다 램프로 접히므로, 팔이 차
+# 밑에서 완전히 빠질 시간을 명시적으로 확보해야 복귀가 차를 안 건드린다. (넉넉히 6s.)
 
 
 class LiftActionServerNode(Node):
@@ -92,11 +95,9 @@ class LiftActionServerNode(Node):
         while time.monotonic() < end:
             time.sleep(0.05)
 
-    def _wait_settled(self, timeout=12.0, stable_for=1.5, eps=0.004, min_time=ARM_FOLD_MIN_TIME):
-        """DOWN 후 (a)/vehicle/pose Y가 stable_for초 동안 eps 이내로 유지되고 (b)최소 min_time이
-        지날 때까지 대기한다. (b)를 두는 이유: 차량이 바닥에 닿아 Y가 멎은 뒤에도 팔은 좀 더
-        접히므로(팔이 차 밑에서 완전히 빠지기 전 로봇이 움직이면 차를 건드림) — 사용자 요구
-        '팔이 완전히 다 접힌 이후에 복귀'를 보장하려면 최소시간을 강제해야 한다.
+    def _wait_settled(self, timeout=12.0, stable_for=1.5, eps=0.004, min_time=1.0):
+        """DOWN 후 차량이 완전히 안착할 때까지(=/vehicle/pose Y가 stable_for초 동안 eps 이내로
+        유지) 대기한다. 팔 접힘 대기는 호출부에서 별도(ARM_FOLD_TIME)로 처리한다.
         Y 관측 불가 시 max(DOWN_SETTLE, min_time) 고정 대기로 폴백."""
         t0 = time.monotonic()
         while self.veh_y is None and time.monotonic() - t0 < 3.0:
@@ -141,9 +142,9 @@ class LiftActionServerNode(Node):
             # 팔 지령만으론 아직 안 들렸다 — 차량이 실제로 올라와 안정될 때까지 대기.
             ok = self._wait_lift_complete()
         elif ok and not opening:
-            # 해제 후 차량이 완전히 하강·안착할 때까지 대기(고정시간 아님 — 실제 멈춤 감지).
-            # 이게 끝나야 orchestrator가 복귀를 시작한다(완전히 내려놓은 뒤 복귀).
-            self._wait_settled()
+            # 사용자 요구 순서: ① 차량 완전 안착 → ② 팔 완전 접힘 → (반환 후 orchestrator가) ③ 복귀.
+            self._wait_settled()        # ① 차량이 바닥에 완전히 내려앉을 때까지(veh_y 멈춤)
+            self._wait(ARM_FOLD_TIME)   # ② 팔이 차 밑에서 완전히 접혀 빠질 때까지
         result = ControlLift.Result()
         result.success = ok
         result.support_state = 'SUPPORTED' if (opening and ok) else 'RELEASED'
