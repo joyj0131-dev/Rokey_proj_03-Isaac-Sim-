@@ -287,12 +287,14 @@ class RobotTaskOrchestratorNode(Node):
         return True, None, None
 
     def _call_return_to_dock(self):
-        """RETURNING: rear → front 순으로 개별 West 도크 복귀(브리프 순서 그대로,
-        동시 진입 시 개구부에서의 충돌 가능성을 피하려 순차 처리)."""
-        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_REAR_MAP), 'rear')
+        """RETURNING: rear → front 순으로 개별 West 도크 복귀(순차 — 동시 진입 시 충돌 회피).
+
+        'return_rear'/'return_front' 모드는 navigate_action_server에서 통로 경유 L자 경로
+        (슬롯→통로→도크)로 처리한다 — 슬롯에서 도크로 직선 이동하면 차량/벽을 관통하기 때문."""
+        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_REAR_MAP), 'return_rear')
         if not ok:
             return False, None, f'rear 복귀 실패: {reason}'
-        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_FRONT_MAP), 'front')
+        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_FRONT_MAP), 'return_front')
         if not ok:
             return False, None, f'front 복귀 실패: {reason}'
         return True, None, None

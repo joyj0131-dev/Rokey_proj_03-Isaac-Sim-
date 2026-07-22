@@ -4,9 +4,10 @@
 goal.pose(geometry_msgs/PoseStamped, map 프레임)를 parking_robot_system.frame_transform로
 USD 프레임으로 변환한 뒤, goal.behavior_tree 문자열을 모드로 사용해 FormationMotion(검증된
 dock_lift_handoff_mission 폐루프 이식, formation_motion.py 참고)에 위임한다:
-    "carry"        -> FormationMotion.carry_to(tx,tz)          편대(둘 다) 운반 이동
-    "rotate"       -> FormationMotion.carry_rotate_to(yaw)     편대(둘 다) 회전(운반 중 정렬)
-    "rear"|"front" -> FormationMotion.goto_xz(rid, tx, tz)     로봇 1대만 개별 이동(픽업 전 접근 등)
+    "carry"                     -> FormationMotion.carry_to(tx,tz)        편대(둘 다) 운반 이동
+    "rotate"                    -> FormationMotion.carry_rotate_to(yaw)   편대(둘 다) 회전(정렬)
+    "rear"|"front"              -> FormationMotion.goto_xz(rid, tx, tz)   로봇 1대 개별 직선 이동
+    "return_rear"|"return_front"-> FormationMotion.return_via_aisle(rid…) 로봇 1대 통로경유 도크 복귀
 그 외 문자열(빈 문자열 포함)은 알 수 없는 모드로 간주해 abort한다 — 조용히 기본값으로
 넘어가면(예: 빈 문자열을 "carry"로 취급) 호출부의 설정 누락을 숨기게 되므로 의도적으로 엄격하다.
 
@@ -85,6 +86,10 @@ class NavigateActionServerNode(Node):
             ok = self.formation.carry_rotate_to(math.radians(yaw_usd_deg))
         elif mode in ('rear', 'front'):
             ok = self.formation.goto_xz(f'robot_{mode}', tx_usd, tz_usd)
+        elif mode in ('return_rear', 'return_front'):
+            # 복귀: 슬롯에서 통로 경유 L자 경로로 도크까지(벽/차량 관통 방지).
+            rid = 'robot_' + mode[len('return_'):]
+            ok = self.formation.return_via_aisle(rid, tx_usd, tz_usd)
         else:
             self.get_logger().warn(f'navigate_to_pose: 알 수 없는 behavior_tree 모드 {mode!r}')
             goal_handle.abort()

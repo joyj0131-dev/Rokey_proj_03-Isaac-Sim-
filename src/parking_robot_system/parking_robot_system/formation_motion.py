@@ -323,6 +323,28 @@ class FormationMotion:
         self._stop_all()
         return math.hypot(tx_usd - self.veh_x, tz_usd - self.veh_z) < tol * 3
 
+    def return_via_aisle(self, rid, dock_x, dock_z, aisle_z=0.0):
+        """주차·하차 후 로봇 1대를 대기 도크로 복귀 — 통로(z=aisle_z) 경유 L자 경로.
+
+        슬롯(예: A2, 북쪽 z≈+7.8)에서 도크(x≈-15.3, z≈±1.5)로 곧장 직선 이동하면 차량/벽/
+        기둥을 관통한다(carry 직선 이동과 같은 문제, 역방향). 그래서:
+          ① 현재 x를 유지한 채 통로(aisle_z)로 남/북하며 슬롯 밖으로 빠져나온 뒤,
+          ② 통로를 따라 도크(dock_x, dock_z)로 이동한다.
+        omni 구동이라 로봇 방위(주차 시 회전된 상태)와 무관하게 이동한다. 빈 몸(차량 없음)
+        이라 편대 동기 제약도 없다.
+        """
+        cur = self.pose.get(rid)
+        if cur is None:
+            return False
+        cur_x = cur[0]
+        self.node.get_logger().info(f"{rid} 복귀: 슬롯→통로(z={aisle_z}) 빠져나오기")
+        self.goto_xz(rid, cur_x, aisle_z)   # ① 슬롯 밖(통로)으로
+        self._settle()
+        self.node.get_logger().info(f"{rid} 복귀: 통로→도크({dock_x:.1f},{dock_z:.1f})")
+        ok = self.goto_xz(rid, dock_x, dock_z)   # ② 통로 따라 도크로
+        self._pub(rid, 0.0)
+        return ok
+
     def carry_rotate_to(self, target_yaw, timeout=90.0):
         """파지 후 두 로봇을 target_yaw로 회전(강체로 잡은 차량이 함께 회전) — best-effort.
 
