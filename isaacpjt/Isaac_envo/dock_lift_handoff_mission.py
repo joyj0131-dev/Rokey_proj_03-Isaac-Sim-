@@ -6,9 +6,10 @@
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. 슬롯까지 운반: 통로 정렬(x, carry_speed) → 슬롯 앞 방위 정렬(_rotate_car_to_axis,
-     veh_yaw 실측 기준 피벗 회전 — 진입 중 보정만으론 차량이 삐딱하게 도착하는 게
-     반복 확인돼 추가) → 슬롯 진입(z, slot_entry_speed). 목표는 target_slot_x/
+  5. 슬롯까지 운반: 통로 정렬(x, carry_speed) → 슬롯 진입(z, slot_entry_speed),
+     매 틱 mod-180도 회전 보정(_carry_axis 내부)만으로 진행 — 슬롯 앞 명시적
+     정렬(_rotate_car_to_axis)을 넣어봤는데 정렬 자체가 오래 걸리고(실측 39초)
+     그 이후에도 편차가 계속 커지는 문제가 있어 뺐다. 목표는 target_slot_x/
      target_slot_z/target_axis_rad 파라미터(기본값 B1, pi/2) — 재시작 없이
      `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
      ExecuteParkingTask goal의 slot_pose를 받아 이 값들을 설정해준다.
@@ -101,7 +102,12 @@ SLOT_CARRY_TIMEOUT = 300.0   # 이동 거리가 길어(~25m) 기존 STEP_TIMEOUT
 RETREAT_DIST = 4.0           # 하차 후 앞축 로봇이 차체 밑에서 벗어나는 후진 거리.
                               # 뒷축은 여기에 축간거리(front_axle-rear_axle)를 더 간다(_retreat).
 AISLE_CENTER_Z = 0.0         # 중앙 통로 z=0 (AISLE_WIDTH=9.0m 기준 중심, marker_layout.py와 동일).
-SIDE_K, SIDE_MAX = 0.5, 0.15  # 부축(주 이동축 아닌 쪽) 유지 보정 게인 — carry_speed보다 훨씬 작게.
+SIDE_K, SIDE_MAX = 0.8, 0.30  # 부축(주 이동축 아닌 쪽) 유지 보정 게인. 0.15로는 실측상
+                               # 계속 포화 상태인데도 편차를 못 줄여서(비대칭 하중 토크가
+                               # 더 셈) 0.30으로 올림 — 그래도 carry_speed 기본값(0.6)보다 작게.
+CARRY_WZ_MAX = 0.15   # _carry_axis 회전 보정 상한. 원래 0.10이었는데 실측상 계속 포화된
+                       # 채로 목표(90도)와 55도씩 차이 나는 걸 못 줄여서, 발레 방지용으로
+                       # 이미 검증된 다른 상한(MAX_YAW)과 맞춰 0.15로 올림.
 
 
 def wrap(a):
@@ -454,8 +460,12 @@ class HandoffMission(Node):
             axis_speed = speed if err < 0 else -speed
             side_speed = self._clamp(-SIDE_K * (hold - side), SIDE_MAX)
             veh_yaw = self.veh_yaw if self.veh_yaw is not None else FACE_MZ
-            eyaw = wrap(FACE_MZ - veh_yaw)
-            wz = self._clamp(0.6 * eyaw, 0.10)
+            # mod-pi로 비교해야 한다 — _rotate_car_to_axis가 "코/꼬리 무관"으로
+            # 180도 뒤집힌 해에 수렴할 수 있는데, 여기서 plain wrap()(360도 기준)을
+            # 쓰면 그 상태를 180도짜리 진짜 오차로 착각해서 wz를 계속 최대로 걸어
+            # 긴 이동거리 동안 차가 휘어져 나가는 문제가 실측 확인됨(A1에서 발견).
+            eyaw = self._axis_alignment_rotation(veh_yaw, FACE_MZ)
+            wz = self._clamp(0.6 * eyaw, CARRY_WZ_MAX)
             vx, vy = (axis_speed, side_speed) if mode == "z" else (side_speed, axis_speed)
             for r in ROBOTS:
                 self._pub(r, vx, vy, wz)
@@ -464,21 +474,15 @@ class HandoffMission(Node):
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 후 슬롯까지: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬(슬롯 열까지
-        이동, carry_speed — 개활지라 빠르게) → 슬롯 앞에서 차량 방위를 한 번 딱 맞춤
-        (_rotate_car_to_axis, veh_yaw 실측 기준) → x=slot_x를 유지하며 z로 직진해
-        슬롯 안으로 진입(slot_entry_speed — 옆 슬롯/기둥 근접이라 더 느리게).
+        """파지 후 슬롯까지 2단계 직선: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬
+        (슬롯 열까지 이동, carry_speed — 개활지라 빠르게) → 그대로 x=slot_x를 유지하며
+        z로 직진해 슬롯 안으로 진입(slot_entry_speed — 옆 슬롯/기둥 근접이라 더 느리게).
 
-        진입 중에도 _carry_axis가 매 틱 회전을 살짝씩 보정하긴 하지만, 그것만으론
-        차량이 삐딱하게 도착하는 게 실측으로 반복 확인돼서, 슬롯 진입 시작 전에
-        명시적으로 한 번 정렬해 정렬 상태로 딱 맞춰놓고 들어가게 함."""
+        중간에 명시적 회전 정렬(_rotate_car_to_axis)을 넣어봤는데, 정렬 자체가
+        오래 걸리고(실측 39초) 그 이후에도 부축 편차가 계속 커지는 문제가 있어
+        도로 뺐다 — _carry_axis의 매 틱 mod-180도 보정만으로 진행한다."""
         self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 통로중앙 z 유지)")
         if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z, speed=self.carry_speed):
-            return False
-        self._settle()
-        self.get_logger().info(f"슬롯 앞 방위 정렬(목표 {math.degrees(self.target_axis_rad):.1f}도)")
-        if not self._rotate_car_to_axis(self.target_axis_rad):
-            self._stop_all()
             return False
         self._settle()
         self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f}, x={slot_x:.2f} 유지)")
