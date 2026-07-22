@@ -440,6 +440,19 @@ def main():
         node.create_service(Trigger, "/sim_reset", _on_reset)
         node.create_service(Trigger, "/sim_checkpoint_staged", _on_checkpoint_staged)
 
+        # 차량 pose 기준 prim이 차체 메시에 대해 틀어져 있으면(=기준 프레임 버그),
+        # 화면엔 똑바로 보여도 yaw 계산은 항상 어긋난 값을 낼 수 있다. 배치 시
+        # yaw=0(SetTranslateOnly, 회전 없음)으로 뒀으니 여기서 0도 근처로 안 읽히면
+        # 기준 프레임이 실제 차체 방향과 안 맞는다는 뜻 — 원인 후보 하나를 배제/확정.
+        _p0, _o0 = veh_rb.get_world_poses()
+        _o0 = np.asarray(_o0).reshape(-1)[:4]
+        _w0, _x0, _y0, _z0 = (float(v) for v in _o0)
+        _fx0 = 1.0 - 2.0 * (_y0 * _y0 + _z0 * _z0)
+        _fz0 = 2.0 * (_x0 * _z0 - _w0 * _y0)
+        _yaw0_deg = math.degrees(math.atan2(-_fz0, _fx0))
+        print(f"VEHICLE_POSE_FRAME_CHECK initial_yaw={_yaw0_deg:.2f}deg "
+              f"(0도 근처가 아니면 pose 기준 prim이 차체와 안 맞을 수 있음)", flush=True)
+
         print(f"DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
         while app.is_running():
