@@ -6,11 +6,17 @@
 #   이유: 차량을 팔 4개로 집어 옮기는 하드웨어 구조상 항상 로봇 2대가 팀으로
 #   일해야 한다. follower_robot_id가 빈 문자열이면 로봇 1대짜리 기존 흐름
 #   그대로 동작한다(MVP/테스트 호환).
+# 2026-07-22 수정안: slot_pose.orientation에 슬롯이 요구하는 축(graph.py의
+#   slot_axis_rad, quaternion_from_yaw로 인코딩)을 채워 보낸다. 직사각형
+#   슬롯은 mod pi로만 의미가 있어 코가 어느 쪽을 보는지는 중요하지 않다.
+#   "지금 몇 도 돌아야 하는가"는 여기서 정하지 않는다 — 그건 그 순간의
+#   실측 yaw가 있어야 계산되므로(core/pivot_rotate_controller.py의
+#   axis_alignment_rotation), goal을 받는 쪽이 실행 시점에 판단한다.
 string task_id
 string request_type   # ENTRY, EXIT
 string vehicle_id
 string slot_id                  # 목표 주차면 (예: 'B1')
-geometry_msgs/Pose slot_pose    # 목표 주차면 좌표 (map 프레임)
+geometry_msgs/Pose slot_pose    # 목표 주차면 좌표 + 요구 축 (map 프레임)
 string leader_robot_id
 string follower_robot_id        # 로봇 1대 MVP 흐름에서는 빈 문자열
 ---

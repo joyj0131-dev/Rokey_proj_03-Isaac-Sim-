@@ -40,6 +40,11 @@ def yaw_from_quaternion(x, y, z, w):
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
+def quaternion_from_yaw(yaw):
+    """yaw_from_quaternion의 역. z축 회전만 있는 평면 회전의 (x, y, z, w)."""
+    return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
+
+
 def _wrap_angle(angle):
     """[-pi, pi] 범위로 정규화."""
     return (angle + math.pi) % (2 * math.pi) - math.pi

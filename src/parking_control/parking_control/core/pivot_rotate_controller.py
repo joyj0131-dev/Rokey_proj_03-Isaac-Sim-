@@ -58,6 +58,28 @@ def formation_center(pose_a: Pose2D, pose_b: Pose2D):
     return ((pose_a.x + pose_b.x) / 2.0, (pose_a.y + pose_b.y) / 2.0)
 
 
+def axis_alignment_rotation(current_yaw, target_axis_rad):
+    """차량을 슬롯 축(graph.py의 slot_axis_rad, mod pi)에 맞추는 데 필요한
+    최소 회전량(rad, signed).
+
+    코/꼬리 방향(0~2pi)이 아니라 축(0~pi)만 맞으면 되므로 — 직사각형
+    슬롯은 180도 돌려도 같은 자리에 들어간다 — 그 반대 방향(180도 더 돎)은
+    항상 손해다. 그래서 결과를 (-pi/2, pi/2] 범위로 접어서, "이보다 큰
+    회전은 반대쪽으로 도는 게 항상 더 짧다"가 항상 성립하게 한다.
+
+    반환값을 그대로 PivotRotateController의 target_angle_rad로 넘기면 된다.
+    """
+    diff = (target_axis_rad - current_yaw) % math.pi
+    if diff > math.pi / 2:
+        diff -= math.pi
+    return diff
+
+
+def needs_rotation(current_yaw, target_axis_rad, tol_rad=0.05) -> bool:
+    """축 오차가 허용 범위를 넘어서 실제로 피벗 회전이 필요한지."""
+    return abs(axis_alignment_rotation(current_yaw, target_axis_rad)) > tol_rad
+
+
 def group_yaw_progress(own_yaw, partner_yaw, start_own_yaw, start_partner_yaw):
     """회전 시작 시점 대비 "그룹 전체가 지금까지 실제로 돈 각도".
 

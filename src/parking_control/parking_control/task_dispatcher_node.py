@@ -34,6 +34,7 @@ from parking_control.core.allocator import (
     RobotState, TaskRequest, make_allocator, pick_follower,
 )
 from parking_control.core.db import ParkingDB
+from parking_control.core.gap_hold_controller import quaternion_from_yaw
 from parking_control.core.graph import ParkingMap
 from parking_control.core.pathfinder import PathFinder
 from parking_control.parking_slot_manager_node import _default_map_yaml
@@ -188,7 +189,16 @@ class TaskDispatcherNode(Node):
         goal.slot_id = slot_id
         goal.slot_pose.position.x = float(x)
         goal.slot_pose.position.y = float(y)
-        goal.slot_pose.orientation.w = 1.0
+        # 슬롯이 요구하는 축(graph.py의 slot_axis_rad, mod pi — 코가 어느 쪽을
+        # 보는지는 안 실어도 된다)을 goal에 실어 보낸다. 차를 붙든 로봇들이
+        # 지금 어느 방향인지는 다칠 때 가서야 알 수 있으므로, "얼마나 돌아야
+        # 하는지"는 여기서 안 정하고 goal을 받는 쪽이 그때의 실측 yaw와 이
+        # 값을 axis_alignment_rotation()으로 비교해서 정한다.
+        qx, qy, qz, qw = quaternion_from_yaw(self._map.slot_axis_rad(slot_id))
+        goal.slot_pose.orientation.x = qx
+        goal.slot_pose.orientation.y = qy
+        goal.slot_pose.orientation.z = qz
+        goal.slot_pose.orientation.w = qw
         goal.leader_robot_id = leader_id
         goal.follower_robot_id = follower_id
         self._publish_formation(task_id, leader_id, follower_id, active=True)

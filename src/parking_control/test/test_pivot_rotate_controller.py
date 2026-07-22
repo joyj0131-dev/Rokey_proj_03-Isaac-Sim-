@@ -3,7 +3,8 @@
 import math
 
 from parking_control.core.pivot_rotate_controller import (
-    PivotRotateController, Pose2D, formation_center, group_yaw_progress,
+    PivotRotateController, Pose2D, axis_alignment_rotation, formation_center,
+    group_yaw_progress, needs_rotation,
 )
 
 
@@ -75,6 +76,46 @@ def test_not_settled_before_reaching_target():
     rear = Pose2D(x=-1.45, y=0.0, yaw=0.1)   # 아직 0.1rad밖에 안 돎
     front = Pose2D(x=1.45, y=0.0, yaw=0.1)
     assert not controller.is_settled(rear, front, start_rear, start_front, tol_rad=0.05)
+
+
+def test_axis_alignment_matches_slot_needing_90_degrees():
+    """지금 지도(통로=X축, 슬롯=Y방향 축)와 같은 상황: 운반 중 yaw=0인데
+    슬롯 축이 pi/2면 90도를 돌려야 한다."""
+    rotation = axis_alignment_rotation(current_yaw=0.0, target_axis_rad=math.pi / 2)
+    assert math.isclose(rotation, math.pi / 2, abs_tol=1e-9)
+
+
+def test_axis_alignment_zero_when_already_aligned():
+    assert math.isclose(
+        axis_alignment_rotation(current_yaw=0.3, target_axis_rad=0.3), 0.0, abs_tol=1e-9)
+
+
+def test_axis_alignment_ignores_nose_direction():
+    """코가 반대(pi 차이)를 봐도 축은 같으므로 필요한 회전량은 동일하다."""
+    facing_forward = axis_alignment_rotation(0.0, math.pi / 2)
+    facing_backward = axis_alignment_rotation(math.pi, math.pi / 2)
+    assert math.isclose(facing_forward, facing_backward, abs_tol=1e-9)
+
+
+def test_axis_alignment_picks_shorter_direction():
+    """목표축이 135도면 0도에서 +135(먼 길)가 아니라 -45(짧은 길)로 나와야 한다."""
+    rotation = axis_alignment_rotation(current_yaw=0.0, target_axis_rad=3 * math.pi / 4)
+    assert math.isclose(rotation, -math.pi / 4, abs_tol=1e-9)
+
+
+def test_axis_alignment_result_bounded_to_quarter_turn():
+    for target in (0.1, 1.0, 2.0, 3.0, -1.5, math.pi - 0.01):
+        rotation = axis_alignment_rotation(current_yaw=0.0, target_axis_rad=target)
+        assert -math.pi / 2 < rotation <= math.pi / 2 + 1e-9
+
+
+def test_needs_rotation_true_for_perpendicular_slot():
+    assert needs_rotation(current_yaw=0.0, target_axis_rad=math.pi / 2)
+
+
+def test_needs_rotation_false_when_within_tolerance():
+    assert not needs_rotation(
+        current_yaw=0.0, target_axis_rad=0.02, tol_rad=0.05)
 
 
 def test_omega_direction_flips_with_target_sign():

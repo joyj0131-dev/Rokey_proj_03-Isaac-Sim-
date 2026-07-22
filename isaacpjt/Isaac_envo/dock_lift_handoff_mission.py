@@ -66,12 +66,19 @@ class HandoffMission(Node):
         # Pickup 인계장 중앙(z=0). fab wheel offset: front=+1.66, rear=-1.93(휠베이스 3.59m).
         # 러너 DOCK_STAGE_READY 의 front_z/rear_z 와 일치해야 함(불일치 시 파라미터로 덮기).
         p("center_x", -29.6); p("rear_axle_z", -1.93); p("front_axle_z", 1.66)
+        # 목표 슬롯이 요구하는 축(mod pi, 코/꼬리 무관) — parking_map.yaml의
+        # slot_axis_rad와 같은 값. 이 데모 지도는 통로=X축, 슬롯=Z(깊이)방향이라
+        # 기본이 pi/2다. 실제로는 task_dispatcher의 ExecuteParkingTask.slot_pose
+        # 에서 받아와야 하지만, 이 스크립트는 아직 그 파이프라인과 안 이어져
+        # 있어 파라미터로 받는다.
+        p("target_axis_rad", math.pi / 2)
         g = lambda k: self.get_parameter(k).value
         self.cx = g("center_x")
         self.rear_axle = g("rear_axle_z")
         self.front_axle = g("front_axle_z")
+        self.target_axis_rad = float(g("target_axis_rad"))
         self.pose = {r: None for r in ROBOTS}   # (x, z, yaw)
-        self.veh_x = self.veh_y = self.veh_z = None
+        self.veh_x = self.veh_y = self.veh_z = self.veh_yaw = None
         grp = ReentrantCallbackGroup()
         for r in ROBOTS:
             self.create_subscription(Odometry, f"/{r}/odom",
@@ -89,9 +96,16 @@ class HandoffMission(Node):
         self.pose[rid] = (m.pose.pose.position.x, m.pose.pose.position.z, yaw)
 
     def _veh(self, m):
+        q = m.pose.orientation
         self.veh_x = m.pose.position.x
         self.veh_y = m.pose.position.y
         self.veh_z = m.pose.position.z
+        # 지금까지는 position만 썼다 — 회전 판단은 로봇 자기 yaw 평균이 아니라
+        # 차량 자체의 실측 yaw로 하는 게 더 정확하다(그립 슬립이 있어도 차가
+        # 실제로 얼마나 돌았는지는 이 값이 answer). 시뮬레이션 GT라 가능한
+        # 값이고, 실물에서는 천장 LiDAR로 차량 헤딩을 재는 쪽이 이 자리를 대신해야 한다.
+        self.veh_yaw = math.atan2(
+            2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
     def _pub(self, rid, vx, vy=0.0, wz=0.0):
         t = Twist()
@@ -182,6 +196,60 @@ class HandoffMission(Node):
             time.sleep(1.0 / CONTROL_HZ)
         self._pub(rid, 0.0)
         return abs(wrap(target_yaw - self.pose[rid][2])) < YAW_TOL * 3
+
+    def _axis_alignment_rotation(self, current_yaw, target_axis_rad):
+        """차량을 슬롯 축(mod pi, 코/꼬리 무관)에 맞추는 최소 회전량(rad, signed).
+
+        parking_control/core/pivot_rotate_controller.py의 axis_alignment_rotation과
+        같은 식이다. 이 파일은 x,z 평면 규약(_omni_step의 world<->body 변환)이
+        그 모듈의 x,y 규약과 달라, import로 섞어 쓰다 부호를 잘못 옮길 위험을
+        피하려고 이 파일 자체 규약으로 다시 짰다 — 값은 동일하다.
+        """
+        diff = (target_axis_rad - current_yaw) % math.pi
+        if diff > math.pi / 2:
+            diff -= math.pi
+        return diff
+
+    def _rotate_car_to_axis(self, target_axis_rad, timeout=120.0):
+        """차량을 든 채로 두 로봇이 차량 중심(두 로봇 중점) 기준 반대 방향으로
+        피벗 회전해서 target_axis_rad(mod pi)에 맞춘다.
+
+        판단 근거는 로봇 각자 yaw 평균이 아니라 /vehicle/pose 의 실측
+        veh_yaw다 — 그립에 슬립이 있어도 차가 실제로 얼마나 돌았는지는 이
+        값이 정답이다(실물에서는 이 자리를 천장 LiDAR 기반 차량 헤딩 추정이
+        대신해야 한다 — GT는 시뮬레이션 검증용).
+
+        강체 운동학: 중심에서 오프셋 r인 점의 접선속도는 이 파일의 yaw
+        규약(forward=(cosθ,-sinθ))에서 rot90(r)=(r_z,-r_x)이므로
+        world velocity = omega*(r_z, -r_x). 두 로봇은 중심을 사이에 두고
+        반대편에 있어 이 식 하나로 선속도가 자동으로 반대 방향이 되고,
+        angular.z(=omega)는 항상 같게 나온다 — pivot_rotate_controller.py와
+        동일한 설계, 좌표 규약만 이 파일 것으로.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.veh_yaw is None:
+                self._stop_all()
+                return False
+            diff = self._axis_alignment_rotation(self.veh_yaw, target_axis_rad)
+            if abs(diff) < YAW_TOL:
+                break
+            omega = self._clamp(K_YAW * diff, MAX_YAW)
+            cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
+            cz = (self.pose["robot_rear"][1] + self.pose["robot_front"][1]) / 2.0
+            for rid in ROBOTS:
+                x, z, yaw = self.pose[rid]
+                rx, rz = x - cx, z - cz
+                c, s = math.cos(yaw), math.sin(yaw)
+                fwd = omega * (rz * c + rx * s)
+                left = omega * (rx * c - rz * s)
+                self._pub(rid, self._clamp(fwd, MAX_LIN),
+                         self._clamp(left, MAX_LIN), omega)
+            time.sleep(1.0 / CONTROL_HZ)
+        self._stop_all()
+        if self.veh_yaw is None:
+            return False
+        return abs(self._axis_alignment_rotation(self.veh_yaw, target_axis_rad)) < YAW_TOL * 3
 
     def _ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT):
         """차 밑으로 진입하며 축(target_z)에 정렬. 중심선(x=cx)과 방위(face_yaw)를
@@ -289,10 +357,31 @@ class HandoffMission(Node):
         if lift < 0.02:
             self._stop_all(); resp.success = False
             resp.message = f"리프트 실패 {lift:.4f}m"; return resp
-        self.get_logger().info(f"리프트 {lift:.3f}m — 오미 운반")
+        self.get_logger().info(f"리프트 {lift:.3f}m")
+
+        # 차를 든 이후부터는 공동제어(두 로봇이 같은 판단을 공유) 구간이다.
+        # 슬롯 축(target_axis_rad)과 지금 차량 실측 축이 얼마나 다른지 봐서
+        # 회전 필요 여부·방향·양을 그 자리에서 판단한다 — 하드코딩된 "무조건
+        # 90도"가 아니라, 이미 맞아떨어지면 diff≈0이라 아래 루프가 즉시
+        # 통과한다(회전 스킵).
+        rotation_needed = self._axis_alignment_rotation(
+            self.veh_yaw, self.target_axis_rad)
+        self.get_logger().info(
+            f"슬롯 축 정렬 판단: 목표 {math.degrees(self.target_axis_rad):.1f}도, "
+            f"현재 차량 축 {math.degrees(self.veh_yaw):.1f}도, "
+            f"필요 회전 {math.degrees(rotation_needed):+.1f}도")
+        if not self._rotate_car_to_axis(self.target_axis_rad):
+            self._stop_all(); resp.success = False
+            resp.message = "차량 피벗 회전 실패(공동정지 또는 타임아웃)"
+            return resp
+        self._settle()
+
+        self.get_logger().info("오미 운반")
         fwd, back, side = self._omni_carry()
         resp.success = True
-        resp.message = (f"완료: 리프트 {lift:.3f}m, 앞 {fwd:.2f}m, 뒤 {back:.2f}m, 옆 {side:.2f}m")
+        resp.message = (
+            f"완료: 리프트 {lift:.3f}m, 회전 {math.degrees(rotation_needed):+.1f}도, "
+            f"앞 {fwd:.2f}m, 뒤 {back:.2f}m, 옆 {side:.2f}m")
         self.get_logger().info(resp.message)
         return resp
 
