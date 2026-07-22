@@ -6,11 +6,13 @@
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. B1 슬롯까지 운반: z축 정렬(게이트 통로 z) → x축 직진(게이트·도크 통과) — 회전 없음
+  5. B1 슬롯까지 운반: 통로 정렬(x) → 슬롯 진입(z) 2단계 직선 — 로봇별 yaw 살짝 보정
   6. 하차: 파지 해제(차량 착지) → 두 로봇 차체 밑에서 이탈(후진)
 
-테스트 반복용: 러너의 /sim_checkpoint_docked(Trigger) 호출로 로봇을 차 밑까지 순간이동시킨
-뒤 /dock_lift_from_docked(Trigger)를 부르면 1~3(접근·진입)을 건너뛰고 4~6만 실행한다.
+테스트 반복용: 러너의 /sim_checkpoint_staged(Trigger) 호출로 로봇을 게이트 통과 직후
+대기 위치까지 순간이동시킨 뒤 /dock_lift_from_staged(Trigger)를 부르면 1(게이트 통과)만
+건너뛰고 2~6(회전·진입·파지·운반·하차)은 그대로 실제로 실행한다 — 차 밑까지 직접
+순간이동시키면 차체와 겹쳐 물리가 튕겨나가는 문제가 있어 이렇게 나눔.
 /sim_reset(러너)은 씬을 도크 초기 상태로 되돌린다(재시작 불필요).
 
 좌표: world XZ, 차 길이축=z, Coupe center_x≈-29.6. 로봇은 도크에서 +X 향함(yaw≈0),
@@ -43,13 +45,18 @@ FACE_MZ = math.pi / 2    # -z 를 향하는 yaw (odom 규약: atan2(-fwd_z, fwd_
 K_LIN, MAX_LIN = 0.8, 0.6
 K_STRAFE = 0.8
 K_YAW, MAX_YAW = 0.5, 0.15   # 회전은 느리게(Plan 2: wz<=0.15 결정적, 발레 방지)
-INGRESS_SPEED = 0.40   # 테스트 반복용 상향(0.30→0.40). 실측상 0.35+는 슬립만 늘 수 있어
-CARRY_SPEED = 0.40     # 모션퀄리티(dock_motion_check.py) 재검증 권장.
+INGRESS_SPEED = 0.45   # 시연용 상향(0.30→0.40→0.45). 차 밑 진입이라 정밀도 필요 —
+                        # 더 올리려면 dock_motion_check.py로 축 정렬 놓치는지 확인 권장.
+CARRY_SPEED = 0.60     # 시연용 상향(0.40→0.60). 개활지 직선 이동이라 진입만큼
+                        # 정밀도가 필요 없어 접근 단계(0.6)와 같은 상한까지 올림.
 # 기본값일 뿐 — 런타임에 ROS2 파라미터(ingress_speed/carry_speed)로 재설정 가능
-# (speed_control_ui.py). 상한을 접근 단계(0.6)보다 높여 실험 여지를 둔다 — 다만
-# 실측상 슬립 때문에 지령 0.35+ 는 실속이 거의 안 느는 구간이라, 올려도 체감 효과가
-# 크지 않을 수 있다(진입 단계는 특히 정밀도 요구라 너무 높이면 축 정렬을 놓칠 수 있음).
-SPEED_MIN, SPEED_MAX = 0.10, 1.0
+# (speed_control_ui.py). 실측: ingress_speed를 실수로 3.0까지 올렸더니 축 정렬을
+# 놓쳐 차 밑 진입을 실패함(언더바디 0.243m - 로봇 0.18m = 6.3cm 여유뿐인 정밀 구간이라
+# 빠르면 보정이 못 따라감). 그래서 진입/운반 상한을 분리 — carry는 개활지라 계속 넓게,
+# ingress는 안전 범위로 좁게 묶는다.
+SPEED_MIN = 0.10
+INGRESS_SPEED_MAX = 0.70
+CARRY_SPEED_MAX = 3.0
 CARRY_DIST = 1.0
 
 # 게이트 통과 안무: 서쪽 벽 개구부는 z∈[-4.5,4.5](폭 9m). 도크는 z=±7.8 로 개구부
@@ -66,12 +73,15 @@ DOCK_X = -15.3          # West 도크 x (robot:dockPose)
 # 슬립 악화로 오히려 느려짐). 그래서 속도는 그대로 두고 두 로봇 접근을 병렬화한다.
 APPROACH_TIMEOUT = 300.0
 
-# B1 슬롯(marker_map.json: id=8, kind=slot, label=B1) — 도크와 같은 world 프레임.
-# z=-2.5 는 게이트 통로 z∈[-4.5,4.5] 안쪽이라, z를 먼저 맞춘 뒤 x로 직진하면
-# 게이트(x≈-18.1)·B 도크(x=-15.3)를 그대로 관통해 슬롯까지 회전 없이 도달한다.
+# B1 슬롯 — 실제 슬롯 중심(marker_layout.py HANDOFF_BAY_Z/row_center와 동일 계산:
+# AISLE_WIDTH*0.5 + SPACE_LENGTH*0.5 = 4.5+3.3 = 7.8). x는 marker_map.json B1과 동일
+# (슬롯 인덱스 1 기준 -half_w+(1+0.5)*SPACE_WIDTH = -11.9, 이건 실제로 맞음).
+# ⚠ marker_map.json 의 B1 z=-2.5 는 슬롯 중심이 아니라 "슬롯 입구(z=4.5)에서 통로
+# 쪽으로 2m 앞"에 둔 카메라 인식용 마커 위치(LANE_Z) — 그 좌표로 가면 슬롯 밖(통로)에서
+# 멈춘다(실측 확인됨). 슬롯에 실제로 들어가려면 z=-7.8(B 행은 음수)이어야 한다.
 SLOT_B1_X = -11.9
-SLOT_B1_Z = -2.5
-SLOT_CARRY_TIMEOUT = 300.0   # x축 이동 거리가 길어(~17m) 기존 STEP_TIMEOUT(90s)로는 부족.
+SLOT_B1_Z = -7.8
+SLOT_CARRY_TIMEOUT = 300.0   # 이동 거리가 길어(~25m) 기존 STEP_TIMEOUT(90s)로는 부족.
 RETREAT_DIST = 4.0           # 하차 후 로봇이 차체 밑에서 벗어나는 후진 거리(축간 3.59m + 여유).
 
 
@@ -106,17 +116,28 @@ class HandoffMission(Node):
         self.arm = {r: self.create_client(SetBool, f"/{r}/arm_control", callback_group=grp)
                     for r in ROBOTS}
         self.create_service(Trigger, "/dock_lift", self._on_dock_lift, callback_group=grp)
-        self.create_service(Trigger, "/dock_lift_from_docked", self._on_dock_lift_from_docked,
+        self.create_service(Trigger, "/dock_lift_from_staged", self._on_dock_lift_from_staged,
                             callback_group=grp)
         self.get_logger().info("dock_lift_handoff_mission 준비 — /dock_lift 대기 "
-                               "(/dock_lift_from_docked 로 파지 이후만 재테스트 가능)")
+                               "(/dock_lift_from_staged 로 게이트 통과만 건너뛰고 재테스트 가능)")
 
     def _on_param(self, params):
+        """범위 밖 값은 거부(clamp 아님) — 조용히 잘라내면 ros2 param get에는 원래
+        요청값이 남아 실제 동작(clamp된 값)과 어긋나 보이는 문제가 있었다(실측)."""
+        for prm in params:
+            if prm.name == "ingress_speed" and not (SPEED_MIN <= prm.value <= INGRESS_SPEED_MAX):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"ingress_speed 허용 범위 {SPEED_MIN}~{INGRESS_SPEED_MAX} (정밀 진입 구간)")
+            if prm.name == "carry_speed" and not (SPEED_MIN <= prm.value <= CARRY_SPEED_MAX):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"carry_speed 허용 범위 {SPEED_MIN}~{CARRY_SPEED_MAX}")
         for prm in params:
             if prm.name == "ingress_speed":
-                self.ingress_speed = max(SPEED_MIN, min(SPEED_MAX, prm.value))
+                self.ingress_speed = prm.value
             elif prm.name == "carry_speed":
-                self.carry_speed = max(SPEED_MIN, min(SPEED_MAX, prm.value))
+                self.carry_speed = prm.value
         return SetParametersResult(successful=True)
 
     def _odom(self, rid, m):
@@ -138,8 +159,9 @@ class HandoffMission(Node):
         for r in ROBOTS:
             self._pub(r, 0.0)
 
-    def _settle(self, secs=0.5):
-        """단계 경계에서 정지 후 잠깐 멈춤 → 관성 흡수 + 동작이 또렷한 단계로 보이게."""
+    def _settle(self, secs=0.2):
+        """단계 경계에서 정지 후 잠깐 멈춤 → 관성 흡수 + 동작이 또렷한 단계로 보이게.
+        시연 속도용으로 단축(0.5→0.2). 사이클당 9회 호출되니 누적 효과가 크다."""
         self._stop_all()
         end = time.time() + secs
         while time.time() < end:
@@ -287,16 +309,16 @@ class HandoffMission(Node):
         self.get_logger().info(f"옆으로(-x) {side:.2f}m")
         return fwd, back, side
 
-    def _carry_axis(self, mode, getter, target, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
-        """차량의 world z(mode='z') 또는 x(mode='x') 값을 target 으로 정렬.
-
-        두 로봇 다 FACE_MZ 유지(회전 없음), 같은 body 지령을 발행해 편대 유지
-        (_omni_carry와 동일 매핑: +vx=world -z, +vy=world -x). 오차 부호로 매 틱
-        진행 방향을 정하므로 시작 위치에 상관없이 target 에 수렴한다."""
+    def _carry_axis(self, mode, target, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
+        """차량의 world x(mode='x') 또는 z(mode='z') 만 target 으로 맞춘다(그 축만 이동,
+        다른 축은 안 건드림). 두 로봇 다 자기 yaw를 FACE_MZ로 살짝 보정하며 이동 —
+        장거리 무보정 직진 중 두 로봇의 미세한 슬립 차이가 누적돼 차량이 서서히
+        틀어지는 게 실측 확인돼서 추가함(_ingress_to와 같은 방식)."""
         end = time.time() + timeout
         ok = False
+        last_log = time.time()
         while time.time() < end:
-            cur = getter()
+            cur = self.veh_z if mode == "z" else self.veh_x
             if cur is None:
                 time.sleep(1.0 / CONTROL_HZ)
                 continue
@@ -304,23 +326,29 @@ class HandoffMission(Node):
             if abs(err) < tol:
                 ok = True
                 break
+            if time.time() - last_log >= 2.0:
+                self.get_logger().info(f"슬롯 이동({mode}) 진행 중: 남은 거리 {abs(err):.2f}m")
+                last_log = time.time()
             speed = self.carry_speed if err < 0 else -self.carry_speed
-            vx, vy = (speed, 0.0) if mode == "z" else (0.0, speed)
             for r in ROBOTS:
-                self._pub(r, vx, vy, 0.0)
+                eyaw = wrap(FACE_MZ - self.pose[r][2])
+                wz = self._clamp(0.6 * eyaw, 0.10)
+                vx, vy = (speed, 0.0) if mode == "z" else (0.0, speed)
+                self._pub(r, vx, vy, wz)
             time.sleep(1.0 / CONTROL_HZ)
         self._stop_all()
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 후 실제 슬롯까지 운반: z(게이트 통로) 먼저 맞추고 x로 직진해
-        게이트·도크를 관통, 슬롯 중심까지 이동."""
-        self.get_logger().info(f"슬롯 이동: z 정렬(→{slot_z:.2f})")
-        if not self._carry_axis("z", lambda: self.veh_z, slot_z):
+        """파지 후 슬롯까지 2단계 직선: 통로를 따라 x 정렬(슬롯 열까지 이동) → 그대로
+        z로 직진해 슬롯 안으로 진입. 통로-슬롯 경계를 지날 때 항상 목표 슬롯의 x에
+        이미 맞춰진 채로 곧장 들어가므로 옆 슬롯/기둥과 부딪힐 일이 없다."""
+        self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f})")
+        if not self._carry_axis("x", slot_x):
             return False
         self._settle()
-        self.get_logger().info(f"슬롯 이동: x 직진(→{slot_x:.2f})")
-        if not self._carry_axis("x", lambda: self.veh_x, slot_x):
+        self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f})")
+        if not self._carry_axis("z", slot_z):
             return False
         self._settle()
         return True
@@ -351,8 +379,15 @@ class HandoffMission(Node):
             self._stop_all(); resp.success = False
             resp.message = "게이트 통과 타임아웃"; return resp
         self._settle()
-        # 2) rear 가 먼저 북쪽 스테이징(cx, NORTH_STAGE_Z)으로 → -z 회전 → 뒷축(-1.93)까지 깊이 진입.
-        #    front 는 벽 서쪽(-20,+1.5)에서 대기(rear 가 스테이징 비운 뒤 진입) → 상호 회피.
+        return self._ingress_both(resp)
+
+    def _ingress_both(self, resp):
+        """뒷축→앞축 순차 진입(회전+진입) 후 파지·운반까지. 두 로봇이 이미 게이트
+        통과 직후 대기 위치(rear: cx,NORTH_STAGE_Z / front: WALL_CLEAR_X,LANE_Z_FRONT)에
+        있다고 가정 — 실제 주행으로 왔든(_on_dock_lift) 체크포인트 순간이동으로 왔든
+        (_on_dock_lift_from_staged) 공통으로 쓴다."""
+        # rear 가 먼저 북쪽 스테이징(cx, NORTH_STAGE_Z)으로 → -z 회전 → 뒷축(-1.93)까지 깊이 진입.
+        # front 는 벽 서쪽(-20,+1.5)에서 대기(rear 가 스테이징 비운 뒤 진입) → 상호 회피.
         self.get_logger().info("뒷축 로봇: 북쪽 정렬 → 진입(깊이)")
         self._goto_xz("robot_rear", self.cx, NORTH_STAGE_Z)
         self._settle()
@@ -361,7 +396,7 @@ class HandoffMission(Node):
         self._settle()                                  # 조준 후 잠깐 멈췄다 진입
         self._ingress_to("robot_rear", self.rear_axle, FACE_MZ, timeout=140.0)
         self._settle()
-        # 3) front 가 같은 북쪽 스테이징으로(이제 rear 는 깊이 들어가 비어 있음) → 앞축(+1.66) 진입.
+        # front 가 같은 북쪽 스테이징으로(이제 rear 는 깊이 들어가 비어 있음) → 앞축(+1.66) 진입.
         self.get_logger().info("앞축 로봇: 북쪽 정렬 → 진입")
         self._goto_xz("robot_front", self.cx, NORTH_STAGE_Z)
         self._settle()
@@ -373,9 +408,7 @@ class HandoffMission(Node):
         return self._grip_carry_release(resp)
 
     def _grip_carry_release(self, resp):
-        """파지·리프트 → B1 운반 → 하차 → 이탈. 로봇이 이미 차 밑(축 정렬)에 있다고
-        가정 — 실제 진입으로 왔든(_on_dock_lift) 체크포인트 순간이동으로 왔든
-        (_on_dock_lift_from_docked) 공통으로 쓴다."""
+        """파지·리프트 → B1 운반 → 하차 → 이탈. 로봇이 이미 차 밑(축 정렬)에 있어야 한다."""
         self.get_logger().info("파지·리프트")
         lift = self._grip_lift()
         if lift < 0.02:
@@ -389,19 +422,20 @@ class HandoffMission(Node):
         if not self._call_arms(False):
             self._stop_all(); resp.success = False
             resp.message = "파지 해제 실패"; return resp
-        self._settle(1.0)
+        self._settle(0.4)   # 하차 직후라 완전히 줄이진 않음(차량 착지 안정화 여유)
         self._retreat()
         resp.success = True
         resp.message = (f"완료: 리프트 {lift:.3f}m, B1 주차(x={self.veh_x:.2f}, z={self.veh_z:.2f})")
         self.get_logger().info(resp.message)
         return resp
 
-    def _on_dock_lift_from_docked(self, req, resp):
-        """테스트 반복용: /sim_checkpoint_docked(러너)로 로봇을 차 밑에 순간이동시킨
-        뒤 이 서비스를 호출하면 접근·진입 없이 파지·B1운반·하차만 실행한다."""
+    def _on_dock_lift_from_staged(self, req, resp):
+        """테스트 반복용: /sim_checkpoint_staged(러너)로 로봇을 게이트 통과 직후
+        대기 위치까지 순간이동시킨 뒤 이 서비스를 호출하면, 느린 게이트 통과 구간만
+        건너뛰고 회전·진입·파지·B1운반·하차는 그대로 실제 주행/동작으로 실행한다."""
         if not self._wait_data():
             resp.success = False; resp.message = "데이터 미수신"; return resp
-        return self._grip_carry_release(resp)
+        return self._ingress_both(resp)
 
 
 def main():
