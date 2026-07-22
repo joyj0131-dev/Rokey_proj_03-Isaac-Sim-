@@ -76,8 +76,10 @@ def _vehicle_world_positions(stage):
         prim = stage.GetPrimAtPath(root)
         if not prim or not prim.IsValid():
             continue
-        for child in prim.GetAllChildren():
-            for v in ([child] + list(child.GetAllChildren())):
+        for child in prim.GetChildren():
+            for v in ([child] + list(child.GetChildren())):
+                if not v.IsActive():
+                    continue
                 if not v.IsA(UsdGeom.Xformable):
                     continue
                 m = UsdGeom.Xformable(v).ComputeLocalToWorldTransform(0)

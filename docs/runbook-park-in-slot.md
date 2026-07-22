@@ -114,10 +114,10 @@ unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 ros2 topic echo --once /parking_slots
 ```
 한 번 메시지를 받으면 자동 종료한다(`std_msgs/String`의 `data`에 JSON 배열 문자열). 기대값:
-**`A3`/`A5`/`A6`/`B3`는 `"occupied": true`, `A1`/`A2`는 `"occupied": false`**(씬에 미리
-배치된 차량 기준 — Task 5에서 확정된 값). 예:
+**`A3`/`A5`/`A6`/`B3`/`B5`/`B7`는 `"occupied": true`, `A1`/`A2`는 `"occupied": false`**(씬에
+미리 배치된 차량 기준 — Task 5에서 확정된 값). 예:
 ```yaml
-data: '[{"slot_id": "A1", "occupied": false, "is_accessible": true, "x": -14.2, "y": -7.8,
+data: '[{"slot_id": "A1", "occupied": false, "is_accessible": true, "x": -11.9, "y": -7.8,
   "yaw_deg": 180.0}, ..., {"slot_id": "A3", "occupied": true, "is_accessible": false,
   "x": -5.1, "y": -7.8, "yaw_deg": 180.0}, ...]'
 ---

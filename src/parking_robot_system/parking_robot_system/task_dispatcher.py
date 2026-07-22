@@ -71,7 +71,7 @@ class TaskDispatcherNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = TaskDispatcherNode()
-    executor = MultiThreadedExecutor()
+    executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
     try:
         executor.spin()
