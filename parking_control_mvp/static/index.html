@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260721-dashboard4" />
+  <link rel="stylesheet" href="/static/style.css?v=20260722-slotselect" />
 </head>
 <body>
   <div class="app-shell">
@@ -163,6 +163,12 @@
                     required
                   />
                 </label>
+                <label>
+                  <span>주차 슬롯</span>
+                  <select id="slotSelect">
+                    <option value="">자동 (가장 가까운 빈 칸)</option>
+                  </select>
+                </label>
               </div>
               <button type="submit" class="primary-button">요청 등록</button>
             </form>
@@ -220,6 +226,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260721-dashboard4"></script>
+  <script src="/static/app.js?v=20260722-slotselect"></script>
 </body>
 </html>

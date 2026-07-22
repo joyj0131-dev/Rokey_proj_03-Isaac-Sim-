@@ -152,7 +152,9 @@ def _apply_vehicle_context(stage):
     px.CreateEnableCCDAttr(True)
     px.CreateEnableStabilizationAttr(True)
     px.CreateEnableGPUDynamicsAttr(True)
-    px.CreateTimeStepsPerSecondAttr(240)
+    # 물리 스텝 240→120: 벽시계 체감속도(RTF) 약 2배. 리프트 시 차량이 튀거나
+    # 흔들리면 240으로 되돌릴 것(240+CCD가 리프트 안정성을 잡아주던 값).
+    px.CreateTimeStepsPerSecondAttr(120)
     vctx = PhysxSchema.PhysxVehicleContextAPI.Apply(sc)
     vctx.CreateUpdateModeAttr(PhysxSchema.Tokens.velocityChange)
     vctx.CreateVerticalAxisAttr(PhysxSchema.Tokens.posY)

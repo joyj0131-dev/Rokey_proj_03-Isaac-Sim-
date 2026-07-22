@@ -1019,6 +1019,33 @@ function updateLiveStatus(isOnline, system) {
   status.querySelector("span").textContent = `LIVE · ROS2 · ${now}`;
 }
 
+// 요청 폼 슬롯 드롭다운을 현재 대시보드 슬롯으로 갱신한다.
+// 입고=빈 슬롯(EMPTY), 출차=점유 슬롯(OCCUPIED)만 보여주고, 맨 위 "자동"은
+// 서버가 가장 가까운 칸을 고르게 두는 기존 동작(값 "").
+function updateSlotOptions() {
+  const select = document.getElementById("slotSelect");
+  if (!select) return;
+  const type = document.getElementById("requestType").value;
+  const want = type === "PARK_IN" ? "EMPTY" : "OCCUPIED";
+  const autoLabel =
+    type === "PARK_IN" ? "자동 (가장 가까운 빈 칸)" : "자동 (차량 위치 자동)";
+  const prev = select.value;
+  const slots = ((latestDashboard && latestDashboard.slots) || [])
+    .filter((slot) => slot.status === want)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  select.innerHTML = [`<option value="">${autoLabel}</option>`]
+    .concat(
+      slots.map(
+        (slot) =>
+          `<option value="${slot.id}">${slot.id}${
+            slot.is_accessible ? " ♿" : ""
+          }</option>`
+      )
+    )
+    .join("");
+  if (prev && slots.some((slot) => slot.id === prev)) select.value = prev;
+}
+
 async function refreshDashboard() {
   try {
     const data = normalizeRosDashboardRobots(await apiRequest("/dashboard"));
@@ -1067,6 +1094,7 @@ async function refreshDashboard() {
     renderRecentEvents(data.alerts || []);
     renderSystem(data.system);
     updateLiveStatus(true, data.system);
+    updateSlotOptions();
   } catch (error) {
     updateLiveStatus(false);
     showMessage(error.message, true);
@@ -1094,6 +1122,7 @@ document
     const vehicleNumber = document
       .getElementById("vehicleNumber")
       .value.trim();
+    const slotId = document.getElementById("slotSelect").value; // "" = 자동 선택
 
     if (!vehicleNumber) {
       showMessage("차량 번호를 입력해주세요.", true);
@@ -1107,6 +1136,7 @@ document
         body: JSON.stringify({
           request_type: requestType,
           vehicle_number: vehicleNumber,
+          ...(slotId ? { slot_id: slotId } : {}),
         }),
       });
 
@@ -1126,6 +1156,10 @@ document
       showMessage(error.message, true);
     }
   });
+
+document
+  .getElementById("requestType")
+  .addEventListener("change", updateSlotOptions);
 
 document
   .getElementById("resetButton")

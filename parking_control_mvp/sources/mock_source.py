@@ -194,32 +194,59 @@ class MockDataSource(DataSource):
                         "이미 입고 또는 예약된 차량입니다.", status_code=409
                     )
 
-                slot = next(
-                    (s for s in self.store.parking_slots if s.status == "EMPTY"),
-                    None,
-                )
-                if slot is None:
-                    raise DataSourceError(
-                        "사용 가능한 주차면이 없습니다.", status_code=409
+                if payload.slot_id:
+                    # UI에서 슬롯 지정 → 그 슬롯이 비어 있으면 사용
+                    slot = next(
+                        (s for s in self.store.parking_slots
+                         if s.id == payload.slot_id and s.status == "EMPTY"),
+                        None,
                     )
+                    if slot is None:
+                        raise DataSourceError(
+                            f"{payload.slot_id} 슬롯을 사용할 수 없습니다(빈 슬롯 아님).",
+                            status_code=409,
+                        )
+                else:
+                    # 미지정 → 가장 가까운 빈 슬롯 자동 선택(기존 동작)
+                    slot = next(
+                        (s for s in self.store.parking_slots if s.status == "EMPTY"),
+                        None,
+                    )
+                    if slot is None:
+                        raise DataSourceError(
+                            "사용 가능한 주차면이 없습니다.", status_code=409
+                        )
 
                 slot.status = "RESERVED"
                 slot.vehicle_number = vehicle_number
                 selected_slot_id = slot.id
             else:
-                slot = next(
-                    (
-                        s
-                        for s in self.store.parking_slots
-                        if s.status == "OCCUPIED"
-                        and s.vehicle_number == vehicle_number
-                    ),
-                    None,
-                )
-                if slot is None:
-                    raise DataSourceError(
-                        "주차된 차량을 찾을 수 없습니다.", status_code=404
+                if payload.slot_id:
+                    # 슬롯 지정 출차 → 그 슬롯에 주차된 차가 있으면 사용
+                    slot = next(
+                        (s for s in self.store.parking_slots
+                         if s.id == payload.slot_id and s.status == "OCCUPIED"),
+                        None,
                     )
+                    if slot is None:
+                        raise DataSourceError(
+                            f"{payload.slot_id} 슬롯에 출차할 차량이 없습니다.",
+                            status_code=404,
+                        )
+                else:
+                    slot = next(
+                        (
+                            s
+                            for s in self.store.parking_slots
+                            if s.status == "OCCUPIED"
+                            and s.vehicle_number == vehicle_number
+                        ),
+                        None,
+                    )
+                    if slot is None:
+                        raise DataSourceError(
+                            "주차된 차량을 찾을 수 없습니다.", status_code=404
+                        )
                 selected_slot_id = slot.id
 
             idle_robots = [
