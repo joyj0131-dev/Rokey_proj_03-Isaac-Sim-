@@ -38,7 +38,8 @@ ARM_CALL_DEADLINE = 6.0          # 원본 _call_arms의 future 대기 상한(6.0
 LIFT_RISE_MIN = 0.015     # m — 차량 Y가 이만큼 오르면 "들림"으로 판정
 LIFT_WAIT_TIMEOUT = 15.0  # s — 물리 리프트 완료 대기 상한
 LIFT_SETTLE = 2.0         # s — 상승 감지 후 안정 확인(이 시간 유지되면 완료)
-DOWN_SETTLE = 4.0         # s — DOWN(해제) 후 차량 안착 대기
+DOWN_SETTLE = 4.0         # s — DOWN(해제) 후 차량 안착 대기(폴백용)
+ARM_FOLD_MIN_TIME = 4.0   # s — DOWN 후 최소 대기(팔이 차 밑에서 완전히 접혀 빠질 시간 보장)
 
 
 class LiftActionServerNode(Node):
@@ -91,15 +92,18 @@ class LiftActionServerNode(Node):
         while time.monotonic() < end:
             time.sleep(0.05)
 
-    def _wait_settled(self, timeout=12.0, stable_for=1.5, eps=0.004):
-        """DOWN 후 /vehicle/pose Y가 stable_for초 동안 eps 이내로 유지되면 완전 안착으로 본다.
-        고정 대기가 아니라 '차량이 실제로 멈출 때까지' 기다린다(사용자 요구: 완전히 내려놓은
-        뒤에 복귀). Y 관측 불가 시 DOWN_SETTLE 고정 대기로 폴백."""
+    def _wait_settled(self, timeout=12.0, stable_for=1.5, eps=0.004, min_time=ARM_FOLD_MIN_TIME):
+        """DOWN 후 (a)/vehicle/pose Y가 stable_for초 동안 eps 이내로 유지되고 (b)최소 min_time이
+        지날 때까지 대기한다. (b)를 두는 이유: 차량이 바닥에 닿아 Y가 멎은 뒤에도 팔은 좀 더
+        접히므로(팔이 차 밑에서 완전히 빠지기 전 로봇이 움직이면 차를 건드림) — 사용자 요구
+        '팔이 완전히 다 접힌 이후에 복귀'를 보장하려면 최소시간을 강제해야 한다.
+        Y 관측 불가 시 max(DOWN_SETTLE, min_time) 고정 대기로 폴백."""
         t0 = time.monotonic()
         while self.veh_y is None and time.monotonic() - t0 < 3.0:
             time.sleep(0.05)
+        start = time.monotonic()
         if self.veh_y is None:
-            self._wait(DOWN_SETTLE)
+            self._wait(max(DOWN_SETTLE, min_time))
             return
         last = self.veh_y
         stable_since = time.monotonic()
@@ -109,8 +113,9 @@ class LiftActionServerNode(Node):
             if cur is not None and abs(cur - last) > eps:
                 last = cur
                 stable_since = time.monotonic()
-            elif time.monotonic() - stable_since >= stable_for:
-                return   # 충분히 오래 안 움직임 → 완전 안착
+            elif (time.monotonic() - stable_since >= stable_for
+                  and time.monotonic() - start >= min_time):
+                return   # 안착 + 팔 완전 접힘 보장 시간 경과
             time.sleep(0.05)
 
     def _call_arms(self, opening):

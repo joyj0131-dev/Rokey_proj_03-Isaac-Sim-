@@ -82,16 +82,21 @@ APPROACH_TIMEOUT = 300.0   # L55
 # 된다. 원본 CARRY_SPEED(0.30) 지령은 롤러 슬립으로 실측 ~0.09m/s에 그쳐, L자 경로
 # (~29m)에서 300s 타임아웃을 넘겨 abort(status=6)가 났다(사용자 실측). 그래서 운반 구간만
 # 지령 속도를 올린다. 두 로봇 동기가 흐트러지면(차 뒤틀림) 값을 낮춰 조정.
-CARRY_SPEED_FAST = 0.70    # 운반 지령 속도(원본 0.30 → 상향). 실측 보며 조정 가능.
+CARRY_SPEED_FAST = 0.90    # 운반 지령 속도(원본 0.30 → 상향, 사용자 속도↑ 요청). 실측 보며 조정.
 CARRY_TO_TIMEOUT = 420.0   # 상향 속도로도 안전하도록 타임아웃 여유 확대(구간별 개별 적용).
+
+# --- 초기 대기 도크(USD robot:dockPose 실측) — 복귀 목표 ---
+# West_A_WaitingDock=(-15.3,0,7.8)=front, West_B_WaitingDock=(-15.3,0,-7.8)=rear.
+# (이전엔 개구부 lane ±1.5로 잘못 복귀했음 — 실제 초기 위치는 ±7.8.)
+DOCK_Z_FRONT = 7.8         # front(West_A) 초기 대기 z
+DOCK_Z_REAR = -7.8         # rear(West_B) 초기 대기 z
 
 # 신규 — 축(axle) 정밀 진입용 정지 허용오차. 원본 ingress_to는 POS_TOL(0.10)에서 멈춰
 # 최대 10cm 오차를 허용했는데, 사용자 보고("앞바퀴 리프트 위치가 약간 안 맞음")에 따라
 # 픽업 진입만 더 조인다. 폐루프 P제어라 더 가까이 수렴하며, 못 맞춰도 기존처럼 근처에서 정지한다.
 INGRESS_TOL = 0.05
-# 진입 후 안정(settle) 시간 — 원본 기본 0.5s보다 길게 잡아 다음 로봇/리프트 전에 차량이
-# 흔들림 없이 멎도록 한다(사용자 요구: 완벽히 위치를 맞춘 뒤 리프트).
-INGRESS_SETTLE = 1.5
+# 진입 후 안정(settle) 시간 — 차량이 흔들림 없이 멎도록. 속도↑ 요청 반영해 1.5→1.0으로 단축.
+INGRESS_SETTLE = 1.0
 
 
 class FormationMotion:
@@ -323,28 +328,28 @@ class FormationMotion:
         self._stop_all()
         return math.hypot(tx_usd - self.veh_x, tz_usd - self.veh_z) < tol * 3
 
-    def return_via_aisle(self, rid, dock_x, dock_z):
-        """주차·하차 후 로봇 1대를 도크로 복귀 — 슬롯에서 '앞(통로 쪽)'으로 빠져나온 뒤 도크로.
+    def return_both_to_docks(self):
+        """주차·하차 후 두 로봇을 동시에 초기 대기 도크로 복귀(사용자 요구: 동시 + 초기위치).
 
-        차량을 주차하면 슬롯 안쪽(뒤)은 공간이 없으므로 반드시 앞(통로 쪽)으로 나와야 한다
-        (사용자 요구). 슬롯→도크 직선 이동은 차량/벽을 관통하므로 L자로 나눈다:
-          ① 현재 x를 유지한 채 z만 도크 차로(dock_z)로 이동 → 슬롯에서 앞(통로)으로 빠져나옴
-             (차량 아래에서 통로로). dock_z(rear −1.5 / front +1.5)는 두 행 사이 통로에 있어
-             어느 행이든 이 이동이 '슬롯 안쪽 반대편 = 앞' 방향이 된다.
-          ② 통로를 따라 서진해 도크(dock_x)로.
-        omni 구동이라 로봇 방위와 무관. 빈 몸(차량 없음)이라 편대 동기 제약도 없다.
-        rear/front가 서로 다른 차로(±1.5)로 나오므로 같은 지점에서 겹치지 않는다.
+        초기 위치(USD robot:dockPose 실측): front=West_A(-15.3,+7.8), rear=West_B(-15.3,-7.8).
+        차량을 주차하면 슬롯 안쪽(뒤)은 공간이 없으므로 반드시 앞(통로 쪽)으로 나온다:
+          각 로봇 웨이포인트 체인 ── ① 현재 x 유지한 채 자기 통로 차로(rear −1.5 / front +1.5)로
+          앞(통로)으로 빠져나옴 → ② 도크 x(-15.3)까지 서진 → ③ 자기 도크 z(rear −7.8 / front +7.8)로.
+        approach_parallel로 두 로봇을 '동시에' 웨이포인트 체인 따라 이동한다. rear/front가 서로
+        다른 차로(±1.5)로 이동하고, rear가 처음부터 front보다 남쪽에 있어(픽업 진입 순서상)
+        z 순서가 유지되므로 통로에서 겹치지 않는다.
         """
-        cur = self.pose.get(rid)
-        if cur is None:
-            return False
-        cur_x = cur[0]
-        self.node.get_logger().info(f"{rid} 복귀: 슬롯→앞(통로 차로 z={dock_z:.1f})으로")
-        self.goto_xz(rid, cur_x, dock_z)         # ① 앞(통로 차로)으로 빠져나옴
-        self._settle()
-        self.node.get_logger().info(f"{rid} 복귀: 통로→도크(x={dock_x:.1f})")
-        ok = self.goto_xz(rid, dock_x, dock_z)   # ② 통로 따라 서진해 도크로
-        self._pub(rid, 0.0)
+        routes = {}
+        for rid, lane_z, dock_z in (("robot_rear", LANE_Z_REAR, DOCK_Z_REAR),
+                                    ("robot_front", LANE_Z_FRONT, DOCK_Z_FRONT)):
+            cur = self.pose.get(rid)
+            if cur is None:
+                return False
+            cur_x = cur[0]
+            routes[rid] = [(cur_x, lane_z), (DOCK_X, lane_z), (DOCK_X, dock_z)]
+        self.node.get_logger().info("복귀(동시): 두 로봇 앞으로→통로→초기 도크")
+        ok = self.approach_parallel(routes)
+        self._stop_all()
         return ok
 
     def carry_rotate_to(self, target_yaw, timeout=90.0):

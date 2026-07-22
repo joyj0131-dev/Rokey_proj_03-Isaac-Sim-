@@ -2,10 +2,10 @@
 import math
 
 # dock_lift_handoff_mission.py 와 동일 값 (실측 대조 완료).
-K_LIN, MAX_LIN = 0.8, 0.6
+K_LIN, MAX_LIN = 0.8, 0.9    # 직선 이동 속도 상한 상향(사용자: 전체 동작 너무 느림). 원래 0.6.
 K_STRAFE = 0.8
-K_YAW, MAX_YAW = 0.5, 0.15   # 회전 느리게(발레 방지)
-INGRESS_SPEED = 0.30
+K_YAW, MAX_YAW = 0.5, 0.30   # 회전 상한 상향(원래 0.15, 발레 방지값). 픽업 회전 속도↑.
+INGRESS_SPEED = 0.40         # 차 밑 진입 속도 상향(원래 0.30). 정밀도는 tol로 유지.
 CARRY_SPEED = 0.30
 CONTROL_HZ = 20.0
 POS_TOL = 0.10

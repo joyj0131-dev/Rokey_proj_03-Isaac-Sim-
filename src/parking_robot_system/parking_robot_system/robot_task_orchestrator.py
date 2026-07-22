@@ -289,16 +289,14 @@ class RobotTaskOrchestratorNode(Node):
         return True, None, None
 
     def _call_return_to_dock(self):
-        """RETURNING: rear → front 순으로 개별 West 도크 복귀(순차 — 동시 진입 시 충돌 회피).
+        """RETURNING: 두 로봇을 '동시에' 초기 대기 도크로 복귀(사용자 요구).
 
-        'return_rear'/'return_front' 모드는 navigate_action_server에서 통로 경유 L자 경로
-        (슬롯→통로→도크)로 처리한다 — 슬롯에서 도크로 직선 이동하면 차량/벽을 관통하기 때문."""
-        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_REAR_MAP), 'return_rear')
+        'return_both' 모드가 navigate_action_server에서 두 로봇을 approach_parallel로 동시
+        이동시킨다(슬롯→앞→통로→초기도크 West_A/West_B). 도크 좌표는 FormationMotion에
+        내장되어 있어 goal.pose는 사용하지 않는다(더미 Pose)."""
+        ok, _, reason = self._call_navigate(Pose(), 'return_both')
         if not ok:
-            return False, None, f'rear 복귀 실패: {reason}'
-        ok, _, reason = self._call_navigate(_dock_pose(DOCK_Y_FRONT_MAP), 'return_front')
-        if not ok:
-            return False, None, f'front 복귀 실패: {reason}'
+            return False, None, f'복귀 실패: {reason}'
         return True, None, None
 
     # ---- task_state / feedback 발행 ----
