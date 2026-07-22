@@ -10,6 +10,7 @@ ROS2: /robot_N/cmd_vel 구독, /robot_N/odom 발행(x,y=높이,z,yaw),
 
 실행: dock_lift_handoff_runner.sh [--gui] [--headless-test]
 """
+import json
 import math
 import os
 import sys
@@ -50,6 +51,39 @@ ROBOTS = {
               "dock": "/World/ParkingEnvironment/RobotServiceArea/West_A_WaitingDock"},
 }
 AXLE = {}
+
+# --- /parking_slots 발행용 (parking_robot_system.slot_geometry/occupancy와 값 동일) ---
+_HALF_W, _SPACE_W, _ROW_C = 17.0, 3.4, 7.8
+_HALF_LEN, _HALF_WID = 3.3, 1.7
+_ACCESSIBLE = {"A1", "A2"}
+
+
+def _all_slots_usd():
+    slots = {}
+    for row, zc in (("A", _ROW_C), ("B", -_ROW_C)):
+        for i in range(1, 9):
+            sid = f"{row}{i}"
+            slots[sid] = (-_HALF_W + (i + 0.5) * _SPACE_W, zc, 180.0 if row == "A" else 0.0)
+    return slots
+
+
+def _vehicle_world_positions(stage):
+    """모든 주차 차량 + 운반 대상(Pickup)의 world (x,z)."""
+    import omni.usd
+    from pxr import UsdGeom
+    positions = []
+    for root in ("/World/ParkingVehicles", "/World/VehicleAsset"):
+        prim = stage.GetPrimAtPath(root)
+        if not prim or not prim.IsValid():
+            continue
+        for child in prim.GetAllChildren():
+            for v in ([child] + list(child.GetAllChildren())):
+                if not v.IsA(UsdGeom.Xformable):
+                    continue
+                m = UsdGeom.Xformable(v).ComputeLocalToWorldTransform(0)
+                t = m.ExtractTranslation()
+                positions.append((float(t[0]), float(t[2])))
+    return positions
 
 
 def _restart_with_isaac_python():
@@ -287,6 +321,7 @@ def main():
         from geometry_msgs.msg import Twist, PoseStamped
         from nav_msgs.msg import Odometry
         from std_srvs.srv import SetBool
+        from std_msgs.msg import String as RosString
         from isaacsim.core.prims import RigidPrim
         rclpy.init()
         node = rclpy.create_node("dock_lift_handoff_bridge")
@@ -301,6 +336,7 @@ def main():
         for key in ROBOTS:
             node.create_subscription(Twist, f"/robot_{key}/cmd_vel", make_cb(key), 10)
             odom_pub[key] = node.create_publisher(Odometry, f"/robot_{key}/odom", 10)
+        slots_pub = node.create_publisher(RosString, "/parking_slots", 10)
 
         arm_idx = {k: {n: arts[k].dof_names.index(n) for n in ARM_TARGETS} for k in arts}
         arm_cmd = {k: 0.0 for k in arts}
@@ -332,6 +368,8 @@ def main():
 
         print(f"DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
+        _SLOT_TABLE = _all_slots_usd()
+        _slot_tick = 0
         while app.is_running():
             app.update()
             rclpy.spin_once(node, timeout_sec=0.0)
@@ -362,6 +400,17 @@ def main():
             ps.pose.position.y = float(vp[1])
             ps.pose.position.z = float(vp[2])
             veh_pub.publish(ps)
+            # /parking_slots: ~2Hz (app.update()가 30틱마다 1회 발행, 60Hz 가정)
+            _slot_tick += 1
+            if _slot_tick % 30 == 0:
+                positions = _vehicle_world_positions(stage)
+                arr = []
+                for sid, (sx, sz, yaw) in _SLOT_TABLE.items():
+                    occ = any(abs(vx - sx) <= _HALF_WID and abs(vz - sz) <= _HALF_LEN
+                              for vx, vz in positions)
+                    arr.append({"slot_id": sid, "occupied": occ, "is_accessible": sid in _ACCESSIBLE,
+                                "x": round(sx, 3), "y": round(-sz, 3), "yaw_deg": yaw})
+                msg = RosString(); msg.data = json.dumps(arr); slots_pub.publish(msg)
         app.close()
     finally:
         pass
