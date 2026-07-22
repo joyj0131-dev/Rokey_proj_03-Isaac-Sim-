@@ -313,6 +313,15 @@ class RobotTaskOrchestratorNode(Node):
             return False, None, f'복귀 실패: {reason}'
         return True, None, None
 
+    def _call_return_from_bay(self):
+        """출차 RETURNING: 인계베이 차 밑에서 차 길이축(z)으로 빠져나와 도크로('return_bay').
+        입차 복귀(return_both, 슬롯→통로)와 달리 베이 차량은 z=0이라 옆(x)으로 빼면 바퀴를
+        스친다 — 진입 역방향(z축)으로 탈출한다(사용자 요구)."""
+        ok, _, reason = self._call_navigate(Pose(), 'return_bay')
+        if not ok:
+            return False, None, f'복귀 실패: {reason}'
+        return True, None, None
+
     # ---- task_state / feedback 발행 ----
     def _publish_task_state(self, robot_id, task_id, state, current_step):
         msg = TaskState()
@@ -356,7 +365,7 @@ class RobotTaskOrchestratorNode(Node):
                 "MOVING": lambda: self._call_navigate(_bay_pose(), 'carry_bay'),  # 인계베이로
                 "ARRIVED": lambda: (True, None, None),
                 "PARKED": lambda: self._call_control_lift('DOWN'),   # 인계베이에 하차
-                "RETURNING": self._call_return_to_dock,
+                "RETURNING": self._call_return_from_bay,   # 베이 차밑 z축 탈출→도크
             }
         else:
             handlers = {
