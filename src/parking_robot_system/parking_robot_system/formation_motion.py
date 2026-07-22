@@ -323,25 +323,27 @@ class FormationMotion:
         self._stop_all()
         return math.hypot(tx_usd - self.veh_x, tz_usd - self.veh_z) < tol * 3
 
-    def return_via_aisle(self, rid, dock_x, dock_z, aisle_z=0.0):
-        """주차·하차 후 로봇 1대를 대기 도크로 복귀 — 통로(z=aisle_z) 경유 L자 경로.
+    def return_via_aisle(self, rid, dock_x, dock_z):
+        """주차·하차 후 로봇 1대를 도크로 복귀 — 슬롯에서 '앞(통로 쪽)'으로 빠져나온 뒤 도크로.
 
-        슬롯(예: A2, 북쪽 z≈+7.8)에서 도크(x≈-15.3, z≈±1.5)로 곧장 직선 이동하면 차량/벽/
-        기둥을 관통한다(carry 직선 이동과 같은 문제, 역방향). 그래서:
-          ① 현재 x를 유지한 채 통로(aisle_z)로 남/북하며 슬롯 밖으로 빠져나온 뒤,
-          ② 통로를 따라 도크(dock_x, dock_z)로 이동한다.
-        omni 구동이라 로봇 방위(주차 시 회전된 상태)와 무관하게 이동한다. 빈 몸(차량 없음)
-        이라 편대 동기 제약도 없다.
+        차량을 주차하면 슬롯 안쪽(뒤)은 공간이 없으므로 반드시 앞(통로 쪽)으로 나와야 한다
+        (사용자 요구). 슬롯→도크 직선 이동은 차량/벽을 관통하므로 L자로 나눈다:
+          ① 현재 x를 유지한 채 z만 도크 차로(dock_z)로 이동 → 슬롯에서 앞(통로)으로 빠져나옴
+             (차량 아래에서 통로로). dock_z(rear −1.5 / front +1.5)는 두 행 사이 통로에 있어
+             어느 행이든 이 이동이 '슬롯 안쪽 반대편 = 앞' 방향이 된다.
+          ② 통로를 따라 서진해 도크(dock_x)로.
+        omni 구동이라 로봇 방위와 무관. 빈 몸(차량 없음)이라 편대 동기 제약도 없다.
+        rear/front가 서로 다른 차로(±1.5)로 나오므로 같은 지점에서 겹치지 않는다.
         """
         cur = self.pose.get(rid)
         if cur is None:
             return False
         cur_x = cur[0]
-        self.node.get_logger().info(f"{rid} 복귀: 슬롯→통로(z={aisle_z}) 빠져나오기")
-        self.goto_xz(rid, cur_x, aisle_z)   # ① 슬롯 밖(통로)으로
+        self.node.get_logger().info(f"{rid} 복귀: 슬롯→앞(통로 차로 z={dock_z:.1f})으로")
+        self.goto_xz(rid, cur_x, dock_z)         # ① 앞(통로 차로)으로 빠져나옴
         self._settle()
-        self.node.get_logger().info(f"{rid} 복귀: 통로→도크({dock_x:.1f},{dock_z:.1f})")
-        ok = self.goto_xz(rid, dock_x, dock_z)   # ② 통로 따라 도크로
+        self.node.get_logger().info(f"{rid} 복귀: 통로→도크(x={dock_x:.1f})")
+        ok = self.goto_xz(rid, dock_x, dock_z)   # ② 통로 따라 서진해 도크로
         self._pub(rid, 0.0)
         return ok
 

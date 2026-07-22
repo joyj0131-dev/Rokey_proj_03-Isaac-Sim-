@@ -91,6 +91,28 @@ class LiftActionServerNode(Node):
         while time.monotonic() < end:
             time.sleep(0.05)
 
+    def _wait_settled(self, timeout=12.0, stable_for=1.5, eps=0.004):
+        """DOWN 후 /vehicle/pose Y가 stable_for초 동안 eps 이내로 유지되면 완전 안착으로 본다.
+        고정 대기가 아니라 '차량이 실제로 멈출 때까지' 기다린다(사용자 요구: 완전히 내려놓은
+        뒤에 복귀). Y 관측 불가 시 DOWN_SETTLE 고정 대기로 폴백."""
+        t0 = time.monotonic()
+        while self.veh_y is None and time.monotonic() - t0 < 3.0:
+            time.sleep(0.05)
+        if self.veh_y is None:
+            self._wait(DOWN_SETTLE)
+            return
+        last = self.veh_y
+        stable_since = time.monotonic()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            cur = self.veh_y
+            if cur is not None and abs(cur - last) > eps:
+                last = cur
+                stable_since = time.monotonic()
+            elif time.monotonic() - stable_since >= stable_for:
+                return   # 충분히 오래 안 움직임 → 완전 안착
+            time.sleep(0.05)
+
     def _call_arms(self, opening):
         """원본 HandoffMission._call_arms 이식(로직 동일, 대기만 non-respin으로 교정).
 
@@ -114,8 +136,9 @@ class LiftActionServerNode(Node):
             # 팔 지령만으론 아직 안 들렸다 — 차량이 실제로 올라와 안정될 때까지 대기.
             ok = self._wait_lift_complete()
         elif ok and not opening:
-            # 해제 후 차량이 바닥에 안착할 시간 확보.
-            self._wait(DOWN_SETTLE)
+            # 해제 후 차량이 완전히 하강·안착할 때까지 대기(고정시간 아님 — 실제 멈춤 감지).
+            # 이게 끝나야 orchestrator가 복귀를 시작한다(완전히 내려놓은 뒤 복귀).
+            self._wait_settled()
         result = ControlLift.Result()
         result.success = ok
         result.support_state = 'SUPPORTED' if (opening and ok) else 'RELEASED'
