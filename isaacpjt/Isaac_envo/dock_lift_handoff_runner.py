@@ -219,24 +219,6 @@ def main():
     headless = "--gui" not in sys.argv[1:]
     app = SimulationApp({"headless": headless, "width": 1280, "height": 800})
 
-    # 실시간 동기화(대기) 해제. isaacsim.core.throttling 공식 문서상 이 3개가
-    # 세트로 같이 꺼져야 실제로 적용된다 — useFixedTimeStepping만 빼놓으면
-    # 나머지 둘을 꺼도 조합이 안 먹혀 속도 변화가 없는 게 실측 확인됨(팀원이
-    # "정확도 보호" 목적으로 이것만 안 껐었음). 여기서 끄는 건 앱 루프가
-    # 매 스텝을 "실제 경과 시간만큼" 기다리는지 여부고, 물리 서브스텝
-    # 정밀도(PhysX TimeStepsPerSecond=240, _apply_vehicle_context)는 별개라
-    # 안 건드림.
-    import carb.settings
-    settings = carb.settings.get_settings()
-    settings.set_bool("/app/player/useFixedTimeStepping", False)
-    settings.set_bool("/app/runLoops/main/manualModeEnabled", False)
-    settings.set_bool("/exts/isaacsim.core.throttling/enable_manualmode", False)
-
-    # 물리 스레드 수 0 = 메인 스레드에서 동기 실행. 기본값(8)은 스레드로 나누고
-    # 합치는 관리 비용이 드는데, 이 씬(로봇 2대+차 1대)처럼 작은 경우 그 비용이
-    # 실제 계산량보다 커서 오히려 단일 스레드가 더 빠를 수 있다(공식 문서 근거).
-    settings.set_int("/persistent/physics/numThreads", 0)
-
     try:
         from isaacsim.core.utils.extensions import enable_extension
         enable_extension("isaacsim.ros2.bridge")
