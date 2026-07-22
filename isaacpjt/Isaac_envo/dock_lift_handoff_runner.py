@@ -218,6 +218,15 @@ def main():
     from isaacsim import SimulationApp
     headless = "--gui" not in sys.argv[1:]
     app = SimulationApp({"headless": headless, "width": 1280, "height": 800})
+
+    # 실시간 동기화(대기) 스위치만 끈다 — 물리 스텝 크기(useFixedTimeStepping)는
+    # 그대로 둬서 정확도는 안 건드리고, "다음 스텝까지 실제 시간을 기다리는"
+    # 부분만 없앤다. GUI(--gui)에서도 그대로 적용됨(headless 전용 아님).
+    import carb.settings
+    settings = carb.settings.get_settings()
+    settings.set_bool("/app/runLoops/main/manualModeEnabled", False)
+    settings.set_bool("/exts/isaacsim.core.throttling/enable_manualmode", False)
+
     try:
         from isaacsim.core.utils.extensions import enable_extension
         enable_extension("isaacsim.ros2.bridge")
