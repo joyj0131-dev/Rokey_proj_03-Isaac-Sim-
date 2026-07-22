@@ -84,6 +84,14 @@ APPROACH_TIMEOUT = 300.0   # L55
 # 여러 번 carry_to를 호출하도록 바꿀 것.
 CARRY_TO_TIMEOUT = 300.0
 
+# 신규 — 축(axle) 정밀 진입용 정지 허용오차. 원본 ingress_to는 POS_TOL(0.10)에서 멈춰
+# 최대 10cm 오차를 허용했는데, 사용자 보고("앞바퀴 리프트 위치가 약간 안 맞음")에 따라
+# 픽업 진입만 더 조인다. 폐루프 P제어라 더 가까이 수렴하며, 못 맞춰도 기존처럼 근처에서 정지한다.
+INGRESS_TOL = 0.05
+# 진입 후 안정(settle) 시간 — 원본 기본 0.5s보다 길게 잡아 다음 로봇/리프트 전에 차량이
+# 흔들림 없이 멎도록 한다(사용자 요구: 완벽히 위치를 맞춘 뒤 리프트).
+INGRESS_SETTLE = 1.5
+
 
 class FormationMotion:
     """dock_lift_handoff_mission.HandoffMission의 편대 모션 폐루프를 재사용 가능한 형태로 이식.
@@ -211,19 +219,21 @@ class FormationMotion:
         return abs(wrap(target_yaw - self.pose[rid][2])) < YAW_TOL * 3
 
     # ---- 원본 _ingress_to (L186-205), 로직 변경 없음 ----
-    def ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT):
+    def ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT, tol=POS_TOL):
         """차 밑으로 진입하며 축(target_z)에 정렬. 중심선(x=cx)과 방위(face_yaw)를
         폐루프 유지 → 진입 중 드리프트로 바퀴에 걸리는 것을 방지. 진입 방향은 target_z
         부호가 알아서 결정(옴니).
 
+        tol: 정지 허용오차(기본 POS_TOL=0.10, 원본과 동일). 픽업 정밀 진입은 INGRESS_TOL
+        (0.05)로 더 조여 호출한다(사용자 보고: 앞바퀴 리프트 위치가 약간 안 맞음).
+
         주의: 아래 yaw 보정 게인(0.6)과 clamp 상한(0.10)은 원본이 K_YAW/MAX_YAW가 아닌
-        별도 하드코딩 값을 쓴다(원본 L202 주석: "완만한 방위 유지") — 로직 변경 없이 이식
-        지시에 따라 그대로 유지, K_YAW/MAX_YAW로 바꾸지 않았다.
+        별도 하드코딩 값을 쓴다(원본 L202 주석: "완만한 방위 유지") — 그대로 유지.
         """
         end = time.time() + timeout
         while time.time() < end:
             x, z, yaw = self.pose[rid]
-            if abs(z - target_z) < POS_TOL and abs(x - self.cx) < POS_TOL * 2:
+            if abs(z - target_z) < tol and abs(x - self.cx) < tol * 2:
                 break
             ex, ez = self.cx - x, target_z - z
             fwd, left = body_twist_from_world_error(ex, ez, yaw)
@@ -233,7 +243,7 @@ class FormationMotion:
                       clamp(0.6 * eyaw, 0.10))                # 완만한 방위 유지(원본 그대로)
             time.sleep(1.0 / CONTROL_HZ)
         self._pub(rid, 0.0)
-        return abs(self.pose[rid][1] - target_z) < POS_TOL * 3
+        return abs(self.pose[rid][1] - target_z) < max(POS_TOL, tol) * 3
 
     # ---- 원본 _on_dock_lift(L254-286)의 접근+양 로봇 진입부만 이식 ----
     def pickup_sequence(self):
@@ -264,8 +274,8 @@ class FormationMotion:
             self._stop_all()
             return False, "rear 회전 실패"
         self._settle()
-        self.ingress_to("robot_rear", self.rear_axle, FACE_MZ, timeout=140.0)
-        self._settle()
+        self.ingress_to("robot_rear", self.rear_axle, FACE_MZ, timeout=140.0, tol=INGRESS_TOL)
+        self._settle(INGRESS_SETTLE)
         # front 가 같은 북쪽 스테이징으로(rear 는 이미 깊이 들어가 비어 있음) → 앞축 진입.
         self.node.get_logger().info("앞축 로봇: 북쪽 정렬 → 진입")
         self.goto_xz("robot_front", self.cx, NORTH_STAGE_Z)
@@ -274,8 +284,8 @@ class FormationMotion:
             self._stop_all()
             return False, "front 회전 실패"
         self._settle()
-        self.ingress_to("robot_front", self.front_axle, FACE_MZ)
-        self._settle()
+        self.ingress_to("robot_front", self.front_axle, FACE_MZ, tol=INGRESS_TOL)
+        self._settle(INGRESS_SETTLE)
         return True, "픽업 시퀀스 완료"
 
     # ---- 신규(원본에 없음, best-effort) ----

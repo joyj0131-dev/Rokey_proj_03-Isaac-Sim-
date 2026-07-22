@@ -33,6 +33,10 @@ from nav2_msgs.action import NavigateToPose
 from parking_robot_system.formation_motion import FormationMotion
 from parking_robot_system.frame_transform import map_to_usd, map_to_usd_yaw_deg
 
+# carry 모드 L자 경로용 통로 z(USD). 중앙 통로 중심이자 서쪽 벽 개구부(z∈[-4.5,4.5]) 중심.
+# 인계베이(x≈-29.6)→슬롯까지 이 z를 따라 동진하면 개구부를 통과해 벽을 관통하지 않는다.
+AISLE_Z = 0.0
+
 
 def _yaw_from_quaternion(q):
     """geometry_msgs/Quaternion -> yaw(rad). formation_motion.FormationMotion._odom과 동일
@@ -68,7 +72,13 @@ class NavigateActionServerNode(Node):
         tx_usd, tz_usd = map_to_usd(x_map, y_map)
 
         if mode == 'carry':
-            ok = self.formation.carry_to(tx_usd, tz_usd)
+            # 사용자 보고: 슬롯으로 곧장 직선 이동하면 서쪽 벽(x≈-18.1)을 관통한다.
+            # 픽업하러 갈 때 쓴 통로(중앙 통로 z≈0 + 개구부)를 따라가도록 L자 경로로 나눈다:
+            #   ① 슬롯 x열까지 통로(z=AISLE_Z)를 따라 동진(개구부 통과) → ② 슬롯으로 진입.
+            # (이미 통로에 있으면 ①은 사실상 짧게 끝난다.)
+            ok = self.formation.carry_to(tx_usd, AISLE_Z)
+            if ok:
+                ok = self.formation.carry_to(tx_usd, tz_usd)
         elif mode == 'rotate':
             yaw_map_rad = _yaw_from_quaternion(goal.pose.pose.orientation)
             yaw_usd_deg = map_to_usd_yaw_deg(math.degrees(yaw_map_rad))
