@@ -363,10 +363,11 @@ class FormationMotion:
         ① 백아웃(정밀): 차 밑에서 차 길이축(z)으로 '완전히' 빠져나온다. rear 남(-z)/front 북(+z)
            으로 |z|=BAY_CLEAR_Z까지(단일 웨이포인트 → CORNER_TOL로 안 자르고 정밀 정지). 이렇게
            확실히 나온 뒤에 이동해야 좌우 바퀴를 안 스친다(진입 역방향).
-        ② 개구부 통과: WALL_CLEAR_X에서 통로 차로(rear −1.5 / front +1.5)로 정렬 → 개구부
-           (서쪽 벽 x≈-18.1, z∈[-4.5,4.5])를 그 차로로 확실히 지나 → 각자 초기 도크로. 백아웃 z
-           (±4.0)로 곧장 벽을 지나면 개구부 가장자리에 부딪히므로, 통로 차로(±1.5)로 통과한다.
-        rear/front가 서로 다른 방향/차로라 겹치지 않는다.
+        ② 일직선 전진 후 개구부 통과: 백아웃 위치(x≈-29.6, z=±4.0)에서 곧바로 통로 차로로
+           대각선 이동하면 차 폭 안에 있는 동안 z가 중심으로 당겨져 바퀴를 친다(사용자 실측).
+           그래서 먼저 z를 유지한 채 '일직선으로 동진'해 차 밖(WALL_CLEAR_X)으로 나간 뒤,
+           비로소 통로 차로(rear −1.5 / front +1.5)로 정렬하고 개구부(x≈-18.1, z∈[-4.5,4.5])를
+           지나 각자 초기 도크로 간다. rear/front가 서로 다른 방향/차로라 겹치지 않는다.
         """
         # ① 정밀 백아웃 — 차 밖으로 완전히
         backout = {}
@@ -380,12 +381,14 @@ class FormationMotion:
             self._stop_all()
             return False
         self._settle()
-        # ② 통로 차로로 개구부 통과 → 초기 도크
+        # ② 일직선 동진(z 유지, 차 밖으로) → 통로 차로 정렬 → 개구부 통과 → 초기 도크
         transit = {
-            "robot_rear":  [(WALL_CLEAR_X, LANE_Z_REAR), (DOCK_X, LANE_Z_REAR), (DOCK_X, DOCK_Z_REAR)],
-            "robot_front": [(WALL_CLEAR_X, LANE_Z_FRONT), (DOCK_X, LANE_Z_FRONT), (DOCK_X, DOCK_Z_FRONT)],
+            "robot_rear":  [(WALL_CLEAR_X, -BAY_CLEAR_Z), (WALL_CLEAR_X, LANE_Z_REAR),
+                            (DOCK_X, LANE_Z_REAR), (DOCK_X, DOCK_Z_REAR)],
+            "robot_front": [(WALL_CLEAR_X, BAY_CLEAR_Z), (WALL_CLEAR_X, LANE_Z_FRONT),
+                            (DOCK_X, LANE_Z_FRONT), (DOCK_X, DOCK_Z_FRONT)],
         }
-        self.node.get_logger().info("출차 복귀②: 개구부 통로 지나 초기 도크로")
+        self.node.get_logger().info("출차 복귀②: 일직선 동진 → 개구부 통로 지나 초기 도크로")
         ok = self.approach_parallel(transit)
         self._stop_all()
         return ok
