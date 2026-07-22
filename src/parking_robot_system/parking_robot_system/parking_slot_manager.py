@@ -21,7 +21,14 @@ class SlotCache:
 
     def update_from_json(self, s):
         arr = json.loads(s)
-        self._slots = {d["slot_id"]: d for d in arr}
+        if not isinstance(arr, list):
+            return
+        new_slots = {}
+        for d in arr:
+            if not isinstance(d, dict) or "slot_id" not in d:
+                return
+            new_slots[d["slot_id"]] = d
+        self._slots = new_slots
 
     def query(self, slot_id):
         return self._slots.get(slot_id)
@@ -46,7 +53,7 @@ class ParkingSlotManagerNode(Node):
     def _on_slots(self, msg):
         try:
             self._cache.update_from_json(msg.data)
-        except (ValueError, KeyError) as e:
+        except (ValueError, KeyError, TypeError) as e:
             self.get_logger().warn(f'/parking_slots 파싱 실패: {e}')
 
     def _on_get_slot_info(self, request, response):
