@@ -6,10 +6,13 @@
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. 슬롯까지 운반: 통로 정렬(x, carry_speed) → 슬롯 진입(z, slot_entry_speed),
-     매 틱 mod-180도 회전 보정(_carry_axis 내부)만으로 진행 — 슬롯 앞 명시적
-     정렬(_rotate_car_to_axis)을 넣어봤는데 정렬 자체가 오래 걸리고(실측 39초)
-     그 이후에도 편차가 계속 커지는 문제가 있어 뺐다. 목표는 target_slot_x/
+  5. 슬롯까지 운반 (_carry_to_slot, 4단계):
+     ① 아일 방향(축 0)으로 제자리 회전 → ② 그 방위로 "전진"하며 통로 정렬
+     (x, carry_speed) → ③ 슬롯이 요구하는 방위(target_axis_rad)로 제자리 회전
+     → ④ 그 방위로 "전진"하며 슬롯 진입(z, slot_entry_speed). 회전을 픽업
+     직후 넓은 자리에서 미리 해두고 그 다음 구간을 옆미끄러짐 아닌 정상
+     전진으로 바꾼 구조 — 옆미끄러짐이 두 로봇 하중차(front_bias)를 더
+     도드라지게 만드는 것으로 보여 바꿨다. 목표는 target_slot_x/
      target_slot_z/target_axis_rad 파라미터(기본값 B1, pi/2) — 재시작 없이
      `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
      ExecuteParkingTask goal의 slot_pose를 받아 이 값들을 설정해준다.
@@ -430,22 +433,35 @@ class HandoffMission(Node):
         self.get_logger().info(f"옆으로(-x) {side:.2f}m")
         return fwd, back, side
 
-    def _carry_axis(self, mode, target, hold, speed, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
+    def _carry_axis(self, mode, target, hold, speed, hold_yaw=FACE_MZ,
+                    tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
         """차량의 world x(mode='x') 또는 z(mode='z')를 target 으로 맞추면서, 반대편
-        축(부축)은 hold 값으로 살짝 유지한다. 부축을 그냥 속도 0으로만 두면 회전(wz)
-        보정 도중 슬쩍 새서 통로 중앙(또는 슬롯 x)을 벗어나 한쪽으로 치우쳐 이동하는
-        게 실측 확인됨(_ingress_to가 진입 중 중심선 x=cx를 같이 유지하는 것과 동일한
-        이유·방식). 회전 보정은 차량 실측 yaw(veh_yaw) 기준 — 로봇 각자 자기 yaw를
-        보면 로봇은 똑바른데 차량만 비뚤어지는 문제가 있어(두 로봇 미세 속도차) 이걸로 바꿈.
+        축(부축)은 hold 값으로, 방위는 hold_yaw로 유지한다. 부축을 그냥 속도 0으로만
+        두면 회전(wz) 보정 도중 슬쩍 새서 통로 중앙(또는 슬롯 x)을 벗어나 한쪽으로
+        치우쳐 이동하는 게 실측 확인됨(_ingress_to가 진입 중 중심선 x=cx를 같이
+        유지하는 것과 동일한 이유·방식). 회전 보정은 차량 실측 yaw(veh_yaw) 기준 —
+        로봇 각자 자기 yaw를 보면 로봇은 똑바른데 차량만 비뚤어지는 문제가 있어
+        (두 로봇 미세 속도차) 이걸로 바꿈.
+
+        hold_yaw를 파라미터로 뺀 이유: 원래는 FACE_MZ(슬롯 진입 방위) 고정이라
+        통로 횡단(mode='x')도 그 방위를 유지한 채 "옆으로" 미끄러져 이동했다.
+        메카넘이 그 방향 이동 자체는 되지만, 순정 전진(자기 진행축 방향으로 굴러가는
+        것)보다 미끄러짐이 커서 두 로봇 하중차(front_bias)가 더 도드라진다.
+        hold_yaw를 0(아일 방향)으로 주고 mode='x' 구간을 부르면, 그 방위를 향한 채
+        "전진"으로 이동하게 된다 — world 오차를 매 틱 실측 veh_yaw 기준으로
+        전진/좌우(_omni_step과 같은 변환식)로 바꿔서, hold_yaw가 뭐든 mode가 뭐든
+        같은 함수로 처리한다.
+
         speed는 호출부가 구간(통로 횡단 vs 슬롯 진입)에 맞는 값을 넘긴다 — 둘을 같은
         속도로 묶어두면 "직선 구간은 빠르게, 진입 구간은 느리게"가 안 돼서 분리함."""
         end = time.time() + timeout
         ok = False
         last_log = time.time()
         while time.time() < end:
-            cur = self.veh_z if mode == "z" else self.veh_x
-            side = self.veh_x if mode == "z" else self.veh_z
-            if cur is None or side is None:
+            x, z, veh_yaw = self.veh_x, self.veh_z, self.veh_yaw
+            cur = z if mode == "z" else x
+            side = x if mode == "z" else z
+            if cur is None or side is None or veh_yaw is None:
                 time.sleep(1.0 / CONTROL_HZ)
                 continue
             err = target - cur
@@ -457,36 +473,64 @@ class HandoffMission(Node):
                     f"슬롯 이동({mode}) 진행 중: 남은 거리 {abs(err):.2f}m, "
                     f"부축 편차 {side - hold:+.2f}m")
                 last_log = time.time()
-            axis_speed = speed if err < 0 else -speed
-            side_speed = self._clamp(-SIDE_K * (hold - side), SIDE_MAX)
-            veh_yaw = self.veh_yaw if self.veh_yaw is not None else FACE_MZ
+            # world 프레임에서 곧바로 부호를 정한다(err>0 이면 그 축의 +방향으로).
+            axis_w = speed if err > 0 else -speed
+            side_w = self._clamp(-SIDE_K * (hold - side), SIDE_MAX)
+            world_vx = axis_w if mode == "x" else side_w
+            world_vz = axis_w if mode == "z" else side_w
+            c, s = math.cos(veh_yaw), math.sin(veh_yaw)
+            fwd = world_vx * c - world_vz * s
+            left = -(world_vx * s + world_vz * c)
             # mod-pi로 비교해야 한다 — _rotate_car_to_axis가 "코/꼬리 무관"으로
             # 180도 뒤집힌 해에 수렴할 수 있는데, 여기서 plain wrap()(360도 기준)을
             # 쓰면 그 상태를 180도짜리 진짜 오차로 착각해서 wz를 계속 최대로 걸어
             # 긴 이동거리 동안 차가 휘어져 나가는 문제가 실측 확인됨(A1에서 발견).
-            eyaw = self._axis_alignment_rotation(veh_yaw, FACE_MZ)
+            eyaw = self._axis_alignment_rotation(veh_yaw, hold_yaw)
             wz = self._clamp(0.6 * eyaw, CARRY_WZ_MAX)
-            vx, vy = (axis_speed, side_speed) if mode == "z" else (side_speed, axis_speed)
             for r in ROBOTS:
-                self._pub(r, vx, vy, wz)
+                self._pub(r, self._clamp(fwd, speed), self._clamp(left, speed), wz)
             time.sleep(1.0 / CONTROL_HZ)
         self._stop_all()
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 후 슬롯까지 2단계 직선: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬
-        (슬롯 열까지 이동, carry_speed — 개활지라 빠르게) → 그대로 x=slot_x를 유지하며
-        z로 직진해 슬롯 안으로 진입(slot_entry_speed — 옆 슬롯/기둥 근접이라 더 느리게).
+        """파지 직후 4단계로 슬롯까지: ① 아일 방향(축 0)으로 제자리 회전 → ② 그
+        방위를 유지한 채 "전진"으로 슬롯 열까지 이동(x, carry_speed) → ③ 슬롯이
+        요구하는 방위(target_axis_rad)로 제자리 회전 → ④ 그 방위로 "전진"하며
+        슬롯 안으로 진입(z, slot_entry_speed).
 
-        중간에 명시적 회전 정렬(_rotate_car_to_axis)을 넣어봤는데, 정렬 자체가
-        오래 걸리고(실측 39초) 그 이후에도 부축 편차가 계속 커지는 문제가 있어
-        도로 뺐다 — _carry_axis의 매 틱 mod-180도 보정만으로 진행한다."""
-        self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 통로중앙 z 유지)")
-        if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z, speed=self.carry_speed):
+        전에는 방위를 FACE_MZ 하나로 고정해두고 통로 횡단(x)도 "옆으로 미끄러지며"
+        이동했는데, 이 옆미끄러짐이 두 로봇 하중차(front_bias)를 더 도드라지게
+        만드는 것으로 보여, 픽업 직후(주변 여유 공간 확보된 지점)에 먼저 돌려서
+        긴 통로 구간을 정상적인 전진 주행으로 바꿨다. 슬롯 진입(④)은 원래도
+        FACE_MZ=target_axis_rad 방위라 동작은 그대로다.
+
+        ①③의 명시적 회전(_rotate_car_to_axis)은 한 번 뺐다가(슬롯 앞에서 하면
+        오래 걸리고 그 이후 편차도 안 줄어서) 다시 넣는 것이다 — 이번엔 위치를
+        "지나가는 김에" 맞추는 게 아니라 픽업 직후 넓은 자리에서 미리 해두고,
+        그 다음 ②/④ 구간의 부축 유지 보정이 회전 중 생긴 잔여 편차를 쓸어가는
+        구조라 이전과 다르다. 그래도 처음 실제로 붙여보는 순서라 잔여 편차가
+        남으면 ②/④의 SIDE_K/SIDE_MAX부터 확인할 것."""
+        self.get_logger().info("차량 방위 정렬(아일 방향, 0도) — 전진 주행 준비")
+        if not self._rotate_car_to_axis(0.0):
+            self._stop_all()
             return False
         self._settle()
-        self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f}, x={slot_x:.2f} 유지)")
-        if not self._carry_axis("z", slot_z, hold=slot_x, speed=self.slot_entry_speed):
+        self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 전진 주행)")
+        if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z,
+                                speed=self.carry_speed, hold_yaw=0.0):
+            return False
+        self._settle()
+        self.get_logger().info(
+            f"차량 방위 정렬(슬롯 진입 방향, {math.degrees(self.target_axis_rad):.1f}도)")
+        if not self._rotate_car_to_axis(self.target_axis_rad):
+            self._stop_all()
+            return False
+        self._settle()
+        self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f}, 전진 주행)")
+        if not self._carry_axis("z", slot_z, hold=slot_x,
+                                speed=self.slot_entry_speed,
+                                hold_yaw=self.target_axis_rad):
             return False
         self._settle()
         return True
@@ -591,11 +635,8 @@ class HandoffMission(Node):
         return self._grip_carry_release(resp)
 
     def _grip_carry_release(self, resp):
-        """파지·리프트 → B1 운반 → 하차 → 이탈. 로봇이 이미 차 밑(축 정렬)에 있어야 한다.
-
-        방향 정렬(_axis_alignment_rotation/_rotate_car_to_axis)은 일부러 뺐다 —
-        주차(입고) 먼저 안정화하고, 회전은 나중에 출차 흐름에서 붙이기로 함
-        (메서드 자체는 남겨뒀으니 그때 그대로 재사용)."""
+        """파지·리프트 → 슬롯 운반(방향 정렬 2회 포함, _carry_to_slot 참고) → 하차 → 이탈.
+        로봇이 이미 차 밑(축 정렬)에 있어야 한다."""
         self.get_logger().info("파지·리프트")
         lift = self._grip_lift()
         if lift < 0.02:
