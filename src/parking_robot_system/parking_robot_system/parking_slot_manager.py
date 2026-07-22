@@ -1,31 +1,62 @@
 #!/usr/bin/env python3
-"""parking_slot_manager (탐색): 빈 구역 탐색.
-
-[초안] 인터페이스: find_empty_slot(서비스 서버).
-"""
+"""parking_slot_manager: /parking_slots 구독 캐시 + get_slot_info 서비스."""
+import json
 
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import Pose
+import math
 
-from parking_robot_interfaces.srv import FindEmptySlot
+from parking_robot_interfaces.srv import GetSlotInfo
+
+
+class SlotCache:
+    def __init__(self):
+        self._slots = {}
+
+    @property
+    def ready(self):
+        return len(self._slots) > 0
+
+    def update_from_json(self, s):
+        arr = json.loads(s)
+        self._slots = {d["slot_id"]: d for d in arr}
+
+    def query(self, slot_id):
+        return self._slots.get(slot_id)
+
+
+def _yaw_deg_to_pose(x, y, yaw_deg):
+    p = Pose()
+    p.position.x, p.position.y = float(x), float(y)
+    half = math.radians(yaw_deg) / 2.0
+    p.orientation.z, p.orientation.w = math.sin(half), math.cos(half)
+    return p
 
 
 class ParkingSlotManagerNode(Node):
-
     def __init__(self):
         super().__init__('parking_slot_manager')
-
-        self._slots = {}  # slot_id -> occupied(bool) (TODO(SR-02): 전체 주차면 관리)
-
-        self._srv = self.create_service(
-            FindEmptySlot, 'find_empty_slot', self._on_find_empty_slot)
-
+        self._cache = SlotCache()
+        self.create_subscription(String, '/parking_slots', self._on_slots, 10)
+        self.create_service(GetSlotInfo, 'get_slot_info', self._on_get_slot_info)
         self.get_logger().info('parking_slot_manager node started')
 
-    def _on_find_empty_slot(self, request, response):
-        # TODO: 차량 크기·이동거리 기준 최적 슬롯 탐색
-        response.success = False
-        response.slot_id = ''
+    def _on_slots(self, msg):
+        try:
+            self._cache.update_from_json(msg.data)
+        except (ValueError, KeyError) as e:
+            self.get_logger().warn(f'/parking_slots 파싱 실패: {e}')
+
+    def _on_get_slot_info(self, request, response):
+        response.data_ready = self._cache.ready
+        info = self._cache.query(request.slot_id)
+        response.exists = info is not None
+        if info is not None:
+            response.occupied = bool(info["occupied"])
+            response.is_accessible = bool(info["is_accessible"])
+            response.pose = _yaw_deg_to_pose(info["x"], info["y"], info["yaw_deg"])
         return response
 
 
