@@ -159,6 +159,20 @@ def _dock_pose(y_map):
     return pose
 
 
+# ---- 출차(EXIT) 하차 목표: 인계장 한가운데(map 프레임) ----
+# 인계베이 Pickup 위치 USD(-29.6, 0) → map(x=-29.6, y=-0=0). 입차가 픽업하는 그 지점이다.
+BAY_X_MAP = -29.6
+BAY_Y_MAP = 0.0
+
+
+def _bay_pose():
+    pose = Pose()
+    pose.position.x = BAY_X_MAP
+    pose.position.y = BAY_Y_MAP
+    pose.orientation.w = 1.0
+    return pose
+
+
 class RobotTaskOrchestratorNode(Node):
 
     def __init__(self):
@@ -329,19 +343,31 @@ class RobotTaskOrchestratorNode(Node):
 
         # goal/vehicle_pose(가변)를 클로저로 참조 — 매 호출(goal_handle)마다 새로 만들어져
         # 동시 실행 중인 다른 goal과 상태를 공유하지 않는다(인스턴스 속성에 담지 않음).
-        handlers = {
-            "SEARCHING": self._call_detect_vehicle,
-            "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),
-            "PICKED_UP": lambda: self._call_control_lift('UP'),
-            "MOVING": lambda: self._call_navigate(goal.slot_pose, 'carry'),
-            # ARRIVED: 회전 없음. 운반은 순수 병진이라 픽업 시 방향(A열=180°)이 슬롯까지
-            # 그대로 유지되어 차량이 이미 올바르게 정렬돼 진입한다(사용자 실측). 도착 상태만
-            # 알리고 바로 하차로 넘어간다. (per-행 방향 보정이 필요해지면 — 예: B열 —
-            # navigate 'rotate' 모드/carry_rotate_to를 다시 붙일 수 있게 남겨둠.)
-            "ARRIVED": lambda: (True, None, None),
-            "PARKED": lambda: self._call_control_lift('DOWN'),
-            "RETURNING": self._call_return_to_dock,
-        }
+        # request_type로 입차(ENTRY)/출차(EXIT) 분기. 차이는 SEARCHING(입차=탐지 / 출차=슬롯
+        # 좌표 사용)과 MOVING(입차=슬롯으로 carry / 출차=인계베이로 carry_bay) 두 단계뿐이고,
+        # APPROACHING(align)은 target_pose 위치로 align_action_server가 자동으로 베이/슬롯
+        # 픽업을 가른다. ARRIVED는 회전 없음(운반이 방향 유지). PARKED=하차, RETURNING=복귀.
+        is_exit = goal.request_type == 'EXIT'
+        if is_exit:
+            handlers = {
+                "SEARCHING": lambda: (True, goal.slot_pose, None),   # 차는 슬롯에 있음
+                "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 슬롯 픽업
+                "PICKED_UP": lambda: self._call_control_lift('UP'),
+                "MOVING": lambda: self._call_navigate(_bay_pose(), 'carry_bay'),  # 인계베이로
+                "ARRIVED": lambda: (True, None, None),
+                "PARKED": lambda: self._call_control_lift('DOWN'),   # 인계베이에 하차
+                "RETURNING": self._call_return_to_dock,
+            }
+        else:
+            handlers = {
+                "SEARCHING": self._call_detect_vehicle,
+                "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 인계베이 픽업
+                "PICKED_UP": lambda: self._call_control_lift('UP'),
+                "MOVING": lambda: self._call_navigate(goal.slot_pose, 'carry'),  # 슬롯으로
+                "ARRIVED": lambda: (True, None, None),
+                "PARKED": lambda: self._call_control_lift('DOWN'),
+                "RETURNING": self._call_return_to_dock,
+            }
 
         fail_reason = ''
         while state not in ('DONE', 'FAILED'):
@@ -359,7 +385,8 @@ class RobotTaskOrchestratorNode(Node):
                 fail_reason = f'{state}: {reason}'
                 state = 'FAILED'
 
-        final_message = '주차 완료' if state == 'DONE' else fail_reason
+        final_message = (('출차 완료' if is_exit else '주차 완료')
+                         if state == 'DONE' else fail_reason)
         self._publish_task_state(robot_id, goal.task_id, state, final_message)
         self._publish_feedback(goal_handle, state, idx, total)
         self.get_logger().info(

@@ -225,23 +225,24 @@ class FormationMotion:
         return abs(wrap(target_yaw - self.pose[rid][2])) < YAW_TOL * 3
 
     # ---- 원본 _ingress_to (L186-205), 로직 변경 없음 ----
-    def ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT, tol=POS_TOL):
+    def ingress_to(self, rid, target_z, face_yaw, timeout=STEP_TIMEOUT, tol=POS_TOL, cx=None):
         """차 밑으로 진입하며 축(target_z)에 정렬. 중심선(x=cx)과 방위(face_yaw)를
         폐루프 유지 → 진입 중 드리프트로 바퀴에 걸리는 것을 방지. 진입 방향은 target_z
         부호가 알아서 결정(옴니).
 
-        tol: 정지 허용오차(기본 POS_TOL=0.10, 원본과 동일). 픽업 정밀 진입은 INGRESS_TOL
-        (0.05)로 더 조여 호출한다(사용자 보고: 앞바퀴 리프트 위치가 약간 안 맞음).
+        cx: 중심선 x. None이면 self.cx(인계베이 중심). 출차(슬롯 픽업)는 슬롯 x를 넘긴다.
+        tol: 정지 허용오차(기본 POS_TOL=0.10). 픽업 정밀 진입은 INGRESS_TOL(0.05)로 조여 호출.
 
         주의: 아래 yaw 보정 게인(0.6)과 clamp 상한(0.10)은 원본이 K_YAW/MAX_YAW가 아닌
         별도 하드코딩 값을 쓴다(원본 L202 주석: "완만한 방위 유지") — 그대로 유지.
         """
+        cx = self.cx if cx is None else cx
         end = time.time() + timeout
         while time.time() < end:
             x, z, yaw = self.pose[rid]
-            if abs(z - target_z) < tol and abs(x - self.cx) < tol * 2:
+            if abs(z - target_z) < tol and abs(x - cx) < tol * 2:
                 break
-            ex, ez = self.cx - x, target_z - z
+            ex, ez = cx - x, target_z - z
             fwd, left = body_twist_from_world_error(ex, ez, yaw)
             eyaw = wrap(face_yaw - yaw)
             self._pub(rid, clamp(K_LIN * fwd, INGRESS_SPEED),
@@ -350,6 +351,61 @@ class FormationMotion:
         self.node.get_logger().info("복귀(동시): 두 로봇 앞으로→통로→초기 도크")
         ok = self.approach_parallel(routes)
         self._stop_all()
+        return ok
+
+    # ---- 출차(EXIT) 신규(best-effort) — 슬롯 픽업 / 베이 운반 ----
+    def pickup_at_slot(self, slot_x, slot_z):
+        """출차: 슬롯에 주차된 차 밑으로 진입(입차 pickup_sequence의 슬롯 버전, best-effort).
+
+        입차는 방향 유지한 채 차를 넣으므로 축 오프셋은 인계베이와 동일:
+        rear축=slot_z+rear_axle(=slot_z-1.93), front축=slot_z+front_axle(=slot_z+1.66).
+        통로(남쪽)에서 접근해 북쪽으로 진입한다 — 깊은 축(front, 더 북쪽)부터 넣어야 얕은
+        축(rear)이 경로를 막지 않는다(입차가 rear-깊이-먼저였던 것의 좌우 대칭).
+
+        TODO(사용자 sim 튜닝): 접근 스테이징 z·진입 순서·통로 차로는 실측 관찰 필요.
+        """
+        if not self.wait_data():
+            return False, "데이터 미수신"
+        rear_t = slot_z + self.rear_axle    # 슬롯 rear축 z
+        front_t = slot_z + self.front_axle  # 슬롯 front축 z
+        # ① 접근: 두 로봇을 슬롯 열의 통로 차로(rear −1.5 / front +1.5)로(병렬, 안 겹치게)
+        approach = {}
+        for rid, lane in (("robot_rear", LANE_Z_REAR), ("robot_front", LANE_Z_FRONT)):
+            cur = self.pose.get(rid)
+            if cur is None:
+                return False, "pose 없음"
+            approach[rid] = [(cur[0], lane), (slot_x, lane)]
+        self.node.get_logger().info(f"출차 접근: 슬롯 {slot_x:.1f} 열 통로로")
+        if not self.approach_parallel(approach):
+            self._stop_all()
+            return False, "슬롯 접근 타임아웃"
+        self._settle()
+        # ② front(깊은 축) 먼저 진입 — 통로에서 북쪽으로
+        self.node.get_logger().info("출차: 앞축 로봇 진입(깊이)")
+        self.rotate_to("robot_front", FACE_MZ)
+        self._settle()
+        self.ingress_to("robot_front", front_t, FACE_MZ, timeout=140.0, tol=INGRESS_TOL, cx=slot_x)
+        self._settle(INGRESS_SETTLE)
+        # ③ rear(얕은 축) 진입
+        self.node.get_logger().info("출차: 뒷축 로봇 진입")
+        self.rotate_to("robot_rear", FACE_MZ)
+        self._settle()
+        self.ingress_to("robot_rear", rear_t, FACE_MZ, tol=INGRESS_TOL, cx=slot_x)
+        self._settle(INGRESS_SETTLE)
+        return True, "슬롯 픽업 완료"
+
+    def carry_to_bay(self, bay_x, bay_z):
+        """출차 운반: 슬롯에서 통로로 나와 통로 따라 인계베이로(입차 carry의 역방향, L자).
+          ① carry_to(현재 veh_x, 0) → 슬롯 밖 통로로,
+          ② carry_to(bay_x, bay_z) → 통로 따라 베이 한가운데로.
+        """
+        if self.veh_x is None or self.veh_z is None:
+            return False
+        self.node.get_logger().info("출차 운반: 슬롯→통로")
+        ok = self.carry_to(self.veh_x, 0.0)
+        if ok:
+            self.node.get_logger().info(f"출차 운반: 통로→인계베이({bay_x:.1f},{bay_z:.1f})")
+            ok = self.carry_to(bay_x, bay_z)
         return ok
 
     def carry_rotate_to(self, target_yaw, timeout=90.0):

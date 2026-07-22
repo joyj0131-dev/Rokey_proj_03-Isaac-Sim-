@@ -4,7 +4,8 @@
 goal.pose(geometry_msgs/PoseStamped, map 프레임)를 parking_robot_system.frame_transform로
 USD 프레임으로 변환한 뒤, goal.behavior_tree 문자열을 모드로 사용해 FormationMotion(검증된
 dock_lift_handoff_mission 폐루프 이식, formation_motion.py 참고)에 위임한다:
-    "carry"                     -> FormationMotion.carry_to(tx,tz)        편대(둘 다) 운반 이동
+    "carry"                     -> FormationMotion.carry_to(tx,tz)        입차 운반(베이→슬롯)
+    "carry_bay"                 -> FormationMotion.carry_to_bay(tx,tz)    출차 운반(슬롯→베이)
     "rotate"                    -> FormationMotion.carry_rotate_to(yaw)   편대(둘 다) 회전(정렬)
     "rear"|"front"              -> FormationMotion.goto_xz(rid, tx, tz)   로봇 1대 개별 직선 이동
     "return_both"               -> FormationMotion.return_both_to_docks() 두 로봇 동시 초기도크 복귀
@@ -72,7 +73,10 @@ class NavigateActionServerNode(Node):
         y_map = goal.pose.pose.position.y
         tx_usd, tz_usd = map_to_usd(x_map, y_map)
 
-        if mode == 'carry':
+        if mode == 'carry_bay':
+            # 출차 운반: 슬롯에서 통로로 나와 인계베이(tx,tz)로. (입차 carry의 역방향)
+            ok = self.formation.carry_to_bay(tx_usd, tz_usd)
+        elif mode == 'carry':
             # 사용자 보고: 슬롯으로 곧장 직선 이동하면 서쪽 벽(x≈-18.1)을 관통한다.
             # 픽업하러 갈 때 쓴 통로(중앙 통로 z≈0 + 개구부)를 따라가도록 L자 경로로 나눈다:
             #   ① 슬롯 x열까지 통로(z=AISLE_Z)를 따라 동진(개구부 통과) → ② 슬롯으로 진입.

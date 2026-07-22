@@ -25,6 +25,10 @@ from rclpy.node import Node
 
 from parking_robot_interfaces.action import AlignVehicle
 from parking_robot_system.formation_motion import FormationMotion
+from parking_robot_system.frame_transform import map_to_usd
+
+# 인계베이 픽업 판정 임계 x(USD). 베이 Pickup은 x≈-29.6, 슬롯은 x≥-15.3이라 그 사이로 가른다.
+BAY_X_THRESHOLD = -25.0
 
 
 class AlignActionServerNode(Node):
@@ -56,8 +60,14 @@ class AlignActionServerNode(Node):
         return max(errors)
 
     def _on_align_vehicle(self, goal_handle):
-        # goal_handle.request.target_pose: 위 모듈 docstring 참고 — P1에서는 미사용.
-        ok, message = self.formation.pickup_sequence()
+        # target_pose(map)로 픽업 위치를 판단: 인계베이(x≈-29.6)면 입차 픽업(검증된
+        # pickup_sequence), 그 외(슬롯)면 출차 픽업(pickup_at_slot). 좌표 변환은 frame_transform.
+        p = goal_handle.request.target_pose.position
+        tx_usd, tz_usd = map_to_usd(p.x, p.y)
+        if tx_usd <= BAY_X_THRESHOLD:
+            ok, message = self.formation.pickup_sequence()             # 입차: 인계베이 픽업
+        else:
+            ok, message = self.formation.pickup_at_slot(tx_usd, tz_usd)  # 출차: 슬롯 픽업
         self.get_logger().info(f'align_vehicle: {message}')
 
         result = AlignVehicle.Result()
