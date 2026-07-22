@@ -52,6 +52,10 @@ class DataSource(ABC):
     def reset(self) -> None:
         """(Mock 전용) 상태 초기화."""
 
+    def reset_test_environment(self) -> None:
+        """(ROS2 전용, 테스트/개발 환경) 연동 DB를 초기 상태로 되돌린다."""
+        raise DataSourceError("현재 모드에서는 DB 초기화를 사용할 수 없습니다.", status_code=403)
+
     def resolve_alert(self, alert_id: int) -> None:
         """알림 해제. 기본 구현은 StateStore에서 비활성화만 수행."""
         with self.store.lock:

@@ -1063,10 +1063,10 @@ select:focus {
 }
 
 .lot-slot-rect.OCCUPIED {
-  fill: #ede9fe;
+  fill: #ddd6fe;
   fill-opacity: 1;
-  stroke: #7c3aed;
-  stroke-width: 2.5;
+  stroke: #6d28d9;
+  stroke-width: 3;
 }
 
 .lot-slot-rect.OCCUPIED + .lot-slot-label {
@@ -1246,26 +1246,19 @@ select:focus {
   text-anchor: middle;
 }
 
-.lot-access-tag rect {
-  fill: #f8fafc;
-  stroke: #cbd5e1;
-  stroke-width: 1.3;
+.lot-vehicle-zone-rect {
+  fill: #ccfbf1;
+  fill-opacity: 0.6;
+  stroke: #0d9488;
+  stroke-width: 3;
+  stroke-dasharray: 7 5;
 }
 
-.lot-access-tag text {
-  fill: var(--text-soft);
-  font-size: 11px;
+.lot-vehicle-zone-label {
+  font-size: 10px;
   font-weight: 850;
+  fill: #115e59;
   text-anchor: middle;
-}
-
-.lot-access-tag.entrance rect {
-  fill: #eff6ff;
-  stroke: #bfdbfe;
-}
-
-.lot-access-tag.entrance text {
-  fill: var(--primary-dark);
 }
 
 .lot-dock-rect {
@@ -1574,6 +1567,17 @@ td {
 .backup-button:hover {
   border-color: #93c5fd;
   background: var(--primary-soft);
+}
+
+.danger-button {
+  border-color: #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.danger-button:hover {
+  border-color: #fca5a5;
+  background: #fecaca;
 }
 
 tbody tr:last-child td {

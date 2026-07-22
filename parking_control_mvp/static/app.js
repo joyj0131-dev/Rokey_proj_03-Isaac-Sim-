@@ -44,6 +44,13 @@ const lastRequestStates = new Map();
 const robotSpeechBubbles = new Map();
 const seenSpeechAlertIds = new Set();
 
+// 폴링 간격(0.5~2초)보다 로봇 이동이 빨리 끝나면 순간이동처럼 보이므로,
+// 서버가 보낸 좌표는 "목표"로만 쓰고 화면 표시 좌표는 매 프레임 보간한다.
+const ROBOT_MOVE_ANIMATION_MS = 300;
+const robotDisplayPositions = new Map(); // robot_id -> {x, y} 현재 화면 좌표
+const robotAnimations = new Map(); // robot_id -> {fromX, fromY, toX, toY, startTime}
+let robotAnimationFrame = null;
+
 function shortRobotName(robotId) {
   const match = String(robotId).match(/(\d+)$/);
   return match ? `R${Number(match[1])}` : robotId;
@@ -267,12 +274,21 @@ function renderSummary(summary, robots, sensors, system, alerts = []) {
 
 // 실제 parking_map.yaml의 A/B 8면 배치를 한 화면에 표시하는 좌표계.
 // HTML의 viewBox와 항상 같은 값을 유지한다.
-const LOT_MAP_WIDTH = 1100;
+const LOT_MAP_WIDTH = 1174;
 const LOT_MAP_HEIGHT = 430;
 const LOT_SLOT_WIDTH = 82;
 const LOT_SLOT_HEIGHT = 126;
 const LOT_DOCK_WIDTH = 92;
 const LOT_DOCK_HEIGHT = 106;
+// 차량 대기 구역(실제로는 entrance보다 더 바깥, Isaac Sim의
+// VehicleHandoffArea)은 왼쪽 여백 안에 고정 픽셀로만 그린다 — 실측 좌표로
+// 배치하면 다른 요소(슬롯/도크)의 축척이 그만큼 줄어들기 때문.
+const LOT_VEHICLE_ZONE_WIDTH = LOT_SLOT_WIDTH;
+const LOT_VEHICLE_ZONE_HEIGHT = LOT_SLOT_HEIGHT;
+// 왼쪽 캔버스 가장자리(x=0)에서 이만큼 띄운다. 슬롯 사이 간격(~15px)보다는
+// 눈에 띄게 크게 둬서 "더 멀리 떨어져 있다"는 느낌은 유지하되, 이전처럼
+// 빈 공간이 슬롯 간격의 6~9배로 붕 뜨지 않도록 여백 자체를 줄였다.
+const LOT_VEHICLE_ZONE_LEFT_PADDING_PX = 20;
 const LOT_ROBOT_CARD_WIDTH = 84;
 const LOT_ROBOT_CARD_HEIGHT = 84;
 
@@ -288,7 +304,10 @@ function computeLotTransform(points) {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const marginLeft = 96;
+  // 차량 대기 구역(왼쪽 여백에 고정 픽셀로 그림)을 위한 여백. LOT_MAP_WIDTH를
+  // 늘린 만큼 같이 늘려서 drawableWidth(=956, 슬롯/도크 축척)는 원래 그대로
+  // 유지한다 — 다른 요소는 안 줄어들고 왼쪽 여백만 확보된다.
+  const marginLeft = 170;
   const marginRight = 48;
   const marginY = 78;
   const spanX = maxX - minX || 1;
@@ -373,14 +392,23 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
       <text class="lot-driving-zone-label" x="${zoneLabelX}" y="${laneY + 5}">
         로봇 주행 구역
       </text>
-      <g class="lot-access-tag exit" aria-label="주차장 출구">
-        <rect x="${laneStart - 82}" y="${laneY - 34}" width="68" height="25" rx="8"></rect>
-        <text x="${laneStart - 48}" y="${laneY - 17}">← 출구</text>
-      </g>
-      <g class="lot-access-tag entrance" aria-label="주차장 입구">
-        <rect x="${laneStart - 82}" y="${laneY + 9}" width="68" height="25" rx="8"></rect>
-        <text x="${laneStart - 48}" y="${laneY + 26}">→ 입구</text>
-      </g>
+    `);
+
+    // 차량 대기 구역: entrance는 로봇이 차를 인계받는 문턱일 뿐이고, 운전자가
+    // 차를 대기시키는 실제 구역(Isaac Sim의 VehicleHandoffArea)은 그보다 더
+    // 바깥에 있다. 다른 요소의 축척에 영향을 주지 않도록 실측 좌표로 배치하지
+    // 않고, 입구 표지처럼 왼쪽 여백에 고정 픽셀로만 더 멀리 떨어뜨려 그린다.
+    const vehicleZoneCx = LOT_VEHICLE_ZONE_LEFT_PADDING_PX + LOT_VEHICLE_ZONE_WIDTH / 2;
+    parts.push(`
+      <rect
+        class="lot-vehicle-zone-rect"
+        x="${vehicleZoneCx - LOT_VEHICLE_ZONE_WIDTH / 2}" y="${laneY - LOT_VEHICLE_ZONE_HEIGHT / 2}"
+        width="${LOT_VEHICLE_ZONE_WIDTH}" height="${LOT_VEHICLE_ZONE_HEIGHT}"
+        rx="8"
+      ></rect>
+      <text class="lot-vehicle-zone-label" x="${vehicleZoneCx}" y="${laneY + 4}">
+        차량 대기 구역
+      </text>
     `);
   }
 
@@ -514,17 +542,98 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
   });
 }
 
-function selectMapItem(type, id) {
-  selectedMapItem = { type, id };
+function easeOutQuad(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+
+// 최신 로봇 배열의 x/y를, 진행 중인 애니메이션이 있으면 보간된 좌표로 덮어써서 반환한다.
+function applyRobotDisplayPositions(robots) {
+  return robots.map((robot) => {
+    const display = robotDisplayPositions.get(robot.id);
+    if (!display || robot.x == null || robot.y == null) return robot;
+    return { ...robot, x: display.x, y: display.y };
+  });
+}
+
+// 새 좌표가 도착하면 즉시 스냅하지 않고, 현재 보이는 위치 -> 새 좌표로 가는
+// 애니메이션 목표만 세팅한다. 처음 보는 로봇은 애니메이션 없이 바로 배치.
+function updateRobotAnimationTargets(robots) {
+  const now = performance.now();
+  const seenIds = new Set();
+
+  for (const robot of robots) {
+    if (robot.x == null || robot.y == null) continue;
+    seenIds.add(robot.id);
+    const current = robotDisplayPositions.get(robot.id);
+
+    if (!current) {
+      robotDisplayPositions.set(robot.id, { x: robot.x, y: robot.y });
+      continue;
+    }
+    if (current.x === robot.x && current.y === robot.y) {
+      robotAnimations.delete(robot.id);
+      continue;
+    }
+    robotAnimations.set(robot.id, {
+      fromX: current.x,
+      fromY: current.y,
+      toX: robot.x,
+      toY: robot.y,
+      startTime: now,
+    });
+  }
+
+  for (const robotId of [...robotDisplayPositions.keys()]) {
+    if (!seenIds.has(robotId)) {
+      robotDisplayPositions.delete(robotId);
+      robotAnimations.delete(robotId);
+    }
+  }
+}
+
+function renderLatestLotMap() {
   if (!latestDashboard) return;
   renderLotMap(
     latestDashboard.slots,
-    latestDashboard.robots,
+    applyRobotDisplayPositions(latestDashboard.robots),
     latestDashboard.map,
-    latestDashboard.sensors,
-    latestDashboard.requests,
-    latestDashboard.alerts
+    latestDashboard.sensors || [],
+    latestDashboard.requests || [],
+    latestDashboard.alerts || []
   );
+}
+
+function stepRobotAnimations(timestamp) {
+  let stillAnimating = false;
+
+  for (const [robotId, anim] of robotAnimations) {
+    const t = Math.min(1, (timestamp - anim.startTime) / ROBOT_MOVE_ANIMATION_MS);
+    const eased = easeOutQuad(t);
+    robotDisplayPositions.set(robotId, {
+      x: anim.fromX + (anim.toX - anim.fromX) * eased,
+      y: anim.fromY + (anim.toY - anim.fromY) * eased,
+    });
+    if (t >= 1) {
+      robotAnimations.delete(robotId);
+    } else {
+      stillAnimating = true;
+    }
+  }
+
+  renderLatestLotMap();
+  robotAnimationFrame = stillAnimating ? requestAnimationFrame(stepRobotAnimations) : null;
+}
+
+function ensureRobotAnimationLoop() {
+  if (robotAnimationFrame == null) {
+    robotAnimationFrame = requestAnimationFrame(stepRobotAnimations);
+  }
+}
+
+function selectMapItem(type, id) {
+  selectedMapItem = { type, id };
+  renderLatestLotMap();
+  if (!latestDashboard) return;
   renderSelectionDetail(latestDashboard);
 }
 
@@ -538,15 +647,8 @@ function toggleLidarMarkers() {
   if (!showLidarMarkers && selectedMapItem?.type === "sensor") {
     selectedMapItem = null;
   }
+  renderLatestLotMap();
   if (!latestDashboard) return;
-  renderLotMap(
-    latestDashboard.slots,
-    latestDashboard.robots,
-    latestDashboard.map,
-    latestDashboard.sensors || [],
-    latestDashboard.requests || [],
-    latestDashboard.alerts || []
-  );
   renderSelectionDetail(latestDashboard);
 }
 
@@ -969,9 +1071,13 @@ function renderSystem(system) {
     statusText.textContent = "시스템 정상";
   }
 
+  // 백업은 모드와 무관하게 항상 노출 (서버 호출 없이 현재 화면 데이터만 내려받음).
   document
-    .getElementById("mockControls")
-    .classList.toggle("hidden", !system.mock_controls);
+    .getElementById("resetButton")
+    .classList.toggle("hidden", system.mode !== "mock");
+  document
+    .getElementById("dbResetButton")
+    .classList.toggle("hidden", system.mode !== "ros2");
   document
     .getElementById("mockVehicleGuide")
     .classList.toggle("hidden", !system.mock_controls);
@@ -1053,14 +1159,16 @@ async function refreshDashboard() {
     );
     captureRequestEvents(data.requests, data.system);
     captureAlertSpeech(data.alerts || [], data.robots, data.system);
+    updateRobotAnimationTargets(data.robots);
     renderLotMap(
       data.slots,
-      data.robots,
+      applyRobotDisplayPositions(data.robots),
       data.map,
       data.sensors || [],
       data.requests,
       data.alerts || []
     );
+    ensureRobotAnimationLoop();
     renderSelectionDetail(data);
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || []);
@@ -1143,6 +1251,27 @@ document
     }
   });
 
+document
+  .getElementById("dbResetButton")
+  .addEventListener("click", async () => {
+    if (
+      !window.confirm(
+        "테스트 DB를 초기 상태로 되돌릴까요?\n주차면·로봇 상태와 작업 이력이 모두 초기화됩니다. (테스트/개발 환경 전용)"
+      )
+    )
+      return;
+    try {
+      await apiRequest("/ros2/db-reset", {
+        method: "POST",
+      });
+
+      showMessage("테스트 DB가 초기화되었습니다.");
+      await refreshDashboard();
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  });
+
 function downloadMockBackup() {
   const button = document.getElementById("backupButton");
 
@@ -1170,7 +1299,7 @@ function downloadMockBackup() {
   const timestamp = exportedAt.toISOString().replace(/[:.]/g, "-");
 
   link.href = url;
-  link.download = `parking-control-mock-backup-${timestamp}.json`;
+  link.download = `parking-control-backup-${timestamp}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -1220,7 +1349,7 @@ setupWorkspaceTabs();
 async function runDashboardRefreshLoop() {
   await refreshDashboard();
   const hasActiveTask = (latestDashboard?.summary?.active_requests || 0) > 0;
-  window.setTimeout(runDashboardRefreshLoop, hasActiveTask ? 500 : 2000);
+  window.setTimeout(runDashboardRefreshLoop, hasActiveTask ? 250 : 2000);
 }
 
 runDashboardRefreshLoop();

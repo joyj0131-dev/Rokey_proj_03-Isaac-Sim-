@@ -38,6 +38,7 @@ from parking_control.parking_slot_manager_node import _default_map_yaml
 import config
 from core.datasource import DataSource, DataSourceError
 from core.models import (
+    TERMINAL_STATUSES,
     Alert,
     AlertCategory,
     AlertLevel,
@@ -112,7 +113,18 @@ def _extract_map_info(parking_map: ParkingMap) -> dict:
 
 
 class _ParkingDbReader:
-    """dispatcher가 쓰는 MySQL을 읽기 전용으로 조회한다. 쓰기는 하지 않는다."""
+    """dispatcher가 쓰는 MySQL을 조회한다.
+
+    기본은 읽기 전용이지만, execute()는 테스트 환경 초기화(DB 초기화 버튼)
+    용도로만 제한적으로 사용한다 — 일반 조회/조작 경로에서는 쓰지 않는다.
+
+    같은 커넥션을 폴링 스레드(_poll_loop)와 FastAPI 요청 스레드(DB 초기화
+    등)가 동시에 건드릴 수 있는데, mysql-connector의 C 확장 커넥션은
+    스레드 간 동시 접근을 지원하지 않아 그대로 두면 프로세스가 죽는다
+    (실제로 폴링 주기를 0.25초로 줄인 뒤 DB 초기화를 호출하다가
+    "free(): invalid next size" 크래시로 재현됨). 그래서 모든 연결/쿼리
+    접근을 락으로 직렬화한다.
+    """
 
     def __init__(self, host: str, user: str, password: str, database: str) -> None:
         self._config = dict(
@@ -120,6 +132,7 @@ class _ParkingDbReader:
             database=database, autocommit=True,
         )
         self._conn = None
+        self._lock = threading.Lock()
 
     def _connection(self):
         if self._conn is None or not self._conn.is_connected():
@@ -127,12 +140,13 @@ class _ParkingDbReader:
         return self._conn
 
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
-        cursor = self._connection().cursor(dictionary=True)
-        try:
-            cursor.execute(sql, params)
-            return cursor.fetchall()
-        finally:
-            cursor.close()
+        with self._lock:
+            cursor = self._connection().cursor(dictionary=True)
+            try:
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+            finally:
+                cursor.close()
 
     def fetch_robots(self) -> list[dict]:
         return self._query(
@@ -150,6 +164,14 @@ class _ParkingDbReader:
             " slot_id, created_at FROM tasks ORDER BY created_at DESC LIMIT %s",
             (limit,),
         )
+
+    def execute(self, sql: str) -> None:
+        with self._lock:
+            cursor = self._connection().cursor()
+            try:
+                cursor.execute(sql)
+            finally:
+                cursor.close()
 
     def close(self) -> None:
         if self._conn is not None and self._conn.is_connected():
@@ -517,3 +539,37 @@ class Ros2DataSource(DataSource):
 
     def reset(self) -> None:
         raise DataSourceError("ros2 모드에서는 초기화를 지원하지 않습니다.", status_code=403)
+
+    # ------------------------------------------------------------------
+    # DB 초기화 (테스트/개발 환경 전용) — run_test_stack.sh의 정리 로직과 동일한 범위.
+    # 로봇의 x/y는 건드리지 않는다: 실제 하드웨어에서는 그 좌표가 로봇 자신의
+    # 위치 보고값이라, 웹에서 임의로 덮어쓰면 실제 위치와 어긋난 값이 남는다.
+    # ------------------------------------------------------------------
+    def reset_test_environment(self) -> None:
+        with self.store.lock, self._map_lock:
+            # 진행 중인 작업이 있으면 초기화를 거부한다. sim_orchestrator(또는
+            # 실제 orchestrator)의 실행은 DB 밖(ROS2 액션)에서 계속 도는 중이라
+            # 여기서 취소할 방법이 없고, 그대로 초기화하면 뒤늦게 끝난 실행이
+            # 슬롯을 다시 OCCUPIED로 덮어써 "초기화했는데 슬롯이 도로 찬" 상태가
+            # 된다 (실제로 재현된 버그).
+            active = [
+                r for r in self.store.requests if r.status not in TERMINAL_STATUSES
+            ]
+            if active:
+                raise DataSourceError(
+                    "진행 중인 작업이 있어 DB를 초기화할 수 없습니다. "
+                    "작업이 완료된 뒤 다시 시도해주세요.",
+                    status_code=409,
+                )
+
+            self._db.execute("UPDATE parking_slots SET status='EMPTY'")
+            self._db.execute("UPDATE robots SET status='IDLE', target_node=NULL")
+            self._db.execute("DELETE FROM zone_locks")
+            self._db.execute("DELETE FROM tasks")
+            self._db.execute("DELETE FROM vehicles")
+
+            self._task_id_map.clear()
+            self._lifted_tasks.clear()
+            self._fine_status.clear()
+            self.store.requests.clear()
+            self.store.alerts.clear()

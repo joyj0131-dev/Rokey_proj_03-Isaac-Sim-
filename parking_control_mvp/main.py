@@ -77,6 +77,14 @@ def _require_mock_controls() -> None:
         )
 
 
+def _require_ros2_mode() -> None:
+    if config.PARKING_MODE != "ros2":
+        raise HTTPException(
+            status_code=403,
+            detail="ros2 모드에서만 사용할 수 있습니다.",
+        )
+
+
 # ----------------------------------------------------------------------
 # 페이지
 # ----------------------------------------------------------------------
@@ -199,3 +207,13 @@ def trigger_obstacle():
 def trigger_robot_error():
     _require_mock_controls()
     return _handle(datasource.trigger_robot_error)
+
+
+# ----------------------------------------------------------------------
+# DB 초기화 (ros2 모드 전용, 테스트/개발 환경)
+# ----------------------------------------------------------------------
+@app.post("/api/ros2/db-reset")
+def reset_ros2_test_environment():
+    _require_ros2_mode()
+    _handle(datasource.reset_test_environment)
+    return {"message": "테스트 DB가 초기화되었습니다."}

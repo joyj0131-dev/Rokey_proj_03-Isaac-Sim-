@@ -111,7 +111,7 @@
 
             <div class="live-floor-layout">
               <div class="lot-map-wrap">
-                <svg id="lotMap" viewBox="0 0 1100 430" preserveAspectRatio="xMidYMid meet"></svg>
+                <svg id="lotMap" viewBox="0 0 1174 430" preserveAspectRatio="xMidYMid meet"></svg>
                 <p id="lotMapEmpty" class="lot-map-empty hidden">
                   위치 정보가 있는 슬롯/로봇이 없습니다.
                 </p>
@@ -192,15 +192,23 @@
                 </p>
               </div>
 
-              <div id="mockControls" class="mock-control-actions">
+              <div class="mock-control-actions">
                 <button id="resetButton" type="button" class="secondary-button">
                   Mock 초기화
+                </button>
+                <button
+                  id="dbResetButton"
+                  type="button"
+                  class="secondary-button danger-button"
+                  title="테스트용 DB를 초기 상태로 되돌립니다 (주차면/로봇 상태, 작업 이력)."
+                >
+                  DB 초기화
                 </button>
                 <button
                   id="backupButton"
                   type="button"
                   class="secondary-button backup-button"
-                  title="현재 Mock 관제 상태를 JSON 파일로 저장합니다."
+                  title="현재 관제 상태를 JSON 파일로 저장합니다."
                 >
                   백업
                 </button>
