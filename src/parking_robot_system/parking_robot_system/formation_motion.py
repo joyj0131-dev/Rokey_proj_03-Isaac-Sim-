@@ -58,7 +58,7 @@ from nav_msgs.msg import Odometry
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from parking_robot_system.formation_driver import (
-    CARRY_SPEED, CONTROL_HZ, INGRESS_SPEED, K_LIN, K_STRAFE, K_YAW, MAX_LIN, MAX_YAW,
+    CONTROL_HZ, INGRESS_SPEED, K_LIN, K_STRAFE, K_YAW, MAX_LIN, MAX_YAW,
     POS_TOL, YAW_TOL, body_twist_from_world_error, clamp, wrap,
 )
 
@@ -77,12 +77,13 @@ WALL_CLEAR_X = -20.0       # L51 — 서쪽 벽(-18.1) 서쪽, 인계장 바닥 
 DOCK_X = -15.3             # L52 — West 도크 x (robot:dockPose)
 APPROACH_TIMEOUT = 300.0   # L55
 
-# 신규(원본에 없음) — carry_to 전용 타임아웃. 인계베이→슬롯 장거리(~22m)는 STEP_TIMEOUT
-# (90s, 원래 근거리용)로는 부족할 수 있어 별도 상수로 분리했다. 그래도 실측 슬립 감안 시
-# (CARRY_SPEED 지령 0.30 → 원본 주석 기준 실측 ~0.09m/s) 22m ≈ 240s라 이 값도 여유가 크지
-# 않다 — TODO(Task 12): Isaac 실측 후 조정하거나 orchestrator에서 웨이포인트 단위로 나눠
-# 여러 번 carry_to를 호출하도록 바꿀 것.
-CARRY_TO_TIMEOUT = 300.0
+# 신규(원본에 없음) — carry_to 전용 속도/타임아웃.
+# 파지 후 운반은 차량을 강체로 들고 직선(L자) 이동이라 픽업 진입(정밀·저속)보다 빠르게 가도
+# 된다. 원본 CARRY_SPEED(0.30) 지령은 롤러 슬립으로 실측 ~0.09m/s에 그쳐, L자 경로
+# (~29m)에서 300s 타임아웃을 넘겨 abort(status=6)가 났다(사용자 실측). 그래서 운반 구간만
+# 지령 속도를 올린다. 두 로봇 동기가 흐트러지면(차 뒤틀림) 값을 낮춰 조정.
+CARRY_SPEED_FAST = 0.70    # 운반 지령 속도(원본 0.30 → 상향). 실측 보며 조정 가능.
+CARRY_TO_TIMEOUT = 420.0   # 상향 속도로도 안전하도록 타임아웃 여유 확대(구간별 개별 적용).
 
 # 신규 — 축(axle) 정밀 진입용 정지 허용오차. 원본 ingress_to는 POS_TOL(0.10)에서 멈춰
 # 최대 10cm 오차를 허용했는데, 사용자 보고("앞바퀴 리프트 위치가 약간 안 맞음")에 따라
@@ -314,8 +315,8 @@ class FormationMotion:
             ref_pose = self.pose.get("robot_rear")
             yaw = ref_pose[2] if ref_pose is not None else FACE_MZ
             fwd, left = body_twist_from_world_error(ex, ez, yaw)
-            vx = clamp(K_LIN * fwd, CARRY_SPEED)
-            vy = clamp(K_STRAFE * left, CARRY_SPEED)
+            vx = clamp(K_LIN * fwd, CARRY_SPEED_FAST)
+            vy = clamp(K_STRAFE * left, CARRY_SPEED_FAST)
             for r in ROBOTS:
                 self._pub(r, vx, vy, 0.0)
             time.sleep(1.0 / CONTROL_HZ)
