@@ -105,6 +105,29 @@ def _fix_vehicle_colliders(stage, vehicle_path):
     return fixed
 
 
+def _fix_all_parked_colliders(stage):
+    """주차칸에 배치된 모든 차량에도 인계장 Pickup과 동일한 휠 콜라이더 수정을 적용한다.
+
+    출차 시 로봇이 이 주차 차량을 리프트하는데, 콜라이더 미수정이면 기본 휠 콜라이더가
+    로봇 팔/바닥과 충돌해 물리가 폭발한다(사용자 실측: 'B5 차를 들어올리는데 갑자기 튀어오름').
+    인계장 Pickup만 _fix_vehicle_colliders를 받고 주차 차량은 못 받던 것을 여기서 보강한다.
+    주차 차량 prim 구조는 Pickup과 동일(.../FrontLeftWheel/Collision 등)이라 그대로 적용된다.
+    """
+    parked = stage.GetPrimAtPath("/World/ParkingVehicles/Parked")
+    if not parked or not parked.IsValid():
+        return 0, 0
+    n_cars = 0
+    n_fixed = 0
+    for child in parked.GetChildren():
+        if not child.IsActive():
+            continue
+        f = _fix_vehicle_colliders(stage, str(child.GetPath()))
+        if f:
+            n_cars += 1
+            n_fixed += f
+    return n_cars, n_fixed
+
+
 def _grip_material(stage):
     from pxr import UsdShade, UsdPhysics
     mat = UsdShade.Material.Define(stage, "/World/Looks/GripDock")
@@ -215,6 +238,8 @@ def build_stage(app):
         app.update()
 
     n_fixed = _fix_vehicle_colliders(stage, VEHICLE_PATH)
+    # 출차용: 주차칸 차량들도 동일 콜라이더 수정(안 하면 리프트 시 폭발 — 사용자 실측 B5).
+    n_parked_cars, n_parked_fixed = _fix_all_parked_colliders(stage)
 
     cache = UsdGeom.XformCache()
     centers = {}
@@ -239,7 +264,8 @@ def build_stage(app):
     for _ in range(30):
         app.update()
     print(f"DOCK_STAGE_READY vehicle_pos={VEHICLE_POS} axle rear_z={AXLE['rear_z']:.3f} "
-          f"front_z={AXLE['front_z']:.3f} center_x={center_x:.3f} colliders_fixed={n_fixed}",
+          f"front_z={AXLE['front_z']:.3f} center_x={center_x:.3f} colliders_fixed={n_fixed} "
+          f"parked_colliders_fixed={n_parked_fixed}(cars={n_parked_cars})",
           flush=True)
     return stage
 
