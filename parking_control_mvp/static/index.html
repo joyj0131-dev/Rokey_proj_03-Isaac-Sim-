@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=20260721-dashboard4" />
 </head>
 <body>
   <div class="app-shell">
@@ -33,7 +33,7 @@
           aria-controls="tab-live"
           data-tab="live"
         >
-          실시간 도면
+          주차장 현황
         </button>
         <button
           type="button"
@@ -82,8 +82,15 @@
           <section class="panel live-floor-panel">
             <div class="panel-header live-panel-header">
               <div class="live-title-group">
-                <h2>주차장 실시간 도면</h2>
-                <span class="live-refresh-copy">작업 중 0.5초 · 평시 2초 갱신</span>
+                <div class="live-site-title">
+                  <h2>ROKEY CASTLE A-4동</h2>
+                  <span>주차장 실시간 현황 · 평시 2초 / 작업 중 0.5초 갱신</span>
+                </div>
+                <div class="legend map-legend" aria-label="주차면 상태 범례">
+                  <span><i class="legend-dot empty"></i>빈 공간</span>
+                  <span><i class="legend-dot reserved"></i>예약</span>
+                  <span><i class="legend-dot occupied"></i>주차 중</span>
+                </div>
               </div>
 
               <div class="map-header-status">
@@ -118,13 +125,6 @@
             </div>
           </section>
 
-          <section class="recent-events" aria-labelledby="recentEventsTitle">
-            <div class="recent-events-heading">
-              <h2 id="recentEventsTitle">최근 이벤트</h2>
-              <button type="button" class="text-button" data-open-tab="tasks">전체 보기</button>
-            </div>
-            <div id="recentEventList" class="recent-event-list"></div>
-          </section>
         </section>
 
         <section
@@ -192,28 +192,34 @@
                 </p>
               </div>
 
-              <details id="mockControls" class="mock-tools">
-                <summary>테스트 도구</summary>
-                <div class="panel-actions mock-tools-actions">
-                  <button id="obstacleButton" class="secondary-button warn">
-                    장애물 감지
-                  </button>
-                  <button id="errorButton" class="secondary-button danger">
-                    로봇 오류
-                  </button>
-                  <button id="resetButton" class="secondary-button">
-                    Mock 초기화
-                  </button>
-                </div>
-              </details>
+              <div id="mockControls" class="mock-control-actions">
+                <button id="resetButton" type="button" class="secondary-button">
+                  Mock 초기화
+                </button>
+                <button
+                  id="backupButton"
+                  type="button"
+                  class="secondary-button backup-button"
+                  title="현재 Mock 관제 상태를 JSON 파일로 저장합니다."
+                >
+                  백업
+                </button>
+              </div>
             </div>
             <div id="requestTable"></div>
+          </section>
+
+          <section class="recent-events" aria-labelledby="recentEventsTitle">
+            <div class="recent-events-heading">
+              <h2 id="recentEventsTitle">이벤트 이력</h2>
+            </div>
+            <div id="recentEventList" class="recent-event-list"></div>
           </section>
         </section>
       </main>
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260721-dashboard4"></script>
 </body>
 </html>

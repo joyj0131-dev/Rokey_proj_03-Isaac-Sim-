@@ -147,8 +147,7 @@ class _ParkingDbReader:
     def fetch_tasks(self, limit: int = 100) -> list[dict]:
         return self._query(
             "SELECT task_id, request_type, state, vehicle_id, robot_id,"
-            " follower_robot_id, slot_id, created_at FROM tasks"
-            " ORDER BY created_at DESC LIMIT %s",
+            " slot_id, created_at FROM tasks ORDER BY created_at DESC LIMIT %s",
             (limit,),
         )
 
@@ -289,15 +288,6 @@ class Ros2DataSource(DataSource):
                 if row["state"] == "PROCESSING":
                     status = self._fine_status.get(row["task_id"], status)
 
-                # 차량 한 대를 로봇 2대(리더/팔로워)가 함께 옮기는 구조라
-                # robot_ids에 둘 다 채운다. follower_robot_id는 팀 편성 전
-                # (배정 직후 아주 짧은 순간)에는 아직 NULL일 수 있다.
-                robot_ids = [
-                    robot_id
-                    for robot_id in (row["robot_id"], row["follower_robot_id"])
-                    if robot_id
-                ]
-
                 created_at = row["created_at"]
                 requests.append(
                     ParkingRequest(
@@ -308,7 +298,7 @@ class Ros2DataSource(DataSource):
                         vehicle_number=row["vehicle_id"],
                         slot_id=row["slot_id"],
                         robot_id=row["robot_id"],
-                        robot_ids=robot_ids,
+                        robot_ids=[row["robot_id"]] if row["robot_id"] else [],
                         status=status,
                         created_at=(
                             created_at.isoformat(timespec="seconds")
@@ -319,9 +309,8 @@ class Ros2DataSource(DataSource):
                     )
                 )
 
-                if row["state"] in ("WAITING", "PROCESSING"):
-                    for robot_id in robot_ids:
-                        active_task_by_robot[robot_id] = internal_id
+                if row["robot_id"] and row["state"] in ("WAITING", "PROCESSING"):
+                    active_task_by_robot[row["robot_id"]] = internal_id
 
                 if row["slot_id"] and row["slot_id"] not in slot_status_override:
                     derived = _SLOT_STATUS_FROM_TASK.get(

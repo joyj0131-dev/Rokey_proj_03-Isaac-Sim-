@@ -370,64 +370,113 @@ h2 {
 }
 
 .status-overview {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 56px;
-  padding: 8px 16px;
+  min-width: 0;
+}
+
+.status-overview-items {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-overview-item {
+  --kpi-accent: #475569;
+  --kpi-soft: #f1f5f9;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  min-height: 78px;
+  padding: 11px 13px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
 
-.status-overview-items {
+.status-overview-item.success {
+  --kpi-accent: var(--success);
+  --kpi-soft: #ecfdf5;
+}
+
+.status-overview-item.primary {
+  --kpi-accent: var(--primary-dark);
+  --kpi-soft: var(--primary-soft);
+}
+
+.status-overview-item.warning {
+  --kpi-accent: var(--warning);
+  --kpi-soft: var(--warning-soft);
+}
+
+.status-overview-item.danger {
+  --kpi-accent: #dc2626;
+  --kpi-soft: #fef2f2;
+}
+
+.status-overview-item.occupied {
+  --kpi-accent: #6d28d9;
+  --kpi-soft: #f5f3ff;
+}
+
+.status-overview-heading,
+.status-overview-value {
   display: flex;
   align-items: center;
   min-width: 0;
 }
 
-.status-overview-item {
-  display: flex;
-  align-items: baseline;
+.status-overview-heading {
   gap: 8px;
-  min-width: 135px;
-  padding: 4px 18px;
-  border-right: 1px solid var(--border);
 }
 
-.status-overview-item:first-child {
-  padding-left: 2px;
-}
-
-.status-overview-item:last-child {
-  border-right: 0;
-}
-
-.status-overview-item span {
-  color: var(--muted);
+.status-overview-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 8px;
+  background: var(--kpi-soft);
+  color: var(--kpi-accent);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 900;
+}
+
+.status-overview-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
+.status-overview-value {
+  align-items: baseline;
+  gap: 5px;
+  padding-left: 33px;
+}
+
 .status-overview-item strong {
-  color: var(--text);
-  font-size: 20px;
+  color: var(--kpi-accent);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.status-overview-item.success strong {
-  color: var(--success);
+.status-overview-unit {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
 }
 
-.status-overview-item.primary strong {
-  color: var(--primary-dark);
-}
-
-.status-overview-item.warning strong {
-  color: var(--warning);
+.status-overview-badge {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--kpi-soft);
+  color: var(--kpi-accent);
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .summary-card,
@@ -535,14 +584,20 @@ h2 {
 
 .live-title-group {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
 }
 
-.live-refresh-copy {
+.live-site-title {
+  display: grid;
+  gap: 2px;
+}
+
+.live-site-title > span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
 }
 
 .panel-description {
@@ -756,8 +811,8 @@ select:focus {
 }
 
 .badge.OCCUPIED {
-  background: #e8eef8;
-  color: #475569;
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .badge.OFFLINE {
@@ -765,24 +820,12 @@ select:focus {
   color: var(--muted);
 }
 
-/* ---------- 에러 · 장애물 감지 패널 ---------- */
-
-.panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 9px;
-}
-
-.secondary-button.warn {
+.badge.PAUSED {
   background: var(--warning-soft);
   color: var(--warning);
 }
 
-.secondary-button.danger {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
+/* ---------- 에러 · 장애물 감지 패널 ---------- */
 
 .secondary-button.small {
   padding: 8px 12px;
@@ -862,7 +905,14 @@ select:focus {
 .map-header-status {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.map-legend {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 
 .map-toggle-button {
@@ -961,7 +1011,7 @@ select:focus {
 }
 
 .legend-dot.occupied {
-  background: #64748b;
+  background: #8b5cf6;
 }
 
 .live-floor-layout {
@@ -1013,9 +1063,19 @@ select:focus {
 }
 
 .lot-slot-rect.OCCUPIED {
-  fill: #e8eef8;
+  fill: #ede9fe;
   fill-opacity: 1;
-  stroke: #64748b;
+  stroke: #7c3aed;
+  stroke-width: 2.5;
+}
+
+.lot-slot-rect.OCCUPIED + .lot-slot-label {
+  fill: #4c1d95;
+}
+
+.lot-slot-rect.OCCUPIED ~ .lot-slot-sub {
+  fill: #5b21b6;
+  font-weight: 800;
 }
 
 .lot-slot-rect.selected {
@@ -1057,6 +1117,21 @@ select:focus {
   transition: stroke 0.16s ease, stroke-width 0.16s ease, filter 0.16s ease;
 }
 
+.lot-robot-speech rect,
+.lot-robot-speech path {
+  fill: #ffffff;
+  stroke: #bfdbfe;
+  stroke-width: 1.3;
+  filter: drop-shadow(0 3px 5px rgba(37, 99, 235, 0.16));
+}
+
+.lot-robot-speech text {
+  fill: var(--primary-dark);
+  font-size: 9px;
+  font-weight: 900;
+  text-anchor: middle;
+}
+
 .lot-robot-card.selected,
 .lot-robot-marker:hover .lot-robot-card,
 .lot-robot-marker:focus .lot-robot-card {
@@ -1076,6 +1151,7 @@ select:focus {
 .lot-robot-badge.CHARGING { fill: #dbeafe; }
 .lot-robot-badge.ERROR { fill: #fee2e2; }
 .lot-robot-badge.OFFLINE { fill: #e2e8f0; }
+.lot-robot-badge.PAUSED { fill: #fef3c7; }
 
 .lot-robot-badge-label {
   font-size: 8px;
@@ -1088,6 +1164,12 @@ select:focus {
 .lot-robot-badge-label.CHARGING { fill: var(--primary-dark); }
 .lot-robot-badge-label.ERROR { fill: var(--danger); }
 .lot-robot-badge-label.OFFLINE { fill: var(--muted); }
+.lot-robot-badge-label.PAUSED { fill: #b45309; }
+
+.lot-robot-card.PAUSED {
+  stroke: var(--warning);
+  stroke-width: 2.5;
+}
 
 .lot-robot-subtitle {
   fill: var(--muted);
@@ -1156,25 +1238,34 @@ select:focus {
   text-anchor: middle;
 }
 
-.lot-aisle-area {
-  fill: #eef2f7;
-  stroke: #d7dee8;
-  stroke-width: 1.5;
-}
-
-.lot-aisle-label {
-  fill: #718096;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+.lot-driving-zone-label {
+  fill: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
   text-anchor: middle;
 }
 
-.lot-entrance-label {
-  font-size: 12px;
-  font-weight: 700;
-  fill: var(--muted);
-  text-anchor: end;
+.lot-access-tag rect {
+  fill: #f8fafc;
+  stroke: #cbd5e1;
+  stroke-width: 1.3;
+}
+
+.lot-access-tag text {
+  fill: var(--text-soft);
+  font-size: 11px;
+  font-weight: 850;
+  text-anchor: middle;
+}
+
+.lot-access-tag.entrance rect {
+  fill: #eff6ff;
+  stroke: #bfdbfe;
+}
+
+.lot-access-tag.entrance text {
+  fill: var(--primary-dark);
 }
 
 .lot-dock-rect {
@@ -1323,16 +1414,6 @@ select:focus {
   font-size: 15px;
 }
 
-.text-button {
-  padding: 4px;
-  border: 0;
-  background: transparent;
-  color: var(--primary-dark);
-  font-size: 11px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
 .recent-event-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1433,7 +1514,7 @@ select:focus {
 }
 
 .slot-card.OCCUPIED {
-  --slot-accent: #ef4444;
+  --slot-accent: #8b5cf6;
 }
 
 .slot-card:hover {
@@ -1476,38 +1557,23 @@ td {
   white-space: nowrap;
 }
 
-.mock-tools {
-  position: relative;
+.mock-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
-.mock-tools summary {
-  padding: 9px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.mock-tools[open] summary {
-  border-color: #93c5fd;
+.backup-button {
+  border-color: #bfdbfe;
   background: var(--surface-blue);
   color: var(--primary-dark);
 }
 
-.mock-tools-actions {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 5;
-  width: max-content;
-  padding: 9px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+.backup-button:hover {
+  border-color: #93c5fd;
+  background: var(--primary-soft);
 }
 
 tbody tr:last-child td {
@@ -1568,17 +1634,11 @@ td {
 }
 
 @media (max-width: 1100px) {
-  .status-overview {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .status-overview-items {
-    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .status-overview-item {
-    flex: 1;
     min-width: 0;
   }
 
@@ -1640,20 +1700,11 @@ td {
   }
 
   .status-overview-items {
-    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .status-overview-item,
-  .status-overview-item:first-child {
-    min-width: 0;
-    padding: 7px 9px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .status-overview .legend {
-    gap: 10px;
+  .status-overview-item {
+    padding: 10px;
   }
 
   .live-title-group {
@@ -1678,7 +1729,13 @@ td {
   }
 
   .map-header-status {
-    justify-items: start;
+    justify-content: flex-start;
+  }
+
+  .map-legend {
+    flex-basis: 100%;
+    padding-left: 0;
+    border-left: 0;
   }
 
   #lotMap {
