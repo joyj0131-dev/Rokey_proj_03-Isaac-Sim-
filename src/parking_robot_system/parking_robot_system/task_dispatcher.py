@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """task_dispatcher: /dispatch/park_in_slot 검증 후 execute_parking_task 전송."""
+import time
 import uuid
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from parking_robot_interfaces.action import ExecuteParkingTask
@@ -24,9 +27,13 @@ def decide(info, data_ready):
 class TaskDispatcherNode(Node):
     def __init__(self):
         super().__init__('task_dispatcher')
-        self._slot_client = self.create_client(GetSlotInfo, 'get_slot_info')
-        self._exec_client = ActionClient(self, ExecuteParkingTask, 'execute_parking_task')
-        self.create_service(ParkInSlot, '/dispatch/park_in_slot', self._on_dispatch)
+        self._cbg = ReentrantCallbackGroup()
+        self._slot_client = self.create_client(
+            GetSlotInfo, 'get_slot_info', callback_group=self._cbg)
+        self._exec_client = ActionClient(
+            self, ExecuteParkingTask, 'execute_parking_task', callback_group=self._cbg)
+        self.create_service(
+            ParkInSlot, '/dispatch/park_in_slot', self._on_dispatch, callback_group=self._cbg)
         self.get_logger().info('task_dispatcher node started')
 
     def _on_dispatch(self, request, response):
@@ -34,8 +41,10 @@ class TaskDispatcherNode(Node):
             response.accepted, response.message = False, "관제 데이터 없음(재시도)"
             return response
         fut = self._slot_client.call_async(GetSlotInfo.Request(slot_id=request.slot_id))
-        rclpy.spin_until_future_complete(self, fut, timeout_sec=5.0)
-        res = fut.result()
+        deadline = time.time() + 5.0
+        while not fut.done() and time.time() < deadline:
+            time.sleep(0.02)
+        res = fut.result() if fut.done() else None
         info = None
         if res is not None and res.exists:
             info = {"exists": True, "occupied": res.occupied,
@@ -44,22 +53,28 @@ class TaskDispatcherNode(Node):
         accepted, message = decide(info, data_ready)
         response.accepted, response.message = accepted, message
         if accepted:
+            if not self._exec_client.wait_for_server(timeout_sec=5.0):
+                response.accepted, response.message = False, "실행 서버(orchestrator) 미기동"
+                return response
             task_id = str(uuid.uuid4())
             response.task_id = task_id
             goal = ExecuteParkingTask.Goal()
             goal.task_id, goal.request_type, goal.vehicle_id = task_id, "ENTRY", "Pickup"
             goal.slot_id, goal.slot_pose = request.slot_id, res.pose
             goal.leader_robot_id, goal.follower_robot_id = "robot_rear", "robot_front"
-            self._exec_client.wait_for_server()
-            self._exec_client.send_goal_async(goal)
+            send_fut = self._exec_client.send_goal_async(goal)
+            send_fut.add_done_callback(
+                lambda f: self.get_logger().info(f"goal 전송됨: {request.slot_id}"))
         return response
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = TaskDispatcherNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
