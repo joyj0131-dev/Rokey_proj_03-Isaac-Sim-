@@ -11,7 +11,8 @@
      `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
      ExecuteParkingTask goal의 slot_pose를 받아 이 값을 설정해준다.
   6. 하차: 파지 해제(차량 착지) → 두 로봇 차체 밑에서 이탈(후진)
-  7. 도크 복귀: 빈 로봇 각자 도크 인근(DOCK_X, LANE_Z_*)으로 이동 → 원래 방위(yaw=0)로 회전
+  7. 도크 복귀: 빈 로봇 각자 실제 도크 위치(home_pose, 1번 시작 전 실측 기록)로
+     이동 → 원래 방위(yaw=0)로 회전
 
 방향 정렬(_axis_alignment_rotation/_rotate_car_to_axis, 차량 실측 축을 목표 슬롯 축에
 맞추는 두 로봇 공동 피벗 회전)은 구현은 돼 있지만 지금 흐름엔 안 넣었다 — 입고(주차)
@@ -92,6 +93,8 @@ SLOT_B1_X = -11.9
 SLOT_B1_Z = -7.8
 SLOT_CARRY_TIMEOUT = 300.0   # 이동 거리가 길어(~25m) 기존 STEP_TIMEOUT(90s)로는 부족.
 RETREAT_DIST = 4.0           # 하차 후 로봇이 차체 밑에서 벗어나는 후진 거리(축간 3.59m + 여유).
+AISLE_CENTER_Z = 0.0         # 중앙 통로 z=0 (AISLE_WIDTH=9.0m 기준 중심, marker_layout.py와 동일).
+SIDE_K, SIDE_MAX = 0.5, 0.15  # 부축(주 이동축 아닌 쪽) 유지 보정 게인 — carry_speed보다 훨씬 작게.
 
 
 def wrap(a):
@@ -131,6 +134,7 @@ class HandoffMission(Node):
         self.target_axis_rad = float(g("target_axis_rad"))
         self.pose = {r: None for r in ROBOTS}   # (x, z, yaw)
         self.veh_x = self.veh_y = self.veh_z = self.veh_yaw = None
+        self.home_pose = None   # {rid: (x, z)} — /dock_lift 시작 시점(실제 도크) 기록, 복귀용
         grp = ReentrantCallbackGroup()
         for r in ROBOTS:
             self.create_subscription(Odometry, f"/{r}/odom",
@@ -398,17 +402,20 @@ class HandoffMission(Node):
         self.get_logger().info(f"옆으로(-x) {side:.2f}m")
         return fwd, back, side
 
-    def _carry_axis(self, mode, target, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
-        """차량의 world x(mode='x') 또는 z(mode='z') 만 target 으로 맞춘다(그 축만 이동,
-        다른 축은 안 건드림). 두 로봇 다 자기 yaw를 FACE_MZ로 살짝 보정하며 이동 —
-        장거리 무보정 직진 중 두 로봇의 미세한 슬립 차이가 누적돼 차량이 서서히
-        틀어지는 게 실측 확인돼서 추가함(_ingress_to와 같은 방식)."""
+    def _carry_axis(self, mode, target, hold, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
+        """차량의 world x(mode='x') 또는 z(mode='z')를 target 으로 맞추면서, 반대편
+        축(부축)은 hold 값으로 살짝 유지한다. 부축을 그냥 속도 0으로만 두면 회전(wz)
+        보정 도중 슬쩍 새서 통로 중앙(또는 슬롯 x)을 벗어나 한쪽으로 치우쳐 이동하는
+        게 실측 확인됨(_ingress_to가 진입 중 중심선 x=cx를 같이 유지하는 것과 동일한
+        이유·방식). 회전 보정은 차량 실측 yaw(veh_yaw) 기준 — 로봇 각자 자기 yaw를
+        보면 로봇은 똑바른데 차량만 비뚤어지는 문제가 있어(두 로봇 미세 속도차) 이걸로 바꿈."""
         end = time.time() + timeout
         ok = False
         last_log = time.time()
         while time.time() < end:
             cur = self.veh_z if mode == "z" else self.veh_x
-            if cur is None:
+            side = self.veh_x if mode == "z" else self.veh_z
+            if cur is None or side is None:
                 time.sleep(1.0 / CONTROL_HZ)
                 continue
             err = target - cur
@@ -416,28 +423,33 @@ class HandoffMission(Node):
                 ok = True
                 break
             if time.time() - last_log >= 2.0:
-                self.get_logger().info(f"슬롯 이동({mode}) 진행 중: 남은 거리 {abs(err):.2f}m")
+                self.get_logger().info(
+                    f"슬롯 이동({mode}) 진행 중: 남은 거리 {abs(err):.2f}m, "
+                    f"부축 편차 {side - hold:+.2f}m")
                 last_log = time.time()
             speed = self.carry_speed if err < 0 else -self.carry_speed
+            side_speed = self._clamp(-SIDE_K * (hold - side), SIDE_MAX)
+            veh_yaw = self.veh_yaw if self.veh_yaw is not None else FACE_MZ
+            eyaw = wrap(FACE_MZ - veh_yaw)
+            wz = self._clamp(0.6 * eyaw, 0.10)
+            vx, vy = (speed, side_speed) if mode == "z" else (side_speed, speed)
             for r in ROBOTS:
-                eyaw = wrap(FACE_MZ - self.pose[r][2])
-                wz = self._clamp(0.6 * eyaw, 0.10)
-                vx, vy = (speed, 0.0) if mode == "z" else (0.0, speed)
                 self._pub(r, vx, vy, wz)
             time.sleep(1.0 / CONTROL_HZ)
         self._stop_all()
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 후 슬롯까지 2단계 직선: 통로를 따라 x 정렬(슬롯 열까지 이동) → 그대로
-        z로 직진해 슬롯 안으로 진입. 통로-슬롯 경계를 지날 때 항상 목표 슬롯의 x에
-        이미 맞춰진 채로 곧장 들어가므로 옆 슬롯/기둥과 부딪힐 일이 없다."""
-        self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f})")
-        if not self._carry_axis("x", slot_x):
+        """파지 후 슬롯까지 2단계 직선: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬
+        (슬롯 열까지 이동) → 그대로 x=slot_x를 유지하며 z로 직진해 슬롯 안으로 진입.
+        통로-슬롯 경계를 지날 때 항상 목표 슬롯의 x에 이미 맞춰진 채로 곧장 들어가므로
+        옆 슬롯/기둥과 부딪힐 일이 없다."""
+        self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 통로중앙 z 유지)")
+        if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z):
             return False
         self._settle()
-        self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f})")
-        if not self._carry_axis("z", slot_z):
+        self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f}, x={slot_x:.2f} 유지)")
+        if not self._carry_axis("z", slot_z, hold=slot_x):
             return False
         self._settle()
         return True
@@ -455,16 +467,23 @@ class HandoffMission(Node):
         self._stop_all()
 
     def _return_to_dock(self):
-        """하차 후 두 로봇을 도크 인근(DOCK_X, LANE_Z_*) — 게이트 통과 전 첫 접근
-        웨이포인트와 동일 지점 — 까지 되돌리고, 원래 방위(yaw=0, +X 향함 —
+        """하차 후 두 로봇을 원래 도크 위치(self.home_pose — /dock_lift 시작 시점에
+        실측 기록한 실제 좌표)로 되돌리고, 원래 방위(yaw=0, +X 향함 —
         _place_robot_dock 초기값과 동일)로 되돌린다. 빈 로봇이라 편대 유지가
         필요 없어 각자 독립 이동(_approach_parallel 재사용, 로봇당 웨이포인트 1개).
-        도크(-15.3)와 B1(-11.9) 둘 다 벽(x≈-18.1) 동쪽이라 벽을 다시 지날 필요는 없다."""
+
+        예전엔 DOCK_X/LANE_Z_* 근사값으로 갔는데, 그 지점이 실제 도크와 달라서
+        두 로봇이 도크가 아니라 서로 가까운 엉뚱한 한 지점에 몰리는 문제가
+        실측 확인됨 — home_pose로 바꿔서 정확히 원래 자리로 가게 고침.
+        home_pose가 없으면(예: 체크포인트 테스트 경로) 예전 근사값으로 대체."""
         self.get_logger().info("도크로 복귀: 이동")
-        home = {
-            "robot_rear": [(DOCK_X, LANE_Z_REAR)],
-            "robot_front": [(DOCK_X, LANE_Z_FRONT)],
-        }
+        if self.home_pose:
+            home = {rid: [self.home_pose[rid]] for rid in ROBOTS}
+        else:
+            home = {
+                "robot_rear": [(DOCK_X, LANE_Z_REAR)],
+                "robot_front": [(DOCK_X, LANE_Z_FRONT)],
+            }
         if not self._approach_parallel(home):
             self._stop_all()
             return False
@@ -480,6 +499,8 @@ class HandoffMission(Node):
     def _on_dock_lift(self, req, resp):
         if not self._wait_data():
             resp.success = False; resp.message = "데이터 미수신"; return resp
+        # 실제 도크 위치 기록(복귀용) — 아직 한 발짝도 안 움직인 지금이 진짜 도크다.
+        self.home_pose = {rid: self.pose[rid][:2] for rid in ROBOTS}
         # 접근(한 방향): 두 로봇이 개구부(북)쪽에서 한 줄로 -z 진입.
         # 1) 게이트 통과는 병렬(rear 남쪽 통로 -1.5, front 북쪽 통로 +1.5 로 분리 → 벽 서쪽).
         gate = {

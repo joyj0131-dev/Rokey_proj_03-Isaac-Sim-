@@ -319,7 +319,10 @@ def main():
         def apply_arms(key):
             tgt, cur = arm_cmd[key], arm_applied[key]
             if abs(tgt - cur) > 1e-4:
-                cur += max(-0.05, min(0.05, tgt - cur))  # 시연용 상향(0.02→0.035→0.05)
+                # 시연용으로 0.02→0.035→0.05까지 올렸다가 리프트 중 차량이 살짝
+                # 들리는 흔들림이 실측 확인돼 원래 검증된 값(dock_motion_check.py
+                # PASS 기준)으로 되돌림. 속도보다 정확도 우선.
+                cur += max(-0.02, min(0.02, tgt - cur))
                 arm_applied[key] = cur
             pos = np.array(arts[key].get_joint_positions(), dtype=np.float32, copy=True)
             for n, deg in ARM_TARGETS.items():
@@ -442,13 +445,21 @@ def main():
                 od.pose.pose.orientation.z = math.sin(yaw * 0.5)
                 od.pose.pose.orientation.w = math.cos(yaw * 0.5)
                 odom_pub[key].publish(od)
-            vp = np.asarray(veh_rb.get_world_poses()[0]).reshape(-1)[:3]
+            veh_pos, veh_orn = veh_rb.get_world_poses()
+            vp = np.asarray(veh_pos).reshape(-1)[:3]
+            vo = np.asarray(veh_orn).reshape(-1)[:4]
+            vw, vx, vy, vz = (float(v) for v in vo)
+            veh_fwd_x = 1.0 - 2.0 * (vy * vy + vz * vz)
+            veh_fwd_z = 2.0 * (vx * vz - vw * vy)
+            veh_yaw = math.atan2(-veh_fwd_z, veh_fwd_x)
             ps = PoseStamped()
             ps.header.stamp = node.get_clock().now().to_msg()
             ps.header.frame_id = "map"
             ps.pose.position.x = float(vp[0])
             ps.pose.position.y = float(vp[1])
             ps.pose.position.z = float(vp[2])
+            ps.pose.orientation.z = math.sin(veh_yaw * 0.5)
+            ps.pose.orientation.w = math.cos(veh_yaw * 0.5)
             veh_pub.publish(ps)
         app.close()
     finally:
