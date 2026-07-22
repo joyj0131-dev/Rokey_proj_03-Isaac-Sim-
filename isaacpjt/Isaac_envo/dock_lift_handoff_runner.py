@@ -106,29 +106,36 @@ def _fix_vehicle_colliders(stage, vehicle_path):
 
 
 def _prepare_parked_for_lift(stage):
-    """주차칸 차량을 로봇이 리프트해도 안 터지게 준비한다. 두 가지:
+    """주차칸 차량을 로봇이 리프트해도 안 터지고 안 떠오르게 준비한다. 세 가지:
       (1) 휠 콜라이더 수정(_fix_vehicle_colliders) — 인계장 Pickup과 동일.
-      (2) PhysX Vehicle 비활성화(physxVehicle:vehicleEnabled=0) — 주차 차량은 구동계가
-          켜진(vehicleEnabled=1) 활성 차량이고 끈적임 타이어(stickyTireDamping) 때문에
-          로봇이 들면 구동/타이어가 리프트를 거슬러 폭발한다(사용자 실측 B5). 비활성화하면
-          단순 강체가 되어 깨끗이 들린다(주차만 하는 차라 구동 불필요).
+      (2) PhysX Vehicle 비활성화(physxVehicle:vehicleEnabled=0) — 주차 차량은 구동계가 켜진
+          활성 차량 + 끈적임 타이어라, 로봇이 들면 구동/타이어가 리프트를 거슬러 폭발한다
+          (사용자 실측 B5). 끄면 단순 강체가 된다(주차만 하는 차라 구동 불필요).
+      (3) 중력 재활성화(physxRigidBody:disableGravity=0) — PhysX Vehicle 차체는 중력이 꺼져
+          있고(disableGravity=1) vehicle 서스펜션이 하중을 대신한다. (2)로 vehicle을 끄면
+          떠받치는 힘이 사라지는데 중력도 꺼진 채라 리프트 시 '무중력'처럼 떠오른다(사용자
+          실측). 중력을 켜면 질량(physics:mass, 이미 설정됨) 있는 정상 강체가 돼 제대로 들린다.
 
-    반환 (차 수, 콜라이더 수정 휠 수, 차량 비활성화 수).
+    반환 (차 수, 콜라이더 수정 휠 수, vehicle 비활성화 수, 중력 재활성화 수).
     """
     parked = stage.GetPrimAtPath("/World/ParkingVehicles/Parked")
     if not parked or not parked.IsValid():
-        return 0, 0, 0
-    n_cars = n_fixed = n_veh_off = 0
+        return 0, 0, 0, 0
+    n_cars = n_fixed = n_veh_off = n_grav = 0
     for child in parked.GetChildren():
         if not child.IsActive():
             continue
         n_cars += 1
         n_fixed += _fix_vehicle_colliders(stage, str(child.GetPath()))
-        attr = child.GetAttribute("physxVehicle:vehicleEnabled")
-        if attr and attr.IsValid():
-            attr.Set(False)
+        veh = child.GetAttribute("physxVehicle:vehicleEnabled")
+        if veh and veh.IsValid():
+            veh.Set(False)
             n_veh_off += 1
-    return n_cars, n_fixed, n_veh_off
+        grav = child.GetAttribute("physxRigidBody:disableGravity")
+        if grav and grav.IsValid():
+            grav.Set(False)   # 중력 켜기
+            n_grav += 1
+    return n_cars, n_fixed, n_veh_off, n_grav
 
 
 def _grip_material(stage):
@@ -243,7 +250,7 @@ def build_stage(app):
     n_fixed = _fix_vehicle_colliders(stage, VEHICLE_PATH)
     # 출차용: 주차칸 차량 리프트 준비(콜라이더 수정 + PhysX Vehicle 비활성화). 안 하면 활성
     # 차량 구동/끈적임 타이어가 리프트를 거슬러 폭발한다(사용자 실측 B5).
-    n_parked_cars, n_parked_fixed, n_veh_off = _prepare_parked_for_lift(stage)
+    n_parked_cars, n_parked_fixed, n_veh_off, n_grav = _prepare_parked_for_lift(stage)
 
     cache = UsdGeom.XformCache()
     centers = {}
@@ -269,7 +276,8 @@ def build_stage(app):
         app.update()
     print(f"DOCK_STAGE_READY vehicle_pos={VEHICLE_POS} axle rear_z={AXLE['rear_z']:.3f} "
           f"front_z={AXLE['front_z']:.3f} center_x={center_x:.3f} colliders_fixed={n_fixed} "
-          f"parked_colliders_fixed={n_parked_fixed}(cars={n_parked_cars}) vehicle_off={n_veh_off}",
+          f"parked_colliders_fixed={n_parked_fixed}(cars={n_parked_cars}) "
+          f"vehicle_off={n_veh_off} gravity_on={n_grav}",
           flush=True)
     return stage
 
