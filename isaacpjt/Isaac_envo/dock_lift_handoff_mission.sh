@@ -6,6 +6,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source /opt/ros/humble/setup.bash  # ROS setup 은 nounset 비호환 → set -u 미사용
 # 내부 rclpy(러너)와 발견되려면 화이트리스트 프로파일 반드시 unset(실측).
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-122}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 exec python3 "$SCRIPT_DIR/dock_lift_handoff_mission.py" "$@"

@@ -2,7 +2,7 @@
 # Launch the Isaac Sim mecanum /cmd_vel driver with the team ROS 2 setup for
 # Isaac Sim 5.1 (Python 3.11). Mirrors the exports you run in the terminal:
 #
-#   export ROS_DOMAIN_ID=126                # 팀 도메인
+#   export ROS_DOMAIN_ID=122                # 팀 도메인
 #   export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 #   export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/.ros/fastdds_whitelist.xml"
 #   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/dev_ws/isaac_sim/isaacsim/_build/\
@@ -24,7 +24,7 @@ BRIDGE_LIB=$REL/exts/isaacsim.ros2.bridge/humble/lib
 DRIVER=/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/mecanum_ros2_drive.py
 
 export ROS_DISTRO=humble
-export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-126}
+export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-122}
 export RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
 export FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEFAULT_PROFILES_FILE:-$HOME/.ros/fastdds_whitelist.xml}
 
