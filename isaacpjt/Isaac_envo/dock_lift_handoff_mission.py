@@ -6,18 +6,15 @@
   2. 뒷축 로봇 회전(느리게, GT 감시) → 차 밑으로 진입 → 뒷축 정지
   3. 앞축 로봇 회전 → 진입 → 앞축 정지 (순차)
   4. 파지·리프트
-  5. 슬롯까지 운반: 통로 정렬(x) → 슬롯 진입(z) 2단계 직선 — 로봇별 yaw 살짝 보정.
-     목표는 target_slot_x/target_slot_z 파라미터(기본값 B1) — 재시작 없이
+  5. 슬롯까지 운반: 통로 정렬(x, carry_speed) → 슬롯 앞 방위 정렬(_rotate_car_to_axis,
+     veh_yaw 실측 기준 피벗 회전 — 진입 중 보정만으론 차량이 삐딱하게 도착하는 게
+     반복 확인돼 추가) → 슬롯 진입(z, slot_entry_speed). 목표는 target_slot_x/
+     target_slot_z/target_axis_rad 파라미터(기본값 B1, pi/2) — 재시작 없이
      `ros2 param set`으로 바꿀 수 있고, 관제 쪽은 isaac_parking_bridge_node가
-     ExecuteParkingTask goal의 slot_pose를 받아 이 값을 설정해준다.
+     ExecuteParkingTask goal의 slot_pose를 받아 이 값들을 설정해준다.
   6. 하차: 파지 해제(차량 착지) → 두 로봇 차체 밑에서 이탈(후진)
   7. 도크 복귀: 빈 로봇 각자 실제 도크 위치(home_pose, 1번 시작 전 실측 기록)로
      이동 → 원래 방위(yaw=0)로 회전
-
-방향 정렬(_axis_alignment_rotation/_rotate_car_to_axis, 차량 실측 축을 목표 슬롯 축에
-맞추는 두 로봇 공동 피벗 회전)은 구현은 돼 있지만 지금 흐름엔 안 넣었다 — 입고(주차)
-먼저 안정화하고, 출차 흐름 만들 때 그 자리에 붙이기로 함(target_axis_rad 파라미터도
-그때 씀).
 
 테스트 반복용: 러너의 /sim_checkpoint_staged(Trigger) 호출로 로봇을 게이트 통과 직후
 대기 위치까지 순간이동시킨 뒤 /dock_lift_from_staged(Trigger)를 부르면 1(게이트 통과)만
@@ -52,21 +49,30 @@ FACE_MZ = math.pi / 2    # -z 를 향하는 yaw (odom 규약: atan2(-fwd_z, fwd_
 # 한 방향 진입: 두 로봇 다 개구부(북)쪽에서 -z 로 들어간다(둘 다 FACE_MZ).
 # 실측: 메카넘 실속 = 0.30 × 지령(선형, 슬립비 일정). 접근은 지령 0.6(실속~0.18)으로
 # 빠르게, 진입·운반은 0.30(실속~0.09)으로 젠틀·정밀하게.
-K_LIN, MAX_LIN = 0.8, 0.6
+K_LIN, MAX_LIN = 0.8, 0.6   # MAX_LIN은 회전 정렬(_rotate_car_to_axis) 전용 상수로 남김(그대로 보수적).
+TRAVEL_SPEED = 0.6   # 일반 주행(게이트 통과·정렬 이동·도크 복귀 — 차 안 들고 있음)용.
+                      # 차 밑 진입/슬롯 진입과 무관해서 별도로 크게 열어둔다.
 K_STRAFE = 0.8
 K_YAW, MAX_YAW = 0.5, 0.15   # 회전은 느리게(Plan 2: wz<=0.15 결정적, 발레 방지)
 INGRESS_SPEED = 0.45   # 시연용 상향(0.30→0.40→0.45). 차 밑 진입이라 정밀도 필요 —
                         # 더 올리려면 dock_motion_check.py로 축 정렬 놓치는지 확인 권장.
-CARRY_SPEED = 0.60     # 시연용 상향(0.40→0.60). 개활지 직선 이동이라 진입만큼
-                        # 정밀도가 필요 없어 접근 단계(0.6)와 같은 상한까지 올림.
-# 기본값일 뿐 — 런타임에 ROS2 파라미터(ingress_speed/carry_speed)로 재설정 가능
-# (speed_control_ui.py). 실측: ingress_speed를 실수로 3.0까지 올렸더니 축 정렬을
-# 놓쳐 차 밑 진입을 실패함(언더바디 0.243m - 로봇 0.18m = 6.3cm 여유뿐인 정밀 구간이라
-# 빠르면 보정이 못 따라감). 그래서 진입/운반 상한을 분리 — carry는 개활지라 계속 넓게,
-# ingress는 안전 범위로 좁게 묶는다.
+CARRY_SPEED = 0.60     # 통로 횡단(x축, 개활지 직선)용. 슬롯 진입만큼 정밀도가
+                        # 필요 없어 상한을 크게 열어둔다.
+SLOT_ENTRY_SPEED = 0.60   # 슬롯 진입(z축)용 — carry_speed와 분리. 옆 슬롯/기둥에
+                           # 가까워지는 정밀 구간이라 carry처럼 확 열지 않는다.
+# 기본값일 뿐 — 런타임에 ROS2 파라미터로 재설정 가능(speed_control_ui.py).
+# 실측: ingress_speed를 실수로 3.0까지 올렸더니 축 정렬을 놓쳐 차 밑 진입을
+# 실패함(언더바디 0.243m - 로봇 0.18m = 6.3cm 여유뿐인 정밀 구간이라 빠르면
+# 보정이 못 따라감). 그래서 3단계로 상한을 분리한다:
+#   ingress(차 밑 진입)   — 가장 좁게, 정밀도 최우선
+#   slot_entry(슬롯 진입)  — 중간, 옆 슬롯/기둥 근접이라 어느 정도는 조심
+#   travel(빈 로봇 주행)   — 넓게, 차를 안 들고 있어 개활지만큼 안전
+#   carry(통로 횡단, 차 실음) — 가장 넓게, 개활지 직선이라 빨라도 안전
 SPEED_MIN = 0.10
 INGRESS_SPEED_MAX = 0.70
-CARRY_SPEED_MAX = 3.0
+SLOT_ENTRY_SPEED_MAX = 1.50
+TRAVEL_SPEED_MAX = 8.0
+CARRY_SPEED_MAX = 8.0
 CARRY_DIST = 1.0
 
 # 게이트 통과 안무: 서쪽 벽 개구부는 z∈[-4.5,4.5](폭 9m). 도크는 z=±7.8 로 개구부
@@ -92,7 +98,8 @@ APPROACH_TIMEOUT = 300.0
 SLOT_B1_X = -11.9
 SLOT_B1_Z = -7.8
 SLOT_CARRY_TIMEOUT = 300.0   # 이동 거리가 길어(~25m) 기존 STEP_TIMEOUT(90s)로는 부족.
-RETREAT_DIST = 4.0           # 하차 후 로봇이 차체 밑에서 벗어나는 후진 거리(축간 3.59m + 여유).
+RETREAT_DIST = 4.0           # 하차 후 앞축 로봇이 차체 밑에서 벗어나는 후진 거리.
+                              # 뒷축은 여기에 축간거리(front_axle-rear_axle)를 더 간다(_retreat).
 AISLE_CENTER_Z = 0.0         # 중앙 통로 z=0 (AISLE_WIDTH=9.0m 기준 중심, marker_layout.py와 동일).
 SIDE_K, SIDE_MAX = 0.5, 0.15  # 부축(주 이동축 아닌 쪽) 유지 보정 게인 — carry_speed보다 훨씬 작게.
 
@@ -110,6 +117,7 @@ class HandoffMission(Node):
         p("center_x", -29.6); p("rear_axle_z", -1.93); p("front_axle_z", 1.66)
         # 진입/운반 속도 — 재시작 없이 `ros2 param set`(또는 speed_control_ui.py)으로 조절.
         p("ingress_speed", INGRESS_SPEED); p("carry_speed", CARRY_SPEED)
+        p("slot_entry_speed", SLOT_ENTRY_SPEED); p("travel_speed", TRAVEL_SPEED)
         # 목표 슬롯이 요구하는 축(mod pi, 코/꼬리 무관) — parking_map.yaml의
         # slot_axis_rad와 같은 값. 이 데모 지도는 통로=X축, 슬롯=Z(깊이)방향이라
         # 기본이 pi/2다. 실제로는 task_dispatcher의 ExecuteParkingTask.slot_pose
@@ -128,6 +136,8 @@ class HandoffMission(Node):
         self.front_axle = g("front_axle_z")
         self.ingress_speed = g("ingress_speed")
         self.carry_speed = g("carry_speed")
+        self.slot_entry_speed = g("slot_entry_speed")
+        self.travel_speed = g("travel_speed")
         self.target_slot_x = g("target_slot_x")
         self.target_slot_z = g("target_slot_z")
         self.add_on_set_parameters_callback(self._on_param)
@@ -161,11 +171,23 @@ class HandoffMission(Node):
                 return SetParametersResult(
                     successful=False,
                     reason=f"carry_speed 허용 범위 {SPEED_MIN}~{CARRY_SPEED_MAX}")
+            if prm.name == "slot_entry_speed" and not (SPEED_MIN <= prm.value <= SLOT_ENTRY_SPEED_MAX):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"slot_entry_speed 허용 범위 {SPEED_MIN}~{SLOT_ENTRY_SPEED_MAX} (슬롯 진입 구간)")
+            if prm.name == "travel_speed" and not (SPEED_MIN <= prm.value <= TRAVEL_SPEED_MAX):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"travel_speed 허용 범위 {SPEED_MIN}~{TRAVEL_SPEED_MAX}")
         for prm in params:
             if prm.name == "ingress_speed":
                 self.ingress_speed = prm.value
             elif prm.name == "carry_speed":
                 self.carry_speed = prm.value
+            elif prm.name == "slot_entry_speed":
+                self.slot_entry_speed = prm.value
+            elif prm.name == "travel_speed":
+                self.travel_speed = prm.value
             elif prm.name == "target_slot_x":
                 self.target_slot_x = prm.value
             elif prm.name == "target_slot_z":
@@ -230,8 +252,8 @@ class HandoffMission(Node):
         c, s = math.cos(yaw), math.sin(yaw)
         fwd = ex * c - ez * s
         left = -(ex * s + ez * c)
-        self._pub(rid, self._clamp(K_LIN * fwd, MAX_LIN),
-                  self._clamp(K_STRAFE * left, MAX_LIN), 0.0)
+        self._pub(rid, self._clamp(K_LIN * fwd, self.travel_speed),
+                  self._clamp(K_STRAFE * left, self.travel_speed), 0.0)
         return False
 
     def _goto_xz(self, rid, tx, tz, timeout=STEP_TIMEOUT):
@@ -402,13 +424,15 @@ class HandoffMission(Node):
         self.get_logger().info(f"옆으로(-x) {side:.2f}m")
         return fwd, back, side
 
-    def _carry_axis(self, mode, target, hold, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
+    def _carry_axis(self, mode, target, hold, speed, tol=POS_TOL, timeout=SLOT_CARRY_TIMEOUT):
         """차량의 world x(mode='x') 또는 z(mode='z')를 target 으로 맞추면서, 반대편
         축(부축)은 hold 값으로 살짝 유지한다. 부축을 그냥 속도 0으로만 두면 회전(wz)
         보정 도중 슬쩍 새서 통로 중앙(또는 슬롯 x)을 벗어나 한쪽으로 치우쳐 이동하는
         게 실측 확인됨(_ingress_to가 진입 중 중심선 x=cx를 같이 유지하는 것과 동일한
         이유·방식). 회전 보정은 차량 실측 yaw(veh_yaw) 기준 — 로봇 각자 자기 yaw를
-        보면 로봇은 똑바른데 차량만 비뚤어지는 문제가 있어(두 로봇 미세 속도차) 이걸로 바꿈."""
+        보면 로봇은 똑바른데 차량만 비뚤어지는 문제가 있어(두 로봇 미세 속도차) 이걸로 바꿈.
+        speed는 호출부가 구간(통로 횡단 vs 슬롯 진입)에 맞는 값을 넘긴다 — 둘을 같은
+        속도로 묶어두면 "직선 구간은 빠르게, 진입 구간은 느리게"가 안 돼서 분리함."""
         end = time.time() + timeout
         ok = False
         last_log = time.time()
@@ -427,12 +451,12 @@ class HandoffMission(Node):
                     f"슬롯 이동({mode}) 진행 중: 남은 거리 {abs(err):.2f}m, "
                     f"부축 편차 {side - hold:+.2f}m")
                 last_log = time.time()
-            speed = self.carry_speed if err < 0 else -self.carry_speed
+            axis_speed = speed if err < 0 else -speed
             side_speed = self._clamp(-SIDE_K * (hold - side), SIDE_MAX)
             veh_yaw = self.veh_yaw if self.veh_yaw is not None else FACE_MZ
             eyaw = wrap(FACE_MZ - veh_yaw)
             wz = self._clamp(0.6 * eyaw, 0.10)
-            vx, vy = (speed, side_speed) if mode == "z" else (side_speed, speed)
+            vx, vy = (axis_speed, side_speed) if mode == "z" else (side_speed, axis_speed)
             for r in ROBOTS:
                 self._pub(r, vx, vy, wz)
             time.sleep(1.0 / CONTROL_HZ)
@@ -440,30 +464,52 @@ class HandoffMission(Node):
         return ok
 
     def _carry_to_slot(self, slot_x, slot_z):
-        """파지 후 슬롯까지 2단계 직선: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬
-        (슬롯 열까지 이동) → 그대로 x=slot_x를 유지하며 z로 직진해 슬롯 안으로 진입.
-        통로-슬롯 경계를 지날 때 항상 목표 슬롯의 x에 이미 맞춰진 채로 곧장 들어가므로
-        옆 슬롯/기둥과 부딪힐 일이 없다."""
+        """파지 후 슬롯까지: 통로 중앙(z=AISLE_CENTER_Z)을 유지하며 x 정렬(슬롯 열까지
+        이동, carry_speed — 개활지라 빠르게) → 슬롯 앞에서 차량 방위를 한 번 딱 맞춤
+        (_rotate_car_to_axis, veh_yaw 실측 기준) → x=slot_x를 유지하며 z로 직진해
+        슬롯 안으로 진입(slot_entry_speed — 옆 슬롯/기둥 근접이라 더 느리게).
+
+        진입 중에도 _carry_axis가 매 틱 회전을 살짝씩 보정하긴 하지만, 그것만으론
+        차량이 삐딱하게 도착하는 게 실측으로 반복 확인돼서, 슬롯 진입 시작 전에
+        명시적으로 한 번 정렬해 정렬 상태로 딱 맞춰놓고 들어가게 함."""
         self.get_logger().info(f"슬롯 이동: 통로 정렬(x→{slot_x:.2f}, 통로중앙 z 유지)")
-        if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z):
+        if not self._carry_axis("x", slot_x, hold=AISLE_CENTER_Z, speed=self.carry_speed):
+            return False
+        self._settle()
+        self.get_logger().info(f"슬롯 앞 방위 정렬(목표 {math.degrees(self.target_axis_rad):.1f}도)")
+        if not self._rotate_car_to_axis(self.target_axis_rad):
+            self._stop_all()
             return False
         self._settle()
         self.get_logger().info(f"슬롯 이동: 슬롯 진입(z→{slot_z:.2f}, x={slot_x:.2f} 유지)")
-        if not self._carry_axis("z", slot_z, hold=slot_x):
+        if not self._carry_axis("z", slot_z, hold=slot_x, speed=self.slot_entry_speed):
             return False
         self._settle()
         return True
 
-    def _retreat(self, dist=RETREAT_DIST):
-        """파지 해제 후 두 로봇이 차체 밑에서 후진 이탈(world +z = body -vx)."""
-        start = self.pose["robot_rear"][1]
+    def _retreat_one(self, rid, dist):
+        """로봇 한 대만 후진 이탈(world +z = body -vx, 통로/북쪽 방향)."""
+        start = self.pose[rid][1]
         end = time.time() + STEP_TIMEOUT
         while time.time() < end:
-            for r in ROBOTS:
-                self._pub(r, -self.ingress_speed, 0.0, 0.0)
+            self._pub(rid, -self.ingress_speed, 0.0, 0.0)
             time.sleep(1.0 / CONTROL_HZ)
-            if abs(self.pose["robot_rear"][1] - start) >= dist:
+            if abs(self.pose[rid][1] - start) >= dist:
                 break
+        self._pub(rid, 0.0)
+
+    def _retreat(self, dist=RETREAT_DIST):
+        """파지 해제 후 두 로봇이 차체 밑에서 순차 이탈, 둘 다 통로(북쪽) 방향.
+        앞축이 먼저 빠져 길을 비운 뒤 뒷축이 뒤따라 나간다 — 둘 다 동시에 같은
+        방향으로 가면 더 깊이 들어가 있던 뒷축이 앞축 자리를 그대로 통과해야 해서
+        부딪힌다(둘 다 같은 x 선상에 있음). 뒷축은 앞축보다 축간 거리만큼 더
+        가야 차 밑을 완전히 벗어난다."""
+        self.get_logger().info("이탈: 앞축 로봇 먼저(통로 방향)")
+        self._retreat_one("robot_front", dist)
+        self._settle()
+        rear_dist = dist + (self.front_axle - self.rear_axle)
+        self.get_logger().info(f"이탈: 뒷축 로봇(통로 방향, {rear_dist:.2f}m)")
+        self._retreat_one("robot_rear", rear_dist)
         self._stop_all()
 
     def _return_to_dock(self):

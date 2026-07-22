@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """도킹·리프트 미션 속도 실시간 조절 UI.
 
-dock_lift_handoff_mission 노드의 ROS2 파라미터(ingress_speed, carry_speed)를
-슬라이더로 조절해 `ros2 param set`으로 바꾼다. 드래그 중엔 화면 숫자만 갱신되고,
+dock_lift_handoff_mission 노드의 ROS2 파라미터(ingress_speed, slot_entry_speed,
+carry_speed)를 슬라이더로 조절해 `ros2 param set`으로 바꾼다. 드래그 중엔 화면 숫자만 갱신되고,
 놓는 순간에만 실제로 적용(호출 과다 방지). 미션(dock_lift_handoff_mission.sh)이
 먼저 떠 있어야 값이 반영된다 — 안 떠 있으면 슬라이더를 놔도 "실패" 상태만 뜬다.
 
@@ -13,13 +13,28 @@ import tkinter as tk
 
 NODE = "/dock_lift_handoff_mission"
 MIN_SPEED = 0.10
-DEFAULTS = {"ingress_speed": 0.45, "carry_speed": 0.60}
-LABELS = {"ingress_speed": "진입 속도 (ingress)", "carry_speed": "운반 속도 (carry)"}
-# 진입(차 밑 정밀 구간)과 운반(개활지)의 안전 상한이 다르다 — mission.py의
-# INGRESS_SPEED_MAX/CARRY_SPEED_MAX와 반드시 일치해야 함(실측: ingress를 3.0까지
-# 올렸다가 축 정렬을 놓쳐 진입 실패한 적 있음).
-MAX_SPEED = {"ingress_speed": 0.70, "carry_speed": 3.00}
-STEP = {"ingress_speed": 0.05, "carry_speed": 0.10}
+DEFAULTS = {
+    "ingress_speed": 0.45, "slot_entry_speed": 0.60,
+    "travel_speed": 0.60, "carry_speed": 0.60,
+}
+LABELS = {
+    "ingress_speed": "진입 속도 (차 밑)",
+    "slot_entry_speed": "슬롯 진입 속도",
+    "travel_speed": "빈 로봇 주행 속도",
+    "carry_speed": "통로 횡단 속도",
+}
+# 구간별 안전 상한이 다르다 — mission.py의 INGRESS_SPEED_MAX/SLOT_ENTRY_SPEED_MAX/
+# TRAVEL_SPEED_MAX/CARRY_SPEED_MAX와 반드시 일치해야 함(실측: ingress를 3.0까지
+# 올렸다가 축 정렬을 놓쳐 진입 실패한 적 있음). 차 밑 진입이 제일 정밀 필요 → 좁게,
+# 빈 로봇 주행·통로 횡단은 차를 안 붙잡고 있거나 개활지라 가장 넓게.
+MAX_SPEED = {
+    "ingress_speed": 0.70, "slot_entry_speed": 1.50,
+    "travel_speed": 8.00, "carry_speed": 8.00,
+}
+STEP = {
+    "ingress_speed": 0.05, "slot_entry_speed": 0.10,
+    "travel_speed": 0.20, "carry_speed": 0.20,
+}
 
 
 def set_param(name, value):
