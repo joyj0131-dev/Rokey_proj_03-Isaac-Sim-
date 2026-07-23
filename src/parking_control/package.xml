@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>parking_control</name>
+  <version>0.1.0</version>
+  <description>Team A 관제 계층: task_dispatcher, parking_slot_manager와 순수 Python 코어(그래프/경로/할당/존락/DB)</description>
+  <maintainer email="joyj01312@gmail.com">youngjin</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>sensor_msgs_py</depend>
+  <depend>parking_robot_interfaces</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-networkx</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

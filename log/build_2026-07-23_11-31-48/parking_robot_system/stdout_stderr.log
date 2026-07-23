@@ -1,0 +1,34 @@
+/usr/lib/python3/dist-packages/setuptools/dist.py:723: UserWarning: Usage of dash-separated 'script-dir' will not be supported in future versions. Please use the underscore name 'script_dir' instead
+  warnings.warn(
+running develop
+running egg_info
+creating parking_robot_system.egg-info
+writing parking_robot_system.egg-info/PKG-INFO
+writing dependency_links to parking_robot_system.egg-info/dependency_links.txt
+writing entry points to parking_robot_system.egg-info/entry_points.txt
+writing requirements to parking_robot_system.egg-info/requires.txt
+writing top-level names to parking_robot_system.egg-info/top_level.txt
+writing manifest file 'parking_robot_system.egg-info/SOURCES.txt'
+reading manifest file 'parking_robot_system.egg-info/SOURCES.txt'
+writing manifest file 'parking_robot_system.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/python3.10/site-packages/parking-robot-system.egg-link (link to .)
+Installing align_action_server script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing lift_action_server script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing navigate_action_server script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing parking_slot_manager script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing robot_task_orchestrator script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing safety_monitor script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing task_dispatcher script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing user_request_gateway script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+Installing vehicle_detection_node script to /home/rokey/p3/cobot_ws/install/parking_robot_system/lib/parking_robot_system
+
+Installed /home/rokey/p3/cobot_ws/build/parking_robot_system
+running symlink_data
+creating /home/rokey/p3/cobot_ws/install/parking_robot_system/share/ament_index
+creating /home/rokey/p3/cobot_ws/install/parking_robot_system/share/ament_index/resource_index
+creating /home/rokey/p3/cobot_ws/install/parking_robot_system/share/ament_index/resource_index/packages
+symbolically linking /home/rokey/p3/cobot_ws/build/parking_robot_system/resource/parking_robot_system -> /home/rokey/p3/cobot_ws/install/parking_robot_system/share/ament_index/resource_index/packages
+symbolically linking /home/rokey/p3/cobot_ws/build/parking_robot_system/package.xml -> /home/rokey/p3/cobot_ws/install/parking_robot_system/share/parking_robot_system
+creating /home/rokey/p3/cobot_ws/install/parking_robot_system/share/parking_robot_system/launch
+symbolically linking /home/rokey/p3/cobot_ws/build/parking_robot_system/launch/parking_robot_system.launch.py -> /home/rokey/p3/cobot_ws/install/parking_robot_system/share/parking_robot_system/launch

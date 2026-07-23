@@ -1,0 +1,52 @@
+// generated from rosidl_adapter/resource/action.idl.em
+// with input from parking_robot_interfaces/action/ExecuteParkingTask.action
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Pose.idl"
+
+module parking_robot_interfaces {
+  module action {
+    @verbatim (language="comment", text=
+      "task_dispatcher -> robot_task_orchestrator 작업 할당 액션." "\n"
+      "2026-07-19 수정안(Team A): 목표 슬롯 정보를 goal에 추가." "\n"
+      "  이유: dispatcher가 find_empty_slot로 정한 슬롯을 로봇에게 전달할 필드가" "\n"
+      "  없었음. 로봇이 DB를 직접 조회하지 않도록 goal에 포함한다." "\n"
+      "2026-07-21 수정안(Team A): 로봇 2대(리더/팔로워) 편성을 goal에 추가." "\n"
+      "  이유: 차량을 팔 4개로 집어 옮기는 하드웨어 구조상 항상 로봇 2대가 팀으로" "\n"
+      "  일해야 한다. follower_robot_id가 빈 문자열이면 로봇 1대짜리 기존 흐름" "\n"
+      "  그대로 동작한다(MVP/테스트 호환).")
+    struct ExecuteParkingTask_Goal {
+      string task_id;
+
+      @verbatim (language="comment", text=
+        "ENTRY, EXIT")
+      string request_type;
+
+      string vehicle_id;
+
+      @verbatim (language="comment", text=
+        "목표 주차면 (예: 'B1')")
+      string slot_id;
+
+      @verbatim (language="comment", text=
+        "목표 주차면 좌표 (map 프레임)")
+      geometry_msgs::msg::Pose slot_pose;
+
+      string leader_robot_id;
+
+      @verbatim (language="comment", text=
+        "로봇 1대 MVP 흐름에서는 빈 문자열")
+      string follower_robot_id;
+    };
+    struct ExecuteParkingTask_Result {
+      boolean success;
+
+      string message;
+    };
+    struct ExecuteParkingTask_Feedback {
+      string current_step;
+
+      float progress;
+    };
+  };
+};

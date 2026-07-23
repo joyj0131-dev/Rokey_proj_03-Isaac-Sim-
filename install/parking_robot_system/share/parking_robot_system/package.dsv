@@ -1,0 +1,9 @@
+source;share/parking_robot_system/hook/pythonpath.ps1
+source;share/parking_robot_system/hook/pythonpath.dsv
+source;share/parking_robot_system/hook/pythonpath.sh
+source;share/parking_robot_system/hook/ament_prefix_path.ps1
+source;share/parking_robot_system/hook/ament_prefix_path.dsv
+source;share/parking_robot_system/hook/ament_prefix_path.sh
+source;../../build/parking_robot_system/share/parking_robot_system/hook/pythonpath_develop.ps1
+source;../../build/parking_robot_system/share/parking_robot_system/hook/pythonpath_develop.dsv
+source;../../build/parking_robot_system/share/parking_robot_system/hook/pythonpath_develop.sh

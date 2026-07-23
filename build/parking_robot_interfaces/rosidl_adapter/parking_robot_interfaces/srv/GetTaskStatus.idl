@@ -1,0 +1,23 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from parking_robot_interfaces/srv/GetTaskStatus.srv
+// generated code does not contain a copyright notice
+
+
+module parking_robot_interfaces {
+  module srv {
+    @verbatim (language="comment", text=
+      "user_request_gateway의 요청 상태/예상 완료 시간 조회 서비스.")
+    struct GetTaskStatus_Request {
+      string task_id;
+    };
+    struct GetTaskStatus_Response {
+      @verbatim (language="comment", text=
+        "WAITING, PROCESSING, DONE, FAILED")
+      string state;
+
+      int32 eta_seconds;
+
+      string message;
+    };
+  };
+};

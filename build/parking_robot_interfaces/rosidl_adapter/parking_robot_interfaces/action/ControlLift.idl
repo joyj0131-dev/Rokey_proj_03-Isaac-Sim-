@@ -1,0 +1,24 @@
+// generated from rosidl_adapter/resource/action.idl.em
+// with input from parking_robot_interfaces/action/ControlLift.action
+// generated code does not contain a copyright notice
+
+
+module parking_robot_interfaces {
+  module action {
+    @verbatim (language="comment", text=
+      "robot_task_orchestrator -> lift_action_server 리프트 제어 액션 (SR-05, SR-07, SR-08).")
+    struct ControlLift_Goal {
+      @verbatim (language="comment", text=
+        "UP, DOWN")
+      string command;
+    };
+    struct ControlLift_Result {
+      boolean success;
+
+      string support_state;
+    };
+    struct ControlLift_Feedback {
+      string status;
+    };
+  };
+};

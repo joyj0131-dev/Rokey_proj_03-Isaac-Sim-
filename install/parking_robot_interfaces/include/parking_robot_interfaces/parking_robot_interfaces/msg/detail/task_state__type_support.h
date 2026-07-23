@@ -1,0 +1,1 @@
+/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/msg/detail/task_state__type_support.h

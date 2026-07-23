@@ -1,0 +1,21 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from parking_robot_interfaces/msg/VehicleInfo.msg
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Pose.idl"
+
+module parking_robot_interfaces {
+  module msg {
+    @verbatim (language="comment", text=
+      "vehicle_detection_node가 인식한 차량 정보. 담당자 확정 전 임시 정의.")
+    struct VehicleInfo {
+      geometry_msgs::msg::Pose pose;
+
+      double length;
+
+      double width;
+
+      double height;
+    };
+  };
+};

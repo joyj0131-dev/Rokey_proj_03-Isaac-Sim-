@@ -1,0 +1,1 @@
+/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/vehicle_info__rosidl_typesupport_introspection_cpp.hpp

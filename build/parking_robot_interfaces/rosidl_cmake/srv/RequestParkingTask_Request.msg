@@ -1,0 +1,3 @@
+# [초안] user_request_gateway의 입고/출차 요청 접수 서비스 (SR-12).
+string request_type   # ENTRY, EXIT
+string vehicle_id

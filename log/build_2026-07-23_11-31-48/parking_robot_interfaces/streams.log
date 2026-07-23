@@ -1,0 +1,621 @@
+[30.031s] Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/rokey/p3/cobot_ws/src/parking_robot_interfaces -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces
+[30.060s] -- The C compiler identification is GNU 11.4.0
+[30.087s] -- The CXX compiler identification is GNU 11.4.0
+[30.091s] -- Detecting C compiler ABI info
+[30.132s] -- Detecting C compiler ABI info - done
+[30.132s] -- Check for working C compiler: /usr/bin/cc - skipped
+[30.134s] -- Detecting C compile features
+[30.134s] -- Detecting C compile features - done
+[30.134s] -- Detecting CXX compiler ABI info
+[30.173s] -- Detecting CXX compiler ABI info - done
+[30.176s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[30.176s] -- Detecting CXX compile features
+[30.176s] -- Detecting CXX compile features - done
+[30.177s] -- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)
+[30.248s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[30.275s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[30.286s] -- Found rosidl_default_generators: 1.2.1 (/opt/ros/humble/share/rosidl_default_generators/cmake)
+[30.287s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[30.289s] -- Found rosidl_adapter: 3.1.8 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[30.305s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[30.319s] -- Found geometry_msgs: 4.9.1 (/opt/ros/humble/share/geometry_msgs/cmake)
+[30.519s] -- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+[30.633s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[30.778s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[30.788s] -- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.6") 
+[30.788s] -- Found python_cmake_module: 0.10.0 (/opt/ros/humble/share/python_cmake_module/cmake)
+[30.799s] -- Found PythonLibs: /usr/lib/x86_64-linux-gnu/libpython3.10.so (found suitable version "3.10.12", minimum required is "3.5") 
+[30.799s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[30.799s] -- Using PYTHON_INCLUDE_DIRS: /usr/include/python3.10
+[30.799s] -- Using PYTHON_LIBRARIES: /usr/lib/x86_64-linux-gnu/libpython3.10.so
+[30.809s] -- Found PythonExtra: .so  
+[30.879s] -- Configuring done
+[30.905s] -- Generating done
+[30.910s] -- Build files have been written to: /home/rokey/p3/cobot_ws/build/parking_robot_interfaces
+[30.916s] Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/rokey/p3/cobot_ws/src/parking_robot_interfaces -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces
+[30.917s] Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/rokey/p3/cobot_ws/build/parking_robot_interfaces -- -j24 -l24
+[30.942s] [  0%] Generating C code for ROS interfaces
+[30.947s] [  1%] Generating Rust code for ROS interfaces
+[30.950s] [  1%] Generating C++ code for ROS interfaces
+[30.950s] [  1%] Built target ament_cmake_python_symlink_parking_robot_interfaces
+[31.047s] running egg_info
+[31.049s] creating parking_robot_interfaces.egg-info
+[31.049s] writing parking_robot_interfaces.egg-info/PKG-INFO
+[31.049s] writing dependency_links to parking_robot_interfaces.egg-info/dependency_links.txt
+[31.049s] writing top-level names to parking_robot_interfaces.egg-info/top_level.txt
+[31.049s] writing manifest file 'parking_robot_interfaces.egg-info/SOURCES.txt'
+[31.049s] reading manifest file 'parking_robot_interfaces.egg-info/SOURCES.txt'
+[31.049s] writing manifest file 'parking_robot_interfaces.egg-info/SOURCES.txt'
+[31.062s] [  1%] Built target ament_cmake_python_build_parking_robot_interfaces_egg
+[31.298s] [  1%] Built target parking_robot_interfaces__rs
+[31.759s] [  1%] Built target parking_robot_interfaces__cpp
+[31.760s] [  2%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c.o
+[31.762s] [  3%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/task_state__functions.c.o
+[31.762s] [  4%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_stop__functions.c.o
+[31.762s] [  4%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/obstacle_alert__functions.c.o
+[31.762s] [  5%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__functions.c.o
+[31.762s] [  5%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/find_empty_slot__functions.c.o
+[31.762s] [  6%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/park_in_slot__functions.c.o
+[31.762s] [  7%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/get_slot_info__functions.c.o
+[31.762s] [  7%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/request_parking_task__functions.c.o
+[31.764s] [  8%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/get_task_status__functions.c.o
+[31.764s] [  8%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/release_zones__functions.c.o
+[31.764s] [  9%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/srv/detail/acquire_zones__functions.c.o
+[31.764s] [ 10%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__functions.c.o
+[31.764s] [ 10%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.c.o
+[31.764s] [ 11%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/detect_vehicle__functions.c.o
+[31.764s] [ 12%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.o
+[31.766s] [ 14%] Generating C++ type support for eProsima Fast-RTPS
+[31.766s] [ 14%] Generating C++ introspection for ROS interfaces
+[31.766s] [ 15%] Generating C++ type support dispatch for ROS interfaces
+[31.843s] [ 16%] Linking C shared library libparking_robot_interfaces__rosidl_generator_c.so
+[31.866s] [ 16%] Built target parking_robot_interfaces__rosidl_generator_c
+[31.873s] [ 17%] Generating C type support for eProsima Fast-RTPS
+[31.873s] [ 19%] Generating C introspection for ROS interfaces
+[31.873s] [ 19%] Generating C type support dispatch for ROS interfaces
+[32.237s] [ 20%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/obstacle_alert__type_support.cpp.o
+[32.237s] [ 21%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp.o
+[32.237s] [ 21%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/task_state__type_support.cpp.o
+[32.237s] [ 21%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/formation_stop__type_support.cpp.o
+[32.237s] [ 22%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/formation_assignment__type_support.cpp.o
+[32.237s] [ 23%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/find_empty_slot__type_support.cpp.o
+[32.238s] [ 23%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/park_in_slot__type_support.cpp.o
+[32.240s] [ 24%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/request_parking_task__type_support.cpp.o
+[32.241s] [ 25%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/get_slot_info__type_support.cpp.o
+[32.241s] [ 25%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/get_task_status__type_support.cpp.o
+[32.249s] [ 26%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/acquire_zones__type_support.cpp.o
+[32.249s] [ 27%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/srv/release_zones__type_support.cpp.o
+[32.249s] [ 27%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/execute_parking_task__type_support.cpp.o
+[32.249s] [ 28%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/detect_vehicle__type_support.cpp.o
+[32.250s] [ 29%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/align_vehicle__type_support.cpp.o
+[32.253s] [ 29%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.o
+[32.343s] [ 29%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/msg/vehicle_info__type_support.cpp.o
+[32.345s] [ 30%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/msg/task_state__type_support.cpp.o
+[32.345s] [ 30%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/msg/obstacle_alert__type_support.cpp.o
+[32.354s] [ 31%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/msg/formation_stop__type_support.cpp.o
+[32.356s] [ 32%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/msg/formation_assignment__type_support.cpp.o
+[32.364s] [ 33%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/park_in_slot__type_support.cpp.o
+[32.364s] [ 33%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/find_empty_slot__type_support.cpp.o
+[32.368s] [ 34%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/request_parking_task__type_support.cpp.o
+[32.368s] [ 34%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/get_slot_info__type_support.cpp.o
+[32.377s] [ 35%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/get_task_status__type_support.cpp.o
+[32.380s] [ 36%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/acquire_zones__type_support.cpp.o
+[32.382s] [ 36%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/srv/release_zones__type_support.cpp.o
+[32.385s] [ 37%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/action/execute_parking_task__type_support.cpp.o
+[32.386s] [ 38%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/action/detect_vehicle__type_support.cpp.o
+[32.390s] [ 38%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/action/align_vehicle__type_support.cpp.o
+[32.393s] [ 39%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c.dir/rosidl_typesupport_c/parking_robot_interfaces/action/control_lift__type_support.cpp.o
+[32.411s] [ 39%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/vehicle_info__type_support.cpp.o
+[32.411s] [ 40%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/task_state__type_support.cpp.o
+[32.412s] [ 41%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/obstacle_alert__type_support.cpp.o
+[32.412s] [ 41%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/formation_stop__type_support.cpp.o
+[32.416s] [ 42%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/msg/detail/formation_assignment__type_support.cpp.o
+[32.416s] [ 43%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/find_empty_slot__type_support.cpp.o
+[32.418s] [ 43%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/park_in_slot__type_support.cpp.o
+[32.422s] [ 45%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/get_slot_info__type_support.cpp.o
+[32.422s] [ 46%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/acquire_zones__type_support.cpp.o
+[32.425s] [ 46%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/request_parking_task__type_support.cpp.o
+[32.425s] [ 46%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/get_task_status__type_support.cpp.o
+[32.425s] [ 48%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/srv/detail/release_zones__type_support.cpp.o
+[32.425s] [ 48%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/action/detail/execute_parking_task__type_support.cpp.o
+[32.425s] [ 50%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/action/detail/align_vehicle__type_support.cpp.o
+[32.425s] [ 50%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/action/detail/detect_vehicle__type_support.cpp.o
+[32.425s] [ 50%] Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_c.so
+[32.426s] [ 50%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/parking_robot_interfaces/action/detail/control_lift__type_support.cpp.o
+[32.459s] [ 50%] Built target parking_robot_interfaces__rosidl_typesupport_c
+[32.522s] [ 51%] Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_cpp.so
+[32.542s] [ 51%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/vehicle_info__type_support.c.o
+[32.542s] [ 51%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/msg/detail/dds_fastrtps/vehicle_info__type_support.cpp.o
+[32.542s] [ 52%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/msg/detail/dds_fastrtps/task_state__type_support.cpp.o
+[32.542s] [ 53%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/task_state__type_support.c.o
+[32.542s] [ 53%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/obstacle_alert__type_support.c.o
+[32.544s] [ 54%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/msg/detail/dds_fastrtps/obstacle_alert__type_support.cpp.o
+[32.558s] [ 54%] Built target parking_robot_interfaces__rosidl_typesupport_cpp
+[32.563s] [ 55%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_stop__type_support.c.o
+[32.564s] [ 55%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/msg/detail/dds_fastrtps/formation_stop__type_support.cpp.o
+[32.564s] [ 56%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_assignment__type_support.c.o
+[32.575s] [ 56%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/find_empty_slot__type_support.c.o
+[32.579s] [ 57%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/msg/detail/dds_fastrtps/formation_assignment__type_support.cpp.o
+[32.590s] [ 58%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/find_empty_slot__type_support.cpp.o
+[32.593s] [ 58%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/park_in_slot__type_support.cpp.o
+[32.605s] [ 59%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/park_in_slot__type_support.c.o
+[32.605s] [ 60%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_slot_info__type_support.c.o
+[32.627s] [ 60%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/request_parking_task__type_support.c.o
+[32.633s] [ 61%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_task_status__type_support.c.o
+[32.635s] [ 62%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/get_slot_info__type_support.cpp.o
+[32.638s] [ 63%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/acquire_zones__type_support.c.o
+[32.641s] [ 63%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/release_zones__type_support.c.o
+[32.643s] [ 64%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/execute_parking_task__type_support.c.o
+[32.648s] [ 65%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/detect_vehicle__type_support.c.o
+[32.651s] [ 65%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/align_vehicle__type_support.c.o
+[32.652s] [ 66%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/control_lift__type_support.c.o
+[32.661s] [ 67%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/request_parking_task__type_support.cpp.o
+[32.661s] [ 67%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/get_task_status__type_support.cpp.o
+[32.662s] [ 68%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/acquire_zones__type_support.cpp.o
+[32.670s] [ 69%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/srv/detail/dds_fastrtps/release_zones__type_support.cpp.o
+[32.672s] [ 69%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/action/detail/dds_fastrtps/execute_parking_task__type_support.cpp.o
+[32.676s] [ 70%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/action/detail/dds_fastrtps/detect_vehicle__type_support.cpp.o
+[32.679s] [ 71%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/action/detail/dds_fastrtps/align_vehicle__type_support.cpp.o
+[32.680s] [ 71%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/parking_robot_interfaces/action/detail/dds_fastrtps/control_lift__type_support.cpp.o
+[32.686s] [ 72%] Linking C shared library libparking_robot_interfaces__rosidl_typesupport_introspection_c.so
+[32.694s] [ 73%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/msg/detail/task_state__type_support_c.cpp.o
+[32.694s] [ 73%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/msg/detail/vehicle_info__type_support_c.cpp.o
+[32.696s] [ 73%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/msg/detail/obstacle_alert__type_support_c.cpp.o
+[32.696s] [ 74%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/msg/detail/formation_stop__type_support_c.cpp.o
+[32.706s] [ 75%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/msg/detail/formation_assignment__type_support_c.cpp.o
+[32.712s] [ 75%] Built target parking_robot_interfaces__rosidl_typesupport_introspection_c
+[32.717s] [ 76%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/park_in_slot__type_support_c.cpp.o
+[32.719s] [ 76%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/find_empty_slot__type_support_c.cpp.o
+[32.732s] [ 77%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/get_slot_info__type_support_c.cpp.o
+[32.738s] [ 77%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/request_parking_task__type_support_c.cpp.o
+[32.764s] [ 78%] Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_introspection_cpp.so
+[32.776s] [ 79%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/get_task_status__type_support_c.cpp.o
+[32.777s] [ 80%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/acquire_zones__type_support_c.cpp.o
+[32.822s] [ 80%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/srv/detail/release_zones__type_support_c.cpp.o
+[32.826s] [ 81%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/action/detail/execute_parking_task__type_support_c.cpp.o
+[32.830s] [ 81%] Built target parking_robot_interfaces__rosidl_typesupport_introspection_cpp
+[32.832s] [ 82%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/action/detail/detect_vehicle__type_support_c.cpp.o
+[32.836s] [ 82%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/action/detail/align_vehicle__type_support_c.cpp.o
+[32.841s] [ 83%] Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/parking_robot_interfaces/action/detail/control_lift__type_support_c.cpp.o
+[33.010s] [ 84%] Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.so
+[33.041s] [ 85%] Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_fastrtps_c.so
+[33.053s] [ 85%] Built target parking_robot_interfaces__rosidl_typesupport_fastrtps_cpp
+[33.082s] [ 85%] Built target parking_robot_interfaces__rosidl_typesupport_fastrtps_c
+[33.093s] [ 85%] Built target parking_robot_interfaces
+[33.103s] [ 86%] Generating Python code for ROS interfaces
+[34.610s] [ 86%] Built target parking_robot_interfaces__py
+[34.624s] [ 86%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/msg/_vehicle_info_s.c.o
+[34.624s] [ 87%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/msg/_task_state_s.c.o
+[34.624s] [ 88%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/msg/_obstacle_alert_s.c.o
+[34.624s] [ 89%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/msg/_formation_assignment_s.c.o
+[34.624s] [ 89%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/msg/_formation_stop_s.c.o
+[34.624s] [ 90%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_get_slot_info_s.c.o
+[34.625s] [ 91%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_find_empty_slot_s.c.o
+[34.625s] [ 91%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_park_in_slot_s.c.o
+[34.625s] [ 92%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_request_parking_task_s.c.o
+[34.625s] [ 92%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_get_task_status_s.c.o
+[34.625s] [ 93%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_acquire_zones_s.c.o
+[34.626s] [ 93%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/action/_execute_parking_task_s.c.o
+[34.626s] [ 94%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/srv/_release_zones_s.c.o
+[34.627s] [ 95%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/action/_detect_vehicle_s.c.o
+[34.633s] [ 96%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/action/_align_vehicle_s.c.o
+[34.633s] [ 96%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_py.dir/rosidl_generator_py/parking_robot_interfaces/action/_control_lift_s.c.o
+[34.709s] [ 97%] Linking C shared library rosidl_generator_py/parking_robot_interfaces/libparking_robot_interfaces__rosidl_generator_py.so
+[34.733s] [ 97%] Built target parking_robot_interfaces__rosidl_generator_py
+[34.743s] [ 97%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c__pyext.dir/rosidl_generator_py/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_c.c.o
+[34.743s] [ 97%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c__pyext.dir/rosidl_generator_py/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_introspection_c.c.o
+[34.744s] [ 97%] Building C object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_fastrtps_c__pyext.dir/rosidl_generator_py/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_fastrtps_c.c.o
+[34.851s] [ 98%] Linking C shared library rosidl_generator_py/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[34.852s] [ 99%] Linking C shared library rosidl_generator_py/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[34.853s] [100%] Linking C shared library rosidl_generator_py/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[34.876s] [100%] Built target parking_robot_interfaces__rosidl_typesupport_fastrtps_c__pyext
+[34.877s] [100%] Built target parking_robot_interfaces__rosidl_typesupport_c__pyext
+[34.877s] [100%] Built target parking_robot_interfaces__rosidl_typesupport_introspection_c__pyext
+[60.055s] Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/rokey/p3/cobot_ws/build/parking_robot_interfaces -- -j24 -l24
+[60.063s] Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/rokey/p3/cobot_ws/build/parking_robot_interfaces
+[60.066s] -- Install configuration: ""
+[60.067s] -- Execute custom install script
+[60.067s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/ament_index/resource_index/rosidl_interfaces/parking_robot_interfaces
+[60.071s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/align_vehicle.h
+[60.074s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/control_lift.h
+[60.078s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__functions.h
+[60.082s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__struct.h
+[60.087s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__type_support.h
+[60.090s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__functions.h
+[60.094s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__struct.h
+[60.098s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__type_support.h
+[60.102s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__functions.h
+[60.105s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__struct.h
+[60.109s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__type_support.h
+[60.114s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__functions.h
+[60.117s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__struct.h
+[60.121s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__type_support.h
+[60.124s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detect_vehicle.h
+[60.128s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/execute_parking_task.h
+[60.132s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__functions.h
+[60.135s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__struct.h
+[60.139s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__type_support.h
+[60.143s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__functions.h
+[60.146s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__struct.h
+[60.151s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__type_support.h
+[60.154s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__functions.h
+[60.158s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__struct.h
+[60.162s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__type_support.h
+[60.166s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__functions.h
+[60.169s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__struct.h
+[60.172s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__type_support.h
+[60.176s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__functions.h
+[60.181s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__struct.h
+[60.185s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__type_support.h
+[60.189s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/formation_assignment.h
+[60.192s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/formation_stop.h
+[60.197s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/obstacle_alert.h
+[60.201s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/rosidl_generator_c__visibility_control.h
+[60.204s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/task_state.h
+[60.209s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/vehicle_info.h
+[60.212s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/acquire_zones.h
+[60.216s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__functions.h
+[60.220s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__struct.h
+[60.223s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__type_support.h
+[60.227s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__functions.h
+[60.231s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__struct.h
+[60.234s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__type_support.h
+[60.238s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__functions.h
+[60.242s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__struct.h
+[60.246s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__type_support.h
+[60.249s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__functions.h
+[60.253s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__struct.h
+[60.256s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__type_support.h
+[60.260s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__functions.h
+[60.264s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__struct.h
+[60.269s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__type_support.h
+[60.273s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__functions.h
+[60.277s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__struct.h
+[60.281s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__type_support.h
+[60.285s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__functions.h
+[60.289s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__struct.h
+[60.293s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__type_support.h
+[60.298s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/find_empty_slot.h
+[60.301s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/get_slot_info.h
+[60.306s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/get_task_status.h
+[60.309s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/park_in_slot.h
+[60.313s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/release_zones.h
+[60.317s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/request_parking_task.h
+[60.320s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/library_path.sh
+[60.324s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/library_path.dsv
+[60.329s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__rosidl_typesupport_fastrtps_c.h
+[60.333s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__rosidl_typesupport_fastrtps_c.h
+[60.337s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__rosidl_typesupport_fastrtps_c.h
+[60.341s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__rosidl_typesupport_fastrtps_c.h
+[60.345s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_fastrtps_c.h
+[60.349s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__rosidl_typesupport_fastrtps_c.h
+[60.353s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__rosidl_typesupport_fastrtps_c.h
+[60.357s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__rosidl_typesupport_fastrtps_c.h
+[60.361s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__rosidl_typesupport_fastrtps_c.h
+[60.365s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+[60.369s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__rosidl_typesupport_fastrtps_c.h
+[60.373s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__rosidl_typesupport_fastrtps_c.h
+[60.376s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__rosidl_typesupport_fastrtps_c.h
+[60.380s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__rosidl_typesupport_fastrtps_c.h
+[60.385s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__rosidl_typesupport_fastrtps_c.h
+[60.388s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__rosidl_typesupport_fastrtps_c.h
+[60.391s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__rosidl_typesupport_fastrtps_c.h
+[60.395s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__rosidl_typesupport_introspection_c.h
+[60.399s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__rosidl_typesupport_introspection_c.h
+[60.404s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__rosidl_typesupport_introspection_c.h
+[60.407s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__rosidl_typesupport_introspection_c.h
+[60.412s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_introspection_c.h
+[60.416s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__rosidl_typesupport_introspection_c.h
+[60.419s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__rosidl_typesupport_introspection_c.h
+[60.424s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__rosidl_typesupport_introspection_c.h
+[60.427s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__rosidl_typesupport_introspection_c.h
+[60.432s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/rosidl_typesupport_introspection_c__visibility_control.h
+[60.436s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__rosidl_typesupport_introspection_c.h
+[60.440s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__rosidl_typesupport_introspection_c.h
+[60.444s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__rosidl_typesupport_introspection_c.h
+[60.448s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__rosidl_typesupport_introspection_c.h
+[60.452s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__rosidl_typesupport_introspection_c.h
+[60.456s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__rosidl_typesupport_introspection_c.h
+[60.460s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__rosidl_typesupport_introspection_c.h
+[60.464s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/align_vehicle.hpp
+[60.468s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/control_lift.hpp
+[60.472s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__builder.hpp
+[60.476s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__struct.hpp
+[60.480s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__traits.hpp
+[60.483s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__type_support.hpp
+[60.487s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__builder.hpp
+[60.491s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__struct.hpp
+[60.494s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__traits.hpp
+[60.500s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__type_support.hpp
+[60.503s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__builder.hpp
+[60.507s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__struct.hpp
+[60.511s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__traits.hpp
+[60.515s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__type_support.hpp
+[60.520s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__builder.hpp
+[60.523s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__struct.hpp
+[60.527s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__traits.hpp
+[60.531s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__type_support.hpp
+[60.535s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detect_vehicle.hpp
+[60.539s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/execute_parking_task.hpp
+[60.543s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__builder.hpp
+[60.546s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__struct.hpp
+[60.550s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__traits.hpp
+[60.553s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__type_support.hpp
+[60.557s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__builder.hpp
+[60.561s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__struct.hpp
+[60.566s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__traits.hpp
+[60.569s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__type_support.hpp
+[60.573s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__builder.hpp
+[60.578s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__struct.hpp
+[60.581s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__traits.hpp
+[60.586s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__type_support.hpp
+[60.590s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__builder.hpp
+[60.593s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__struct.hpp
+[60.598s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__traits.hpp
+[60.602s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__type_support.hpp
+[60.606s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__builder.hpp
+[60.611s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__struct.hpp
+[60.615s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__traits.hpp
+[60.619s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__type_support.hpp
+[60.624s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/formation_assignment.hpp
+[60.627s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/formation_stop.hpp
+[60.631s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/obstacle_alert.hpp
+[60.635s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/rosidl_generator_cpp__visibility_control.hpp
+[60.639s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/task_state.hpp
+[60.643s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/vehicle_info.hpp
+[60.648s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/acquire_zones.hpp
+[60.652s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__builder.hpp
+[60.655s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__struct.hpp
+[60.660s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__traits.hpp
+[60.663s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__type_support.hpp
+[60.667s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__builder.hpp
+[60.671s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__struct.hpp
+[60.675s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__traits.hpp
+[60.678s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__type_support.hpp
+[60.682s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__builder.hpp
+[60.686s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__struct.hpp
+[60.689s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__traits.hpp
+[60.693s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__type_support.hpp
+[60.698s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__builder.hpp
+[60.701s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__struct.hpp
+[60.705s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__traits.hpp
+[60.709s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__type_support.hpp
+[60.713s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__builder.hpp
+[60.716s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__struct.hpp
+[60.720s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__traits.hpp
+[60.724s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__type_support.hpp
+[60.728s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__builder.hpp
+[60.733s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__struct.hpp
+[60.736s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__traits.hpp
+[60.741s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__type_support.hpp
+[60.745s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__builder.hpp
+[60.749s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__struct.hpp
+[60.753s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__traits.hpp
+[60.757s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__type_support.hpp
+[60.760s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/find_empty_slot.hpp
+[60.764s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/get_slot_info.hpp
+[60.768s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/get_task_status.hpp
+[60.772s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/park_in_slot.hpp
+[60.776s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/release_zones.hpp
+[60.780s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/request_parking_task.hpp
+[60.784s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__rosidl_typesupport_fastrtps_cpp.hpp
+[60.788s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__rosidl_typesupport_fastrtps_cpp.hpp
+[60.791s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__rosidl_typesupport_fastrtps_cpp.hpp
+[60.795s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__rosidl_typesupport_fastrtps_cpp.hpp
+[60.799s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_fastrtps_cpp.hpp
+[60.803s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__rosidl_typesupport_fastrtps_cpp.hpp
+[60.806s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__rosidl_typesupport_fastrtps_cpp.hpp
+[60.810s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__rosidl_typesupport_fastrtps_cpp.hpp
+[60.813s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__rosidl_typesupport_fastrtps_cpp.hpp
+[60.817s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+[60.821s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__rosidl_typesupport_fastrtps_cpp.hpp
+[60.825s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__rosidl_typesupport_fastrtps_cpp.hpp
+[60.830s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__rosidl_typesupport_fastrtps_cpp.hpp
+[60.835s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__rosidl_typesupport_fastrtps_cpp.hpp
+[60.838s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__rosidl_typesupport_fastrtps_cpp.hpp
+[60.842s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__rosidl_typesupport_fastrtps_cpp.hpp
+[60.846s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__rosidl_typesupport_fastrtps_cpp.hpp
+[60.850s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/align_vehicle__rosidl_typesupport_introspection_cpp.hpp
+[60.853s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/control_lift__rosidl_typesupport_introspection_cpp.hpp
+[60.858s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/detect_vehicle__rosidl_typesupport_introspection_cpp.hpp
+[60.862s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/action/detail/execute_parking_task__rosidl_typesupport_introspection_cpp.hpp
+[60.865s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_introspection_cpp.hpp
+[60.869s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/formation_stop__rosidl_typesupport_introspection_cpp.hpp
+[60.872s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/obstacle_alert__rosidl_typesupport_introspection_cpp.hpp
+[60.876s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/task_state__rosidl_typesupport_introspection_cpp.hpp
+[60.881s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/msg/detail/vehicle_info__rosidl_typesupport_introspection_cpp.hpp
+[60.884s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/acquire_zones__rosidl_typesupport_introspection_cpp.hpp
+[60.889s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/find_empty_slot__rosidl_typesupport_introspection_cpp.hpp
+[60.893s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_slot_info__rosidl_typesupport_introspection_cpp.hpp
+[60.897s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/get_task_status__rosidl_typesupport_introspection_cpp.hpp
+[60.900s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/park_in_slot__rosidl_typesupport_introspection_cpp.hpp
+[60.905s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/release_zones__rosidl_typesupport_introspection_cpp.hpp
+[60.908s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/include/parking_robot_interfaces/parking_robot_interfaces/srv/detail/request_parking_task__rosidl_typesupport_introspection_cpp.hpp
+[60.912s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/pythonpath.sh
+[60.916s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/pythonpath.dsv
+[60.921s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces-0.0.1-py3.10.egg-info/PKG-INFO
+[60.924s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces-0.0.1-py3.10.egg-info/SOURCES.txt
+[60.927s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces-0.0.1-py3.10.egg-info/dependency_links.txt
+[60.931s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces-0.0.1-py3.10.egg-info/top_level.txt
+[60.935s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/__init__.py
+[60.938s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_c.c
+[60.942s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_fastrtps_c.c
+[60.947s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/_parking_robot_interfaces_s.ep.rosidl_typesupport_introspection_c.c
+[60.951s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/__init__.py
+[60.955s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_align_vehicle.py
+[60.959s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_align_vehicle_s.c
+[60.963s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_control_lift.py
+[60.967s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_control_lift_s.c
+[60.972s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_detect_vehicle.py
+[60.976s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_detect_vehicle_s.c
+[60.980s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_execute_parking_task.py
+[60.984s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_execute_parking_task_s.c
+[60.988s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/libparking_robot_interfaces__rosidl_generator_py.so
+[60.992s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/__init__.py
+[60.996s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_assignment.py
+[61.000s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_assignment_s.c
+[61.004s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_stop.py
+[61.008s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_stop_s.c
+[61.012s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_obstacle_alert.py
+[61.016s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_obstacle_alert_s.c
+[61.019s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_task_state.py
+[61.023s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_task_state_s.c
+[61.027s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_vehicle_info.py
+[61.032s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_vehicle_info_s.c
+[61.036s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[61.040s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[61.044s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[61.048s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/__init__.py
+[61.051s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_acquire_zones.py
+[61.056s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_acquire_zones_s.c
+[61.059s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_find_empty_slot.py
+[61.063s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_find_empty_slot_s.c
+[61.067s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_slot_info.py
+[61.071s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_slot_info_s.c
+[61.075s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_task_status.py
+[61.079s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_task_status_s.c
+[61.083s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_park_in_slot.py
+[61.086s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_park_in_slot_s.c
+[61.090s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_release_zones.py
+[61.094s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_release_zones_s.c
+[61.097s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_request_parking_task.py
+[61.101s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_request_parking_task_s.c
+[61.105s] -- Up-to-date symlink: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[61.105s] -- Up-to-date symlink: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[61.105s] -- Up-to-date symlink: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/parking_robot_interfaces_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[61.105s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/ament_index/resource_index/rust_packages/parking_robot_interfaces
+[61.109s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/Cargo.toml
+[61.113s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/build.rs
+[61.117s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/action.rs
+[61.121s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/action/rmw.rs
+[61.126s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/lib.rs
+[61.130s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/msg.rs
+[61.134s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/msg/rmw.rs
+[61.138s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/srv.rs
+[61.141s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/rust/src/srv/rmw.rs
+[61.144s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/VehicleInfo.idl
+[61.149s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/TaskState.idl
+[61.153s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/ObstacleAlert.idl
+[61.157s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/FormationStop.idl
+[61.161s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/FormationAssignment.idl
+[61.165s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/FindEmptySlot.idl
+[61.169s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ParkInSlot.idl
+[61.173s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetSlotInfo.idl
+[61.177s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/RequestParkingTask.idl
+[61.181s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetTaskStatus.idl
+[61.185s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/AcquireZones.idl
+[61.190s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ReleaseZones.idl
+[61.194s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/ExecuteParkingTask.idl
+[61.198s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/DetectVehicle.idl
+[61.202s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/AlignVehicle.idl
+[61.206s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/ControlLift.idl
+[61.210s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/VehicleInfo.msg
+[61.214s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/TaskState.msg
+[61.218s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/ObstacleAlert.msg
+[61.222s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/FormationStop.msg
+[61.225s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/msg/FormationAssignment.msg
+[61.229s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/FindEmptySlot.srv
+[61.232s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/FindEmptySlot_Request.msg
+[61.236s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/FindEmptySlot_Response.msg
+[61.240s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ParkInSlot.srv
+[61.244s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ParkInSlot_Request.msg
+[61.248s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ParkInSlot_Response.msg
+[61.252s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetSlotInfo.srv
+[61.256s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetSlotInfo_Request.msg
+[61.260s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetSlotInfo_Response.msg
+[61.264s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/RequestParkingTask.srv
+[61.267s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/RequestParkingTask_Request.msg
+[61.271s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/RequestParkingTask_Response.msg
+[61.275s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetTaskStatus.srv
+[61.279s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetTaskStatus_Request.msg
+[61.283s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/GetTaskStatus_Response.msg
+[61.287s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/AcquireZones.srv
+[61.291s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/AcquireZones_Request.msg
+[61.296s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/AcquireZones_Response.msg
+[61.300s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ReleaseZones.srv
+[61.304s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ReleaseZones_Request.msg
+[61.308s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/srv/ReleaseZones_Response.msg
+[61.312s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/ExecuteParkingTask.action
+[61.315s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/DetectVehicle.action
+[61.320s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/AlignVehicle.action
+[61.323s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/action/ControlLift.action
+[61.327s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/ament_index/resource_index/package_run_dependencies/parking_robot_interfaces
+[61.331s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/ament_index/resource_index/parent_prefix_path/parking_robot_interfaces
+[61.335s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/ament_prefix_path.sh
+[61.339s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/ament_prefix_path.dsv
+[61.343s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/path.sh
+[61.348s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/environment/path.dsv
+[61.352s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/local_setup.bash
+[61.356s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/local_setup.sh
+[61.359s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/local_setup.zsh
+[61.363s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/local_setup.dsv
+[61.367s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/package.dsv
+[61.371s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/ament_index/resource_index/packages/parking_robot_interfaces
+[61.375s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/rosidl_cmake-extras.cmake
+[61.379s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/ament_cmake_export_dependencies-extras.cmake
+[61.383s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/ament_cmake_export_include_directories-extras.cmake
+[61.387s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/ament_cmake_export_libraries-extras.cmake
+[61.390s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/ament_cmake_export_targets-extras.cmake
+[61.394s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+[61.398s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+[61.402s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfacesConfig.cmake
+[61.405s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfacesConfig-version.cmake
+[61.409s] -- Symlinking: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/package.xml
+[61.413s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_generator_c.so
+[61.413s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_generator_c.so" to ""
+[61.413s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_fastrtps_c.so
+[61.413s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_fastrtps_c.so" to ""
+[61.413s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_introspection_c.so
+[61.413s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_introspection_c.so" to ""
+[61.413s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_c.so
+[61.413s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_c.so" to ""
+[61.413s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.so
+[61.414s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_fastrtps_cpp.so" to ""
+[61.414s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_introspection_cpp.so
+[61.414s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_introspection_cpp.so" to ""
+[61.414s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_cpp.so
+[61.414s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_typesupport_cpp.so" to ""
+[61.446s] Listing '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/__init__.py'...
+[61.446s] Listing '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/__init__.py'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_align_vehicle.py'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_control_lift.py'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_detect_vehicle.py'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/action/_execute_parking_task.py'...
+[61.446s] Listing '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/__init__.py'...
+[61.446s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_assignment.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_formation_stop.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_obstacle_alert.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_task_state.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/msg/_vehicle_info.py'...
+[61.447s] Listing '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/__init__.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_acquire_zones.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_find_empty_slot.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_slot_info.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_get_task_status.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_park_in_slot.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_release_zones.py'...
+[61.447s] Compiling '/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages/parking_robot_interfaces/srv/_request_parking_task.py'...
+[61.448s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_generator_py.so
+[61.448s] -- Set runtime path of "/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib/libparking_robot_interfaces__rosidl_generator_py.so" to ""
+[61.448s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_generator_cExport.cmake
+[61.448s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_generator_cExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_typesupport_fastrtps_cExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_introspection_cExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_introspection_cExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_cExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_cExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_generator_cppExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_typesupport_fastrtps_cppExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_introspection_cppExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_cppExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/parking_robot_interfaces__rosidl_typesupport_cppExport-noconfig.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_generator_pyExport.cmake
+[61.449s] -- Installing: /home/rokey/p3/cobot_ws/install/parking_robot_interfaces/share/parking_robot_interfaces/cmake/export_parking_robot_interfaces__rosidl_generator_pyExport-noconfig.cmake
+[90.085s] Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/rokey/p3/cobot_ws/build/parking_robot_interfaces

@@ -1,0 +1,1 @@
+/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_cmake/srv/AcquireZones_Request.msg

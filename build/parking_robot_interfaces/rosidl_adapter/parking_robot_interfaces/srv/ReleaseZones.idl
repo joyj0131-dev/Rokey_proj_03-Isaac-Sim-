@@ -1,0 +1,23 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from parking_robot_interfaces/srv/ReleaseZones.srv
+// generated code does not contain a copyright notice
+
+
+module parking_robot_interfaces {
+  module srv {
+    @verbatim (language="comment", text=
+      "[초안, Team A 제안 2026-07-19] robot_task_orchestrator -> task_dispatcher 존 락 해제." "\n"
+      "통과를 마친 존부터 즉시 반환한다. zone_ids가 빈 배열이면 보유 전체 해제." "\n"
+      "robot_id / task_id 중 정확히 하나만 채운다 (AcquireZones.srv와 동일 규칙).")
+    struct ReleaseZones_Request {
+      string robot_id;
+
+      string task_id;
+
+      sequence<string> zone_ids;
+    };
+    struct ReleaseZones_Response {
+      boolean success;
+    };
+  };
+};
