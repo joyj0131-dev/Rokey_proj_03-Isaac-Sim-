@@ -23,6 +23,7 @@ class Pose2D:
 class GapHoldCommand:
     linear_x: float
     angular_z: float
+    linear_y: float = 0.0   # 홀로노믹(메카넘) 횡속도. diff-drive 모드에선 0.
 
 
 def follower_target(leader: Pose2D, gap_m: float) -> Pose2D:
@@ -37,6 +38,11 @@ def follower_target(leader: Pose2D, gap_m: float) -> Pose2D:
 def yaw_from_quaternion(x, y, z, w):
     """평면(2D) 이동만 다루므로 z축 회전(yaw)만 뽑는다."""
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def quaternion_from_yaw(yaw):
+    """yaw_from_quaternion의 역. z축 회전만 있는 평면 회전의 (x, y, z, w)."""
+    return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
 
 
 def _wrap_angle(angle):
@@ -59,17 +65,36 @@ class GapHoldController:
     """
 
     def __init__(self, gap_m, k_linear=1.0, k_angular=2.0,
-                max_linear=0.5, max_angular=1.0):
+                max_linear=0.5, max_angular=1.0, holonomic=False,
+                k_yaw_hold=0.5, max_yaw_hold=0.15):
         self.gap_m = gap_m
         self.k_linear = k_linear
         self.k_angular = k_angular
         self.max_linear = max_linear
         self.max_angular = max_angular
+        # 홀로노믹(메카넘): 목표를 향해 몸을 돌리지 않고 body 좌표로 횡·전진 동시 이동.
+        # 회전은 리더 방위 유지에만 쓰고, 그마저 이 로봇에선 비결정적이라 게인/한계를
+        # 작게 둔다(정렬 상태에서 출발하면 yaw 오차 ~0이라 회전이 거의 안 걸림).
+        self.holonomic = holonomic
+        self.k_yaw_hold = k_yaw_hold
+        self.max_yaw_hold = max_yaw_hold
 
     def compute(self, follower: Pose2D, leader: Pose2D) -> GapHoldCommand:
         target = follower_target(leader, self.gap_m)
         dx = target.x - follower.x
         dy = target.y - follower.y
+
+        if self.holonomic:
+            # world 오차를 follower body 프레임으로 회전 → 전진/횡 동시 명령.
+            c, s = math.cos(follower.yaw), math.sin(follower.yaw)
+            body_fwd = dx * c + dy * s
+            body_left = -dx * s + dy * c
+            vx = _clamp(self.k_linear * body_fwd, -self.max_linear, self.max_linear)
+            vy = _clamp(self.k_linear * body_left, -self.max_linear, self.max_linear)
+            yaw_err = _wrap_angle(leader.yaw - follower.yaw)
+            wz = _clamp(self.k_yaw_hold * yaw_err, -self.max_yaw_hold, self.max_yaw_hold)
+            return GapHoldCommand(linear_x=vx, angular_z=wz, linear_y=vy)
+
         dist = math.hypot(dx, dy)
         heading_error = _wrap_angle(math.atan2(dy, dx) - follower.yaw)
 

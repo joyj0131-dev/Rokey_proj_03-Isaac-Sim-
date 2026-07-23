@@ -23,7 +23,7 @@ from isaac_runtime import restart_with_isaac_python
 
 ROOT = Path(__file__).resolve().parent
 ISAAC_ENVO = ROOT.parent
-FIELD_USD = ROOT / "parking_robot_field_dual.usd"
+FIELD_USD = ROOT / "parking_robot_field_dual_markers.usd"
 BRIDGE_RCLPY = Path(
     "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
     "/exts/isaacsim.ros2.bridge/humble/rclpy"
@@ -43,7 +43,8 @@ def _arg_value(name: str, default=None):
 
 
 RUN_SECONDS = float(_arg_value("--seconds", "0")) or None
-KEEP_HANDOFF_VEHICLES = "--keep-handoff-vehicles" in sys.argv[1:]
+# 새 인계장의 대기 차량 2대는 E2E 미션의 대상이므로 기본 유지.
+KEEP_HANDOFF_VEHICLES = "--hide-handoff-vehicles" not in sys.argv[1:]
 
 
 def _isaac_pose_to_ros(position, orientation_wxyz):
@@ -55,6 +56,51 @@ def _isaac_pose_to_ros(position, orientation_wxyz):
     forward_z = 2.0 * (x * z - w * y)
     yaw = math.atan2(-forward_z, forward_x)
     return x_world, -z_world, yaw
+
+
+CAM_RES = (640, 480)
+
+
+def _add_front_camera_bridge(robot_id: str) -> None:
+    """robot_N 전방 카메라를 C++ OmniGraph로 ROS 토픽에 발행한다.
+
+    aruco_sim_bringup.py 검증 패턴 그대로: CameraHelper(rgb) + CameraInfoHelper
+    (camera_info 는 CameraHelper 의 type 이 아니라 별도 노드 — 기존 함정).
+    """
+    import omni.graph.core as og
+    import omni.replicator.core as rep
+    import omni.usd
+
+    cam_prim = (f"/World/Robots/{robot_id}/cam_front_link/depth_cam_front"
+                "/Camera_Pseudo_Depth_Front")
+    stage = omni.usd.get_context().get_stage()
+    if not stage.GetPrimAtPath(cam_prim):
+        raise RuntimeError(f"전방 카메라 프림이 없습니다: {cam_prim}")
+    rp = rep.create.render_product(cam_prim, CAM_RES)
+    graph_path = f"/World/CamGraph_{robot_id}"
+    og.Controller.edit(
+        {"graph_path": graph_path, "evaluator_name": "execution"},
+        {
+            og.Controller.Keys.CREATE_NODES: [
+                ("OnTick", "omni.graph.action.OnPlaybackTick"),
+                ("CamRgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+                ("CamInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
+            ],
+            og.Controller.Keys.SET_VALUES: [
+                ("CamRgb.inputs:renderProductPath", rp.path),
+                ("CamRgb.inputs:topicName", f"/{robot_id}/front_cam/image_raw"),
+                ("CamRgb.inputs:type", "rgb"),
+                ("CamRgb.inputs:frameId", f"{robot_id}/front_cam"),
+                ("CamInfo.inputs:renderProductPath", rp.path),
+                ("CamInfo.inputs:topicName", f"/{robot_id}/front_cam/camera_info"),
+                ("CamInfo.inputs:frameId", f"{robot_id}/front_cam"),
+            ],
+            og.Controller.Keys.CONNECT: [
+                ("OnTick.outputs:tick", "CamRgb.inputs:execIn"),
+                ("OnTick.outputs:tick", "CamInfo.inputs:execIn"),
+            ],
+        },
+    )
 
 
 def _add_virtual_target(stage):
@@ -85,6 +131,7 @@ def main() -> None:
         sys.path.insert(0, str(ISAAC_ENVO))
         from mecanum_drive import (
             WHEEL_JOINTS,
+            cmd_vel_from_wheel_velocities,
             configure_hub_drives,
             wheel_velocities_from_cmd_vel,
         )
@@ -116,6 +163,7 @@ def main() -> None:
                 raise RuntimeError("HandoffQueue를 찾지 못했습니다.")
             handoff.SetActive(False)
         _add_virtual_target(stage)
+        _add_front_camera_bridge("robot_1")
 
         for robot_id in ROBOT_IDS:
             configure_hub_drives(
@@ -173,16 +221,22 @@ def main() -> None:
         def make_command_callback(robot_id):
             def callback(message):
                 robots[robot_id]["last_command_at"] = time.monotonic()
+                # angular.z 반전: REP-103(+wz=반시계) 정합. IK+는 물리적으로 CW다 —
+                # 깨끗한 상태의 다수 실측(verify PASS, yaw probe, M-시리즈 GT -51.5°)
+                # 으로 확정. 반대 측정 2건은 차량 충돌 직후의 오염 데이터였다.
                 drive(
                     robot_id,
                     message.linear.x,
                     message.linear.y,
-                    message.angular.z,
+                    -message.angular.z,
                 )
 
             return callback
 
+        from geometry_msgs.msg import TwistStamped
+
         odom_publishers = {}
+        wheel_twist_publishers = {}
         subscriptions = []
         for robot_id in ROBOT_IDS:
             subscriptions.append(
@@ -196,6 +250,9 @@ def main() -> None:
             odom_publishers[robot_id] = node.create_publisher(
                 Odometry, f"/{robot_id}/odom", 10
             )
+            wheel_twist_publishers[robot_id] = node.create_publisher(
+                TwistStamped, f"/{robot_id}/wheel_twist", 10
+            )
 
         print(
             "ROS2_DUAL_FIELD_READY "
@@ -207,8 +264,13 @@ def main() -> None:
 
         start = time.monotonic()
         last_log = 0.0
+        # 시뮬 시간 누적 (물리 1스텝 = 1/60s). wheel_twist 데드레커닝은 반드시
+        # 시뮬 시간으로 적분해야 한다 — 렌더링 부하로 시뮬이 실시간보다 느리면
+        # (실측 ~0.4x) 벽시계 dt 적분은 이동량을 2.5배 과대평가한다.
+        sim_t = 0.0
         while app.is_running():
             app.update()
+            sim_t += 1.0 / 60.0
             rclpy.spin_once(node, timeout_sec=0.0)
             now = time.monotonic()
 
@@ -233,9 +295,29 @@ def main() -> None:
                 message.child_frame_id = f"{robot_id}/base_link"
                 message.pose.pose.position.x = ros_x
                 message.pose.pose.position.y = ros_y
+                # 세로 높이(USD Y-up)를 z 자리에 실어 점프/튐을 관측 가능하게 한다.
+                # 평면 odom에서 z는 원래 안 쓰던 자리라 소비자에게 무해하다.
+                message.pose.pose.position.z = float(position[1])
                 message.pose.pose.orientation.z = math.sin(ros_yaw * 0.5)
                 message.pose.pose.orientation.w = math.cos(ros_yaw * 0.5)
                 odom_publishers[robot_id].publish(message)
+
+                # 휠 FK twist (로봇 로컬) — 데드레커닝용. GT와 무관한 진짜 측정치.
+                joint_vel = robot["articulation"].get_joint_velocities()
+                if joint_vel is None:
+                    continue   # 타임라인 정지/종료 중이면 이번 프레임은 건너뜀
+                row = joint_vel[0] if joint_vel.ndim == 2 else joint_vel
+                omegas = {w: float(row[robot["wheel_indices"][w]])
+                          for w in robot["wheel_indices"]}
+                fk_vx, fk_vy, fk_wz = cmd_vel_from_wheel_velocities(omegas)
+                tw = TwistStamped()
+                tw.header.stamp.sec = int(sim_t)
+                tw.header.stamp.nanosec = int((sim_t % 1.0) * 1e9)
+                tw.header.frame_id = f"{robot_id}/base_link"
+                tw.twist.linear.x = fk_vx
+                tw.twist.linear.y = fk_vy
+                tw.twist.angular.z = -fk_wz   # cmd 반전과 짝 (REP-103 부호)
+                wheel_twist_publishers[robot_id].publish(tw)
 
                 if now - last_log >= 1.0:
                     vx, vy, wz = robot["last_command"]

@@ -10,6 +10,7 @@ meta:
     space_length: 6.6
     aisle_width: 9.0
     border_margin: 1.1
+    slot_axis_rad: 1.570796
 nodes:
   J0:
     x: -17.0
@@ -59,6 +60,42 @@ nodes:
     x: -18.1
     y: 0.0
     kind: entrance
+  HJ0:
+    x: -19.4
+    y: 0.0
+    kind: junction
+  HJ1:
+    x: -22.8
+    y: 0.0
+    kind: junction
+  HJ2:
+    x: -26.2
+    y: 0.0
+    kind: junction
+  HJ3:
+    x: -29.6
+    y: 0.0
+    kind: junction
+  HJ4:
+    x: -33.0
+    y: 0.0
+    kind: junction
+  HJ5:
+    x: -36.4
+    y: 0.0
+    kind: junction
+  HJ6:
+    x: -39.8
+    y: 0.0
+    kind: junction
+  H_A:
+    x: -29.6
+    y: -7.8
+    kind: handoff_bay
+  H_B:
+    x: -29.6
+    y: 7.8
+    kind: handoff_bay
   dock_wait_A:
     x: -15.3
     y: -7.8
@@ -69,41 +106,49 @@ nodes:
     y: -7.8
     kind: slot
     accessible: true
+    slot_axis_rad: 1.570796
   A2:
     x: -8.5
     y: -7.8
     kind: slot
     accessible: true
+    slot_axis_rad: 1.570796
   A3:
     x: -5.1
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   A4:
     x: -1.7
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   A5:
     x: 1.7
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   A6:
     x: 5.1
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   A7:
     x: 8.5
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   A8:
     x: 11.9
     y: -7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   dock_charge_A:
     x: 15.3
     y: -7.8
@@ -119,41 +164,49 @@ nodes:
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B2:
     x: -8.5
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B3:
     x: -5.1
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B4:
     x: -1.7
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B5:
     x: 1.7
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B6:
     x: 5.1
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B7:
     x: 8.5
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   B8:
     x: 11.9
     y: 7.8
     kind: slot
     accessible: false
+    slot_axis_rad: 1.570796
   dock_charge_B:
     x: 15.3
     y: 7.8
@@ -193,6 +246,31 @@ edges:
 - u: entrance
   v: J0
   zone: Z_ENTRANCE
+- u: entrance
+  v: HJ0
+  zone: ZH_GATE
+- u: HJ0
+  v: HJ1
+  zone: ZH01
+- u: HJ1
+  v: HJ2
+  zone: ZH02
+- u: HJ2
+  v: HJ3
+  zone: ZH03
+- u: HJ3
+  v: HJ4
+  zone: ZH04
+- u: HJ4
+  v: HJ5
+  zone: ZH05
+- u: HJ5
+  v: HJ6
+  zone: ZH06
+- u: H_A
+  v: HJ3
+- u: H_B
+  v: HJ3
 - u: dock_wait_A
   v: J0
 - u: dock_wait_A
@@ -284,4 +362,11 @@ zones:
 - Z08
 - Z09
 - Z10
+- ZH01
+- ZH02
+- ZH03
+- ZH04
+- ZH05
+- ZH06
+- ZH_GATE
 - Z_ENTRANCE

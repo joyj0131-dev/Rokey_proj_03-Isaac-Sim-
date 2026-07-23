@@ -187,11 +187,15 @@ def isaac_pose_to_ros2d(position, orientation_wxyz):
     Returns (ros_x, ros_y, ros_qz, ros_qw) — a quaternion with only
     z/w set (pure yaw-about-Z), which is all formation_gap_controller reads.
     """
+    # 확정 규약 (2026-07-21 rokey 머신 실측, verify_dual_odom.py PASS):
+    # ros_x = usd_x, ros_y = -usd_z, yaw = atan2(-fwd_z, fwd_x).
+    # 원래 이 파일은 ros_y=+usd_z 로 공식 규약과 반대였다 — 정정.
     ros_x = float(position[0])
-    ros_y = float(position[2])
+    ros_y = -float(position[2])
     w, x, y, z = (float(v) for v in orientation_wxyz)
-    isaac_yaw = 2.0 * math.atan2(y, w)   # assumes pure yaw-about-Y (ground vehicle)
-    ros_yaw = -isaac_yaw
+    forward_x = 1.0 - 2.0 * (y * y + z * z)
+    forward_z = 2.0 * (x * z - w * y)
+    ros_yaw = math.atan2(-forward_z, forward_x)
     return ros_x, ros_y, math.sin(ros_yaw / 2.0), math.cos(ros_yaw / 2.0)
 
 
@@ -255,7 +259,8 @@ def main():
 
         def _make_cmd_vel_cb(robot_id):
             def _cb(msg):
-                drive(robot_id, msg.linear.x, msg.linear.y, msg.angular.z)
+                # angular.z 반전: REP-103 정합 실측(run_dual_robot_ros2_field 동일).
+                drive(robot_id, msg.linear.x, msg.linear.y, -msg.angular.z)
             return _cb
 
         odom_pubs = {}

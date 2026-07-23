@@ -3,7 +3,8 @@
 import math
 
 from parking_control.core.gap_hold_controller import (
-    GapHoldController, Pose2D, follower_target, yaw_from_quaternion,
+    GapHoldController, Pose2D, follower_target, quaternion_from_yaw,
+    yaw_from_quaternion,
 )
 
 
@@ -65,6 +66,12 @@ def test_yaw_from_quaternion_90_degrees():
     assert math.isclose(yaw, math.pi / 2, abs_tol=1e-6)
 
 
+def test_quaternion_from_yaw_round_trips_through_yaw_from_quaternion():
+    for yaw in (0.0, math.pi / 2, -math.pi / 2, 1.0, -2.5):
+        x, y, z, w = quaternion_from_yaw(yaw)
+        assert math.isclose(yaw_from_quaternion(x, y, z, w), yaw, abs_tol=1e-9)
+
+
 def test_controller_turns_in_place_when_target_behind():
     """목표가 follower 뒤쪽(heading_error > 90도)이면 전진 없이 회전만."""
     controller = GapHoldController(gap_m=1.0, max_linear=10.0)
@@ -73,3 +80,30 @@ def test_controller_turns_in_place_when_target_behind():
     cmd = controller.compute(follower, leader)
     assert cmd.linear_x == 0.0
     assert cmd.angular_z != 0.0
+
+
+def test_holonomic_uses_lateral_not_rotation():
+    """홀로노믹 모드: 목표가 옆(follower 좌측)에 있으면 회전이 아니라 linear_y로 붙는다."""
+    from parking_control.core.gap_hold_controller import (
+        GapHoldController, Pose2D)
+    ctrl = GapHoldController(gap_m=0.0, holonomic=True, max_yaw_hold=0.15)
+    # follower 동향(yaw=0), leader가 follower 정좌측(+y)에 있음 → 목표도 +y
+    follower = Pose2D(x=0.0, y=0.0, yaw=0.0)
+    leader = Pose2D(x=0.0, y=2.0, yaw=0.0)
+    cmd = ctrl.compute(follower, leader)
+    assert cmd.linear_y > 0.1          # 좌측으로 횡이동
+    assert abs(cmd.linear_x) < 1e-9    # 전진 성분 없음
+    assert abs(cmd.angular_z) < 1e-9   # yaw 정렬돼 있으니 회전 없음
+
+
+def test_holonomic_yaw_hold_bounded():
+    """리더와 방위가 어긋나면 회전으로 정렬하되 max_yaw_hold로 제한된다."""
+    from parking_control.core.gap_hold_controller import (
+        GapHoldController, Pose2D)
+    ctrl = GapHoldController(gap_m=0.0, holonomic=True,
+                             k_yaw_hold=2.0, max_yaw_hold=0.15)
+    follower = Pose2D(x=0.0, y=0.0, yaw=0.0)
+    leader = Pose2D(x=0.0, y=0.0, yaw=1.0)   # 큰 방위 오차
+    cmd = ctrl.compute(follower, leader)
+    assert abs(cmd.angular_z) <= 0.15 + 1e-9
+    assert cmd.angular_z > 0

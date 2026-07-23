@@ -1,0 +1,389 @@
+{
+  "dictionary": "DICT_5X5_100",
+  "tile_size_m": 0.25,
+  "code_size_m": 0.19444444444444442,
+  "marker_y_m": 0.0012,
+  "tile_cells": 9,
+  "code_cells": 7,
+  "note": "code_size_m 이 solvePnP 에 넘길 값이다. tile_size_m 을 쓰면 거리가 tile/code = 9/7 = 1.286배로 어긋난다.",
+  "markers": [
+    {
+      "id": 20,
+      "kind": "dock",
+      "label": "A·W",
+      "x": -15.3,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_020.png"
+    },
+    {
+      "id": 0,
+      "kind": "slot",
+      "label": "A1",
+      "x": -11.9,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_000.png"
+    },
+    {
+      "id": 1,
+      "kind": "slot",
+      "label": "A2",
+      "x": -8.5,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_001.png"
+    },
+    {
+      "id": 2,
+      "kind": "slot",
+      "label": "A3",
+      "x": -5.1,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_002.png"
+    },
+    {
+      "id": 3,
+      "kind": "slot",
+      "label": "A4",
+      "x": -1.7,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_003.png"
+    },
+    {
+      "id": 4,
+      "kind": "slot",
+      "label": "A5",
+      "x": 1.7,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_004.png"
+    },
+    {
+      "id": 5,
+      "kind": "slot",
+      "label": "A6",
+      "x": 5.1,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_005.png"
+    },
+    {
+      "id": 6,
+      "kind": "slot",
+      "label": "A7",
+      "x": 8.5,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_006.png"
+    },
+    {
+      "id": 7,
+      "kind": "slot",
+      "label": "A8",
+      "x": 11.9,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_007.png"
+    },
+    {
+      "id": 21,
+      "kind": "dock",
+      "label": "A·E",
+      "x": 15.3,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_021.png"
+    },
+    {
+      "id": 22,
+      "kind": "dock",
+      "label": "B·W",
+      "x": -15.3,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_022.png"
+    },
+    {
+      "id": 8,
+      "kind": "slot",
+      "label": "B1",
+      "x": -11.9,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_008.png"
+    },
+    {
+      "id": 9,
+      "kind": "slot",
+      "label": "B2",
+      "x": -8.5,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_009.png"
+    },
+    {
+      "id": 10,
+      "kind": "slot",
+      "label": "B3",
+      "x": -5.1,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_010.png"
+    },
+    {
+      "id": 11,
+      "kind": "slot",
+      "label": "B4",
+      "x": -1.7,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_011.png"
+    },
+    {
+      "id": 12,
+      "kind": "slot",
+      "label": "B5",
+      "x": 1.7,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_012.png"
+    },
+    {
+      "id": 13,
+      "kind": "slot",
+      "label": "B6",
+      "x": 5.1,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_013.png"
+    },
+    {
+      "id": 14,
+      "kind": "slot",
+      "label": "B7",
+      "x": 8.5,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_014.png"
+    },
+    {
+      "id": 15,
+      "kind": "slot",
+      "label": "B8",
+      "x": 11.9,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_015.png"
+    },
+    {
+      "id": 23,
+      "kind": "dock",
+      "label": "B·E",
+      "x": 15.3,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_023.png"
+    },
+    {
+      "id": 30,
+      "kind": "crossing",
+      "label": "W",
+      "x": -15.3,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_030.png"
+    },
+    {
+      "id": 31,
+      "kind": "crossing",
+      "label": "2",
+      "x": -8.5,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_031.png"
+    },
+    {
+      "id": 32,
+      "kind": "crossing",
+      "label": "7",
+      "x": 8.5,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_032.png"
+    },
+    {
+      "id": 33,
+      "kind": "crossing",
+      "label": "E",
+      "x": 15.3,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_033.png"
+    },
+    {
+      "id": 40,
+      "kind": "gateway",
+      "label": "GW",
+      "x": -18.1,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_040.png"
+    },
+    {
+      "id": 41,
+      "kind": "gateway",
+      "label": "GW'",
+      "x": -18.1,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_041.png"
+    },
+    {
+      "id": 50,
+      "kind": "handoff_bay",
+      "label": "H_A",
+      "x": -29.6,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_050.png"
+    },
+    {
+      "id": 51,
+      "kind": "handoff_bay",
+      "label": "H_B",
+      "x": -29.6,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_051.png"
+    },
+    {
+      "id": 60,
+      "kind": "handoff_lane",
+      "label": "HE3",
+      "x": -19.4,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_060.png"
+    },
+    {
+      "id": 61,
+      "kind": "handoff_lane",
+      "label": "HE2",
+      "x": -22.8,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_061.png"
+    },
+    {
+      "id": 62,
+      "kind": "handoff_lane",
+      "label": "HE1",
+      "x": -26.2,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_062.png"
+    },
+    {
+      "id": 63,
+      "kind": "handoff_lane",
+      "label": "HW1",
+      "x": -33.0,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_063.png"
+    },
+    {
+      "id": 64,
+      "kind": "handoff_lane",
+      "label": "HW2",
+      "x": -36.4,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_064.png"
+    },
+    {
+      "id": 65,
+      "kind": "handoff_lane",
+      "label": "HW3",
+      "x": -39.8,
+      "z": 2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_065.png"
+    },
+    {
+      "id": 66,
+      "kind": "handoff_lane",
+      "label": "HE3'",
+      "x": -19.4,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_066.png"
+    },
+    {
+      "id": 67,
+      "kind": "handoff_lane",
+      "label": "HE2'",
+      "x": -22.8,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_067.png"
+    },
+    {
+      "id": 68,
+      "kind": "handoff_lane",
+      "label": "HE1'",
+      "x": -26.2,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_068.png"
+    },
+    {
+      "id": 69,
+      "kind": "handoff_lane",
+      "label": "HW1'",
+      "x": -33.0,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_069.png"
+    },
+    {
+      "id": 70,
+      "kind": "handoff_lane",
+      "label": "HW2'",
+      "x": -36.4,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_070.png"
+    },
+    {
+      "id": 71,
+      "kind": "handoff_lane",
+      "label": "HW3'",
+      "x": -39.8,
+      "z": -2.5,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_071.png"
+    },
+    {
+      "id": 34,
+      "kind": "crossing",
+      "label": "HE",
+      "x": -22.8,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_034.png"
+    },
+    {
+      "id": 35,
+      "kind": "crossing",
+      "label": "HW",
+      "x": -36.4,
+      "z": 0.0,
+      "yaw": 0.0,
+      "texture": "textures/aruco/aruco_DICT_5X5_100_035.png"
+    }
+  ]
+}

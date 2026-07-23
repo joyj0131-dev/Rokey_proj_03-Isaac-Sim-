@@ -42,6 +42,14 @@ class ParkingMap:
         n = self.graph.nodes[node_id]
         return (n["x"], n["y"])
 
+    def slot_axis_rad(self, node_id) -> float:
+        """차량이 이 슬롯에 들어가려면 맞춰야 하는 축 각도(rad, mod pi).
+
+        코/꼬리 방향이 아니라 축만 의미가 있다(직사각형은 180도 돌려도
+        같은 자리에 들어감) — generate_map.py 참고.
+        """
+        return self.graph.nodes[node_id]["slot_axis_rad"]
+
     def nodes_of_kind(self, kind) -> list:
         return [n for n, a in self.graph.nodes(data=True) if a.get("kind") == kind]
 

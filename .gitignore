@@ -48,3 +48,4 @@ src/parking_control/scripts/lidar/*.png
 skills-lock.json
 DEBUG_LOG.md
 HANDOFF.md
+*.zip
