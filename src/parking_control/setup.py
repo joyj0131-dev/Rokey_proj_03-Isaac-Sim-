@@ -30,6 +30,7 @@ setup(
             'sim_orchestrator = parking_control.sim_orchestrator_node:main',
             'isaac_parking_bridge = parking_control.isaac_parking_bridge_node:main',
             'robot_position_bridge = parking_control.robot_position_bridge_node:main',
+            'pedestrian_cue = parking_control.pedestrian_cue_node:main',
             'safety_monitor = parking_control.safety_monitor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',
         ],

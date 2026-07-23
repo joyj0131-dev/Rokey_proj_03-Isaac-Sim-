@@ -7,6 +7,9 @@
     움직이는 게 보인다(전에는 이 다리가 없어서 안 보였음).
   - safety_monitor: 천장 LiDAR 2대로 통로 장애물·슬롯 점유를 실시간 판정 +
     RViz2 시각화(월드 포인트클라우드 + 슬롯/장애물 MarkerArray) 발행.
+  - pedestrian_cue: task_state를 보고 입차 시작/출차 완료 순간에 Isaac Sim
+    쪽 "사람 걷기" 연출 신호(/pedestrian_cue)를 쏜다. Isaac Sim 쪽에서 이
+    신호를 받아 실제로 캐릭터를 움직이는 스크립트는 아직 best-effort 단계.
 
 sim_orchestrator(가짜 로봇 데모용)/isaac_parking_bridge(예전 ENTRY 전용 다리,
 robot_task_orchestrator + parking_robot_system 액션서버 4개로 대체됨)는 의도적으로
@@ -23,6 +26,7 @@ NODE_EXECUTABLES = [
     'task_dispatcher',
     'robot_position_bridge',
     'safety_monitor',
+    'pedestrian_cue',
 ]
 
 
