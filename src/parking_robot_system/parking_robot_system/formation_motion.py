@@ -15,10 +15,10 @@ navigate_action_server/align_action_server가 공유해 재사용하기 위한 �
     FormationMotion.approach_parallel <- HandoffMission._approach_parallel (L150-170)
     FormationMotion.rotate_to         <- HandoffMission._rotate_to         (L172-184)
     FormationMotion.ingress_to        <- HandoffMission._ingress_to        (L186-205)
-    FormationMotion.pickup_sequence   <- HandoffMission._on_dock_lift 의 접근+진입부만
-                                          (L257-286; 파지/리프트(_grip_lift)·운반(_omni_carry)
-                                          이후 단계는 제외 — lift_action_server(Task 10a에서
-                                          이미 이식)·carry_to/carry_rotate_to(아래)의 몫)
+
+`pickup_sequence`는 최초에는 HandoffMission._on_dock_lift의 순차 진입부를 이식했지만,
+현재는 rear가 차량 남쪽에서 뒷축으로, front가 북쪽에서 앞축으로 동시에 진입하도록 변경됐다.
+파지·리프트는 이 파일이 아니라 lift_action_server가 담당한다.
 
 (_omni_step/ingress_to 안의 world→body 변환식은 formation_driver.body_twist_from_world_error로
 위임한다 — Task 9에서 원본과 수치적으로 동일함이 단위테스트로 검증된 순수 함수라 값 변경 없음.
