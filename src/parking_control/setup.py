@@ -29,6 +29,7 @@ setup(
             'task_dispatcher = parking_control.task_dispatcher_node:main',
             'sim_orchestrator = parking_control.sim_orchestrator_node:main',
             'isaac_parking_bridge = parking_control.isaac_parking_bridge_node:main',
+            'robot_position_bridge = parking_control.robot_position_bridge_node:main',
             'safety_monitor = parking_control.safety_monitor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',
         ],

@@ -93,6 +93,15 @@ class ParkingDB:
         self._query("UPDATE robots SET status = %s WHERE robot_id = %s",
                     (status, robot_id))
 
+    def upsert_robot(self, robot_id):
+        """robot_id 행이 없으면 만든다(상태는 스키마 기본값 OFFLINE). 이미
+        있으면 손대지 않는다 — status는 다른 노드(task_dispatcher 등)가
+        관리하므로 여기서 덮어쓰면 안 된다."""
+        self._query(
+            "INSERT INTO robots (robot_id) VALUES (%s)"
+            " ON DUPLICATE KEY UPDATE robot_id = robot_id",
+            (robot_id,))
+
     def update_robot_position(self, robot_id, x, y):
         self._query("UPDATE robots SET x = %s, y = %s WHERE robot_id = %s",
                     (x, y, robot_id))
