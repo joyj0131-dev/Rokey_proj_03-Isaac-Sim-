@@ -76,10 +76,12 @@ def test_slot_coordinates_regression(pf):
 
 
 def test_slot_axis_matches_layout(pf):
-    """통로가 X축 일렬이고 A/B 두 행 다 슬롯이 Y방향으로 파여있으므로,
-    모든 슬롯이 같은 축(pi/2)을 요구해야 한다."""
+    """Isaac Sim 실측(2026-07-23): 픽업 직후(회전 전) 차량이 이미 슬롯과 같은
+    방향이라, 슬롯이 요구하는 축은 통로 주행 자세(0)와 같다 — 90도가 아니다.
+    (예전엔 '슬롯이 통로와 수직'이라고 책상에서 가정해 pi/2였는데, 실측
+    결과가 달라 0으로 정정했다 — generate_map.py 주석 참고.)"""
     for slot_id in pf.map.nodes_of_kind("slot"):
-        assert pf.map.slot_axis_rad(slot_id) == pytest.approx(math.pi / 2)
+        assert pf.map.slot_axis_rad(slot_id) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_handoff_bay_route_reaches_indoor_slot():

@@ -13,9 +13,17 @@ ros_y = -usd_z (Isaac Sim ROS2 브리지 기본 규약, 이식 후 실측 검증
 슬롯 방향(slot_axis_rad): 차량이 그 슬롯에 들어가려면 맞춰야 하는 "축"
 각도(rad, world frame). 코와 꼬리 방향(0~2π)이 아니라 축(0~π, mod π)만
 의미가 있다 — 직사각형 슬롯은 180도 돌려도 같은 자리에 들어가므로, 코가
-어느 쪽을 보는지는 회전 필요량 계산에서 중요하지 않다. 이 지도는 통로가
-전부 X축이고(정션 y=0 일렬) A/B 두 행 모두 슬롯이 통로에서 Y방향으로
-파여있으므로, 모든 슬롯이 같은 값(π/2)을 갖는다.
+어느 쪽을 보는지는 회전 필요량 계산에서 중요하지 않다.
+
+2026-07-23 정정: 애초엔 "통로=X축, 슬롯은 Y방향으로 파여있으니 축=π/2"라고
+책상에서 가정했었다. 그런데 Isaac Sim 실측 결과 픽업 직후(로봇이 들어올린
+직후, 회전 전) 차량이 이미 슬롯과 같은 방향이었다 — 즉 차량의 통로 주행
+자세(yaw=0)가 이미 슬롯이 요구하는 자세와 같다는 뜻이라 축은 π/2가 아니라
+0이어야 한다. π/2로 잘못 넣어뒀던 탓에 슬롯 앞에서 안 해도 될 90도 회전을
+해버려서 오히려 차와 슬롯이 십자로 어긋나는 문제가 있었다(회전 로직 자체의
+버그가 아니라 이 상수 값이 잘못됐던 것). 나중에 슬롯 방향이 실제로 다른
+지도가 생기면 그때 다시 실측해서 넣을 것 — 회전 코드(rotate_car_to_axis)는
+그대로 남겨둔다(축이 0이면 거의 즉시 끝나는 무동작이라 안전).
 
 실행:
     python3 generate_map.py                      # 기본 파라미터로 생성
@@ -36,7 +44,7 @@ DEFAULT_SEED_SQL = PKG_ROOT / "db" / "002_seed.sql"
 def build_map(space_count=10, parking_start=1, parking_end=8,
               space_width=3.40, space_length=6.60, aisle_width=9.00,
               border_margin=1.10, handoff_length=23.0,
-              slot_axis_rad=math.pi / 2):
+              slot_axis_rad=0.0):
     """환경 파라미터에서 노드/엣지/존을 계산한다."""
     half_w = space_count * space_width * 0.5
     # 슬롯 중심의 USD z (통로 중심선 기준 거리) → ROS y = -usd_z
@@ -168,7 +176,7 @@ def main():
     parser.add_argument("--aisle-width", type=float, default=9.00)
     parser.add_argument("--border-margin", type=float, default=1.10)
     parser.add_argument("--handoff-length", type=float, default=23.0)
-    parser.add_argument("--slot-axis-rad", type=float, default=math.pi / 2,
+    parser.add_argument("--slot-axis-rad", type=float, default=0.0,
                         help="차량이 슬롯에 맞추어야 하는 축 각도(rad, mod pi)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--seed-sql", type=Path, default=DEFAULT_SEED_SQL)

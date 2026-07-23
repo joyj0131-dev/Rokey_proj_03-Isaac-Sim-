@@ -113,6 +113,9 @@ SIDE_K, SIDE_MAX = 0.8, 0.30
 # 값이라(원본 L57/L61 주석) formation_driver 값을 그대로 재사용하면 안 된다.
 ROTATE_MAX_LIN = 0.6
 ROTATE_MAX_YAW = 0.15
+# 슬롯 진입 직전 최종 정렬은 일반 YAW_TOL(4도)보다 빡빡하게 본다 — 차 길이(~4.8m)
+# 기준 4도 오차는 끝단에서 30cm 넘게 어긋나 보일 수 있다(4.8*tan(4도)≈0.34m).
+ROTATE_YAW_TOL = math.radians(1.0)
 
 
 def axis_alignment_rotation(current_yaw, target_axis_rad):
@@ -562,15 +565,23 @@ class FormationMotion:
         """
         if self.pose["robot_rear"] is None or self.pose["robot_front"] is None:
             return False
+        if self.veh_yaw is None:
+            return False
         start_cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
         start_cz = (self.pose["robot_rear"][1] + self.pose["robot_front"][1]) / 2.0
+        # 진단용 로그 — 목표/현재 각도가 실제로 몇 도로 계산됐는지 여기서 바로
+        # 확인 가능(좌표 변환 버그 의심될 때 이 숫자와 화면을 대조해보면 됨).
+        self.node.get_logger().info(
+            f"rotate_car_to_axis: 현재 차량 yaw={math.degrees(self.veh_yaw):.1f}도, "
+            f"목표축={math.degrees(target_axis_rad):.1f}도, "
+            f"필요 회전량={math.degrees(axis_alignment_rotation(self.veh_yaw, target_axis_rad)):.1f}도")
         end = time.time() + timeout
         while time.time() < end:
             if self.veh_yaw is None:
                 self._stop_all()
                 return False
             diff = axis_alignment_rotation(self.veh_yaw, target_axis_rad)
-            if abs(diff) < YAW_TOL:
+            if abs(diff) < ROTATE_YAW_TOL:
                 break
             omega = clamp(K_YAW * diff, ROTATE_MAX_YAW)
             cx = (self.pose["robot_rear"][0] + self.pose["robot_front"][0]) / 2.0
@@ -588,4 +599,4 @@ class FormationMotion:
         self._stop_all()
         if self.veh_yaw is None:
             return False
-        return abs(axis_alignment_rotation(self.veh_yaw, target_axis_rad)) < YAW_TOL * 3
+        return abs(axis_alignment_rotation(self.veh_yaw, target_axis_rad)) < ROTATE_YAW_TOL * 3

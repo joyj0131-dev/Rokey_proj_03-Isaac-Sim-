@@ -10,7 +10,7 @@ meta:
     space_length: 6.6
     aisle_width: 9.0
     border_margin: 1.1
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
 nodes:
   J0:
     x: -17.0
@@ -106,49 +106,49 @@ nodes:
     y: -7.8
     kind: slot
     accessible: true
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A2:
     x: -8.5
     y: -7.8
     kind: slot
     accessible: true
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A3:
     x: -5.1
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A4:
     x: -1.7
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A5:
     x: 1.7
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A6:
     x: 5.1
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A7:
     x: 8.5
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   A8:
     x: 11.9
     y: -7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   dock_charge_A:
     x: 15.3
     y: -7.8
@@ -164,49 +164,49 @@ nodes:
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B2:
     x: -8.5
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B3:
     x: -5.1
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B4:
     x: -1.7
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B5:
     x: 1.7
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B6:
     x: 5.1
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B7:
     x: 8.5
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   B8:
     x: 11.9
     y: 7.8
     kind: slot
     accessible: false
-    slot_axis_rad: 1.570796
+    slot_axis_rad: 0.0
   dock_charge_B:
     x: 15.3
     y: 7.8
