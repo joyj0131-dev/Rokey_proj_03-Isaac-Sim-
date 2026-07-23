@@ -7,7 +7,9 @@
 # Isaac Sim 쪽 씬(dock_lift_handoff_runner.sh)은 별도 컴퓨터에서 먼저 띄워둔 상태여야 한다.
 # ROS_DOMAIN_ID는 Isaac 쪽 dock_lift_handoff_runner.sh/mission.sh 기본값(122)과 맞춘 것 —
 # 팀이 다른 값을 쓰기로 했으면 아래 export도 맞춰서 바꿀 것.
-set -eu
+set -e
+# ROS setup.bash는 nounset(set -u)과 비호환(내부적으로 정의 안 된 변수를 참조함) —
+# dock_lift_handoff_mission.sh와 동일한 이유로 -u는 쓰지 않는다.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
