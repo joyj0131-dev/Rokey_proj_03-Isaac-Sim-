@@ -5,7 +5,7 @@ import math
 K_LIN, MAX_LIN = 0.8, 1.08   # 직선 이동 속도 상한. 사용자 요청 1.2배(0.9→1.08). 원래 0.6.
 K_STRAFE = 0.8
 K_YAW, MAX_YAW = 0.5, 0.36   # 회전 상한. 1.2배(0.30→0.36). 원래 0.15.
-INGRESS_SPEED = 0.48         # 차 밑 진입 속도. 1.2배(0.40→0.48). 정밀도는 tol로 유지.
+INGRESS_SPEED = 0.68         # 차 밑 진입 속도. 1.2배(0.40→0.48). 정밀도는 tol로 유지.
 CARRY_SPEED = 0.30
 CONTROL_HZ = 20.0
 POS_TOL = 0.10

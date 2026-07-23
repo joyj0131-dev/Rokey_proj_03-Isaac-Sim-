@@ -82,7 +82,7 @@ APPROACH_TIMEOUT = 300.0   # L55
 # 된다. 원본 CARRY_SPEED(0.30) 지령은 롤러 슬립으로 실측 ~0.09m/s에 그쳐, L자 경로
 # (~29m)에서 300s 타임아웃을 넘겨 abort(status=6)가 났다(사용자 실측). 그래서 운반 구간만
 # 지령 속도를 올린다. 두 로봇 동기가 흐트러지면(차 뒤틀림) 값을 낮춰 조정.
-CARRY_SPEED_FAST = 1.08    # 운반 지령 속도. 1.2배(0.90→1.08). 원본 0.30.
+CARRY_SPEED_FAST = 0.9    # 운반 지령 속도. 1.2배(0.90→1.08). 원본 0.30.
 CARRY_TO_TIMEOUT = 420.0   # 상향 속도로도 안전하도록 타임아웃 여유 확대(구간별 개별 적용).
 
 # --- 초기 대기 도크(USD robot:dockPose 실측) — 복귀 목표 ---
@@ -317,18 +317,25 @@ class FormationMotion:
         """
         if self.veh_x is None or self.veh_z is None:
             return False
+        # 로봇별 '자기 yaw'로 지령을 계산한다(둘 다 같은 world 방향 (ex,ez)로 이동). 두 로봇
+        # yaw가 크게 달라질 때 대비한 올바른 일반화이긴 하나, headless A/B 실측(2026-07-23,
+        # 물리 120)에서는 공유yaw(3.1°) vs 로봇별yaw(4.1°)로 삐뚤이 유의미하게 줄지 않았다
+        # — 이 씬에선 두 로봇 yaw 차가 작아 프레임 선택의 효과가 미미. 실제 삐뚤의 지배 원인은
+        # 아래 wz=0.0, 즉 '차 방향(heading) 피드백 부재'다: 두 로봇이 동일 지령을 밀기만 하고
+        # 파지·마찰 비대칭이 만든 차 회전을 아무도 보정하지 않아 운반 중 heading이 단조로
+        # 90°→94° 드리프트한다(DEBUG_LOG 참고). 진짜 해법은 가상중심 협조제어(설계노트 a37a1fc)
+        # — carry_to에 차 heading P제어(차분 스트래이프)를 넣는 것. 여기선 아직 미적용.
         end = time.time() + timeout
         while time.time() < end:
             ex, ez = tx_usd - self.veh_x, tz_usd - self.veh_z
             if math.hypot(ex, ez) < tol:
                 break
-            ref_pose = self.pose.get("robot_rear")
-            yaw = ref_pose[2] if ref_pose is not None else FACE_MZ
-            fwd, left = body_twist_from_world_error(ex, ez, yaw)
-            vx = clamp(K_LIN * fwd, CARRY_SPEED_FAST)
-            vy = clamp(K_STRAFE * left, CARRY_SPEED_FAST)
             for r in ROBOTS:
-                self._pub(r, vx, vy, 0.0)
+                rp = self.pose.get(r)
+                ryaw = rp[2] if rp is not None else FACE_MZ
+                fwd, left = body_twist_from_world_error(ex, ez, ryaw)
+                self._pub(r, clamp(K_LIN * fwd, CARRY_SPEED_FAST),
+                          clamp(K_STRAFE * left, CARRY_SPEED_FAST), 0.0)
             time.sleep(1.0 / CONTROL_HZ)
         self._stop_all()
         return math.hypot(tx_usd - self.veh_x, tz_usd - self.veh_z) < tol * 3

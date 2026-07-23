@@ -152,9 +152,10 @@ def _apply_vehicle_context(stage):
     px.CreateEnableCCDAttr(True)
     px.CreateEnableStabilizationAttr(True)
     px.CreateEnableGPUDynamicsAttr(True)
-    # 물리 스텝 240→120: 벽시계 체감속도(RTF) 약 2배. 리프트 시 차량이 튀거나
-    # 흔들리면 240으로 되돌릴 것(240+CCD가 리프트 안정성을 잡아주던 값).
-    px.CreateTimeStepsPerSecondAttr(120)
+    # 물리 스텝 240 유지. 120으로 낮추면 접촉이 거칠어져 메카넘이 옆으로 새(대각선 드리프트)
+    # 운반·주차가 지저분해진다(실측: 240 깔끔, 120 대각선). 속도는 물리 정밀도를 안 깎는
+    # 다른 지렛대(소품 차량 비활성·렌더 경량화)로 얻을 것.
+    px.CreateTimeStepsPerSecondAttr(240)   # 240 = 안정. (120은 yaw 드리프트/삐뚤 신호 커짐 — skew 테스트용이었음)
     vctx = PhysxSchema.PhysxVehicleContextAPI.Apply(sc)
     vctx.CreateUpdateModeAttr(PhysxSchema.Tokens.velocityChange)
     vctx.CreateVerticalAxisAttr(PhysxSchema.Tokens.posY)
