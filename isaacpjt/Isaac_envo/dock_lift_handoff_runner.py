@@ -18,6 +18,7 @@ ROS2: /robot_N/cmd_vel 구독, /robot_N/odom 발행(x,y=높이,z,yaw),
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 WORK_DIR = Path(__file__).resolve().parent
@@ -46,6 +47,127 @@ ARM_TARGETS = {
     "arm_right_front_joint": -90.0, "arm_right_rear_joint": 90.0,
 }
 VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", "RearRightWheel")
+
+# ---- 사람 걷기 연출(2026-07-23, best-effort — 아래 좌표/경로 실측 후 조정할 것) ----
+# 관제 쪽 pedestrian_cue_node.py가 task_state를 보고 /pedestrian_cue(Twist,
+# linear.x: 1.0=entry_depart 2.0=exit_arrive)를 쏘면 이 값을 받아 사람 캐릭터를
+# 나타나게/걷게/사라지게 한다. "삭제"가 아니라 안 보이게+물리 끄기+멀리 순간이동으로
+# 사라짐을 흉내낸다(Actor Control 명령 파일에 삭제 명령이 없고, delete_prim()은
+# IRA 캐릭터 같은 참조 프림에서 "Cannot remove ancestral prim" 에러가 잘 남 — NVIDIA
+# 포럼에 알려진 문제).
+# ⚠ CHARACTER_PRIM_PATH: GUI에서 배치한 캐릭터의 실제 프림 경로로 바꿀 것.
+CHARACTER_PRIM_PATH = "/World/Characters/Person_01"
+# ⚠ IRA 캐릭터 설정에서 이 파일을 command file로 지정해뒀는지 확인. 시뮬레이션
+# 도중 다시 쓴 내용이 "실시간으로" 반영되는지는 공식 문서에 명확히 안 나와있어
+# 확인 필요(안 되면 GUI의 재적용 버튼 호출을 찾아 추가해야 할 수 있음).
+PEDESTRIAN_COMMAND_FILE = str(WORK_DIR / "pedestrian_commands.txt")
+# 인계장 중심(VEHICLE_POS와 같은 기준, USD x,z) 근처 — 전부 대략값.
+HIDDEN_POS = (-29.6, 30.0, 0.0)          # 라이다/카메라 범위 밖
+ENTRY_START_POS = (-29.6, 0.0, 0.0)      # 입차: 차 앞자리 근처에서 나타남
+ENTRY_WALK_TARGET = (-29.6, 20.0, 0.0)   # 입차: 주차장 반대 방향으로 걸어가 사라질 지점
+EXIT_START_POS = (-29.6, 20.0, 0.0)      # 출차: 나타나는 지점
+EXIT_WALK_TARGET = (-29.6, 1.0, 0.0)     # 출차: 운전석 근처(도착하면 사라짐)
+PEDESTRIAN_ARRIVE_TOL_M = 0.3
+PEDESTRIAN_WALK_TIMEOUT_S = 20.0
+
+
+def _pedestrian_set_visible(stage, path, visible):
+    from pxr import UsdGeom
+    imageable = UsdGeom.Imageable(stage.GetPrimAtPath(path))
+    imageable.MakeVisible() if visible else imageable.MakeInvisible()
+
+
+def _pedestrian_set_collision(stage, path, enabled):
+    from pxr import Usd, UsdPhysics
+    prim = stage.GetPrimAtPath(path)
+    for desc in Usd.PrimRange(prim):
+        api = UsdPhysics.CollisionAPI(desc)
+        if api:
+            api.GetCollisionEnabledAttr().Set(enabled)
+
+
+def _pedestrian_teleport(stage, path, xyz):
+    from pxr import Gf, UsdGeom
+    xform = UsdGeom.Xformable(stage.GetPrimAtPath(path))
+    ops = xform.GetOrderedXformOps()
+    op = next((o for o in ops if o.GetOpType() == UsdGeom.XformOp.TypeTranslate), None)
+    if op is None:
+        op = xform.AddTranslateOp()
+    op.Set(Gf.Vec3d(*xyz))
+
+
+def _pedestrian_position(stage, path):
+    from pxr import UsdGeom
+    xform = UsdGeom.Xformable(stage.GetPrimAtPath(path))
+    t = xform.ComputeLocalToWorldTransform(0).ExtractTranslation()
+    return (t[0], t[1], t[2])
+
+
+def _pedestrian_write_goto(target_xyz):
+    x, y, z = target_xyz
+    char_name = CHARACTER_PRIM_PATH.rsplit("/", 1)[-1]
+    # Actor Control 명령 파일 문법(공식 문서): "<캐릭터명> GoTo x y z"
+    with open(PEDESTRIAN_COMMAND_FILE, "w") as f:
+        f.write(f"{char_name} GoTo {x} {y} {z}\n")
+
+
+def _pedestrian_setup_navmesh(stage):
+    """인계장에만 NavMesh Include, 주차장 통로/슬롯 쪽엔 Exclude — 사람이 현재
+    단계에서는 주차장 안으로 절대 못 들어가게 2중 안전장치. ⚠ 좌표는 인계장/
+    주차장 실측 크기로 다시 잴 것."""
+    import omni.kit.commands
+    from pxr import Gf, Sdf, UsdGeom
+    omni.kit.commands.execute(
+        "CreateNavMeshVolumeCommand", parent_prim_path=Sdf.Path("/World"),
+        volume_type=0, position=Gf.Vec3d(-29.6, 0.0, 0.0))
+    omni.kit.commands.execute(
+        "CreateNavMeshVolumeCommand", parent_prim_path=Sdf.Path("/World"),
+        volume_type=1, position=Gf.Vec3d(0.0, 0.0, 0.0))
+    volumes = [p for p in stage.GetPrimAtPath("/World").GetChildren()
+               if "NavMeshVolume" in p.GetName()]
+    for prim, scale in zip(volumes[-2:],
+                           (Gf.Vec3f(15.0, 2.0, 25.0), Gf.Vec3f(60.0, 3.0, 25.0))):
+        UsdGeom.Xformable(prim).AddScaleOp().Set(scale)
+    import omni.anim.navigation.core as nav
+    nav.acquire_interface().start_navmesh_baking_and_wait()
+    print(f"PEDESTRIAN_NAVMESH_BAKED volumes={[p.GetPath().pathString for p in volumes]}",
+          flush=True)
+
+
+def _pedestrian_tick(stage, state):
+    """메인 루프에서 매 프레임 한 번씩 호출 — 절대 sleep/블로킹 하지 않는다
+    (여기서 블로킹하면 전체 시뮬레이션·로봇 제어가 같이 멈춘다). 상태는
+    dict(state)에 들고 다니며 프레임마다 조금씩 진행하는 논블로킹 상태머신.
+    """
+    code = state["last_code"]
+    if not state["playing"] and state["seq"] != state["handled_seq"]:
+        state["handled_seq"] = state["seq"]
+        if code == 1.0:
+            start, target = ENTRY_START_POS, ENTRY_WALK_TARGET
+        elif code == 2.0:
+            start, target = EXIT_START_POS, EXIT_WALK_TARGET
+        else:
+            return
+        _pedestrian_teleport(stage, CHARACTER_PRIM_PATH, start)
+        _pedestrian_set_visible(stage, CHARACTER_PRIM_PATH, True)
+        _pedestrian_set_collision(stage, CHARACTER_PRIM_PATH, True)
+        _pedestrian_write_goto(target)
+        state["playing"] = True
+        state["target"] = target
+        state["until"] = time.time() + PEDESTRIAN_WALK_TIMEOUT_S
+        print(f"PEDESTRIAN_PLAY code={code} start={start} target={target}", flush=True)
+        return
+
+    if state["playing"]:
+        x, y, z = _pedestrian_position(stage, CHARACTER_PRIM_PATH)
+        tx, ty, tz = state["target"]
+        dist = ((x - tx) ** 2 + (y - ty) ** 2 + (z - tz) ** 2) ** 0.5
+        if dist < PEDESTRIAN_ARRIVE_TOL_M or time.time() > state["until"]:
+            _pedestrian_set_visible(stage, CHARACTER_PRIM_PATH, False)
+            _pedestrian_set_collision(stage, CHARACTER_PRIM_PATH, False)
+            _pedestrian_teleport(stage, CHARACTER_PRIM_PATH, HIDDEN_POS)
+            state["playing"] = False
+            print(f"PEDESTRIAN_DONE dist={dist:.2f}", flush=True)
 
 # 로봇: robot_rear -> West_B 도크, robot_front -> West_A 도크. 초기엔 +X 향함(도크 기본).
 ROBOTS = {
@@ -234,6 +356,18 @@ def main():
         for _ in range(30):
             app.update()
 
+        # 사람 걷기 연출 초기화(best-effort) — 평소엔 안 보이게/물리 끄기/멀리.
+        try:
+            _pedestrian_setup_navmesh(stage)
+        except Exception as e:
+            print(f"PEDESTRIAN_NAVMESH_SETUP_FAILED {e} (NavMesh 확장 로드 확인 필요)",
+                  flush=True)
+        _pedestrian_set_visible(stage, CHARACTER_PRIM_PATH, False)
+        _pedestrian_set_collision(stage, CHARACTER_PRIM_PATH, False)
+        _pedestrian_teleport(stage, CHARACTER_PRIM_PATH, HIDDEN_POS)
+        pedestrian_state = {"last_code": 0.0, "seq": 0, "handled_seq": 0,
+                           "playing": False, "until": 0.0, "target": None}
+
         arts = {}
         for key, cfg in ROBOTS.items():
             art = Articulation(f"{cfg['xform']}/base_link")
@@ -312,6 +446,13 @@ def main():
         for key in ROBOTS:
             node.create_subscription(Twist, f"/robot_{key}/cmd_vel", make_cb(key), 10)
             odom_pub[key] = node.create_publisher(Odometry, f"/robot_{key}/odom", 10)
+
+        def _on_pedestrian_cue(msg):
+            # 값 비교가 아니라 "메시지가 실제로 왔는지"로 트리거해야 한다 — 연속으로
+            # 같은 코드(예: ENTRY가 연달아 옴)가 와도 매번 새로 재생돼야 하므로.
+            pedestrian_state["last_code"] = msg.linear.x
+            pedestrian_state["seq"] += 1
+        node.create_subscription(Twist, "/pedestrian_cue", _on_pedestrian_cue, 10)
 
         arm_idx = {k: {n: arts[k].dof_names.index(n) for n in ARM_TARGETS} for k in arts}
         arm_cmd = {k: 0.0 for k in arts}
@@ -440,6 +581,10 @@ def main():
         while app.is_running():
             app.update()
             rclpy.spin_once(node, timeout_sec=0.0)
+            try:
+                _pedestrian_tick(stage, pedestrian_state)
+            except Exception as e:
+                print(f"PEDESTRIAN_TICK_FAILED {e}", flush=True)
             for key, cfg in ROBOTS.items():
                 apply_arms(key)
                 pos, orn = arts[key].get_world_poses()
