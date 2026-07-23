@@ -125,7 +125,7 @@ class TaskDispatcherNode(Node):
             return response
         follower_id = follower.robot_id
 
-        self._db.upsert_vehicle(request.vehicle_id)
+        self._db.upsert_vehicle(request.vehicle_id, accessible=request.accessible)
         self._db.create_task(task_id, request.request_type, request.vehicle_id)
         self._db.update_task(task_id, robot_id=leader_id,
                              follower_robot_id=follower_id)
@@ -140,7 +140,8 @@ class TaskDispatcherNode(Node):
                 task_id, request, leader_id, follower_id, exit_slot_id, x, y)
         else:
             # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
-            future = self._find_slot_client.call_async(FindEmptySlot.Request())
+            future = self._find_slot_client.call_async(
+                FindEmptySlot.Request(accessible=request.accessible))
             future.add_done_callback(
                 lambda f: self._on_slot_found(
                     f, task_id, request, leader_id, follower_id))

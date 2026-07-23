@@ -195,12 +195,14 @@ class MockDataSource(DataSource):
                     )
 
                 slot = next(
-                    (s for s in self.store.parking_slots if s.status == "EMPTY"),
+                    (s for s in self.store.parking_slots
+                     if s.status == "EMPTY" and s.is_accessible == payload.accessible),
                     None,
                 )
                 if slot is None:
+                    kind = "배려석" if payload.accessible else "일반 주차면"
                     raise DataSourceError(
-                        "사용 가능한 주차면이 없습니다.", status_code=409
+                        f"사용 가능한 {kind}이 없습니다.", status_code=409
                     )
 
                 slot.status = "RESERVED"
@@ -242,6 +244,7 @@ class MockDataSource(DataSource):
                     else RequestStatus.WAITING
                 ),
                 created_at=_now(),
+                accessible=payload.accessible,
             )
             self.store.requests.append(request)
             self._stage_started[request.id] = time.monotonic()

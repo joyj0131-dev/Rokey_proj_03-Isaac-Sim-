@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS vehicles (
     length_m      DECIMAL(5,2) NULL,        -- VehicleInfo.msg의 인식 결과
     width_m       DECIMAL(5,2) NULL,
     height_m      DECIMAL(5,2) NULL,
+    -- 웹 UI "교통약자 배려 차량" 체크박스 값(005_vehicle_accessible.sql).
+    -- ACCESSIBLE은 배려석(A1/A2)으로만, STANDARD는 일반 슬롯으로만 배정된다.
+    vehicle_type  ENUM('STANDARD', 'ACCESSIBLE') NOT NULL DEFAULT 'STANDARD',
     registered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

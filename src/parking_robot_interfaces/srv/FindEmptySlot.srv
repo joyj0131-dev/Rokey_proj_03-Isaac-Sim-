@@ -1,6 +1,8 @@
 # [초안] parking_slot_manager가 제공하는 find_empty_slot 서비스.
 float64 vehicle_length
 float64 vehicle_width
+# true면 배려석(A1/A2)만, false면 일반 슬롯만 후보로 찾는다(섞지 않음).
+bool accessible
 ---
 bool success
 string slot_id

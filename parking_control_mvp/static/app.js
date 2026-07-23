@@ -1094,6 +1094,7 @@ document
     const vehicleNumber = document
       .getElementById("vehicleNumber")
       .value.trim();
+    const accessible = document.getElementById("accessibleCheck").checked;
 
     if (!vehicleNumber) {
       showMessage("차량 번호를 입력해주세요.", true);
@@ -1107,6 +1108,7 @@ document
         body: JSON.stringify({
           request_type: requestType,
           vehicle_number: vehicleNumber,
+          accessible: accessible,
         }),
       });
 

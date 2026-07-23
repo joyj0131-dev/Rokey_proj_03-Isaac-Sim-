@@ -46,18 +46,22 @@ class ParkingDB:
 
     # ---- parking_slots ----
 
-    def find_empty_slots(self, include_accessible=False):
-        """비어 있고, 진행 중인 task에 예약되지 않은 슬롯 목록."""
+    def find_empty_slots(self, accessible=False):
+        """비어 있고, 진행 중인 task에 예약되지 않은 슬롯 목록.
+
+        accessible=False면 일반 슬롯만, True면 배려석(A1/A2)만 반환한다 —
+        둘을 섞어서(예: "배려석도 포함해서 전체 중 가까운 곳") 주지 않는다.
+        교통약자 배려 차량은 배려석 전용으로, 일반 차량은 일반 슬롯 전용으로
+        완전히 분리 배정하기 위함(웹 UI 체크박스 → vehicle_type과 연결)."""
         sql = """
             SELECT s.slot_id, s.x, s.y, s.is_accessible
             FROM parking_slots s
             LEFT JOIN tasks t ON t.slot_id = s.slot_id
                  AND t.state IN ('WAITING', 'PROCESSING')
             WHERE s.status = 'EMPTY' AND t.task_id IS NULL
+              AND s.is_accessible = %s
         """
-        if not include_accessible:
-            sql += " AND s.is_accessible = FALSE"
-        return self._query(sql)
+        return self._query(sql, (accessible,))
 
     def set_slot_status(self, slot_id, status):
         self._query("UPDATE parking_slots SET status = %s WHERE slot_id = %s",
@@ -119,11 +123,14 @@ class ParkingDB:
         self._query("UPDATE robots SET target_node = %s WHERE robot_id = %s",
                     (target_node, robot_id))
 
-    def upsert_vehicle(self, vehicle_id):
+    def upsert_vehicle(self, vehicle_id, accessible=False):
+        """차량 등록/갱신. accessible은 매 요청(웹 UI 체크박스)마다 최신 값으로
+        덮어쓴다 — 같은 차량번호라도 이번엔 체크 안 하면 STANDARD로 돌아간다."""
+        vehicle_type = "ACCESSIBLE" if accessible else "STANDARD"
         self._query(
-            "INSERT INTO vehicles (vehicle_id) VALUES (%s)"
-            " ON DUPLICATE KEY UPDATE vehicle_id = vehicle_id",
-            (vehicle_id,))
+            "INSERT INTO vehicles (vehicle_id, vehicle_type) VALUES (%s, %s)"
+            " ON DUPLICATE KEY UPDATE vehicle_type = VALUES(vehicle_type)",
+            (vehicle_id, vehicle_type))
 
     def create_task(self, task_id, request_type, vehicle_id):
         self._query(

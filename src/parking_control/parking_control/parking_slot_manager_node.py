@@ -43,7 +43,6 @@ class ParkingSlotManagerNode(Node):
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
         self.declare_parameter("origin_node", "entrance")
-        self.declare_parameter("allow_accessible_slots", False)
         self.declare_parameter("fit_margin_m", 0.3)
 
         p = self.get_parameter
@@ -75,8 +74,9 @@ class ParkingSlotManagerNode(Node):
             return response
 
         origin = self.get_parameter("origin_node").value
-        include_accessible = self.get_parameter("allow_accessible_slots").value
-        candidates = self._db.find_empty_slots(include_accessible)
+        # 요청마다 다른 값(웹 UI 체크박스 → task_dispatcher가 실어 보냄) — 배려석과
+        # 일반 슬롯을 완전히 분리 배정한다(섞어서 "가까운 곳" 고르지 않음).
+        candidates = self._db.find_empty_slots(request.accessible)
         if not candidates:
             self.get_logger().warn("빈 슬롯 없음")
             return response

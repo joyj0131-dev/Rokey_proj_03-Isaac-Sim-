@@ -146,9 +146,11 @@ class _ParkingDbReader:
 
     def fetch_tasks(self, limit: int = 100) -> list[dict]:
         return self._query(
-            "SELECT task_id, request_type, state, vehicle_id, robot_id,"
-            " follower_robot_id, slot_id, created_at FROM tasks"
-            " ORDER BY created_at DESC LIMIT %s",
+            "SELECT t.task_id, t.request_type, t.state, t.vehicle_id, t.robot_id,"
+            " t.follower_robot_id, t.slot_id, t.created_at,"
+            " v.vehicle_type FROM tasks t"
+            " LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id"
+            " ORDER BY t.created_at DESC LIMIT %s",
             (limit,),
         )
 
@@ -316,6 +318,7 @@ class Ros2DataSource(DataSource):
                             else str(created_at)
                         ),
                         external_task_id=row["task_id"],
+                        accessible=row.get("vehicle_type") == "ACCESSIBLE",
                     )
                 )
 
@@ -469,6 +472,7 @@ class Ros2DataSource(DataSource):
         request = RequestParkingTask.Request()
         request.request_type = _REQUEST_TYPE_TO_ROS[payload.request_type]
         request.vehicle_id = vehicle_number
+        request.accessible = payload.accessible
 
         done = threading.Event()
         outcome: dict = {}
@@ -511,6 +515,7 @@ class Ros2DataSource(DataSource):
                 status=RequestStatus.WAITING,
                 created_at=_now(),
                 external_task_id=response.task_id,
+                accessible=payload.accessible,
             )
             if self.store.find_request(internal_id) is None:
                 self.store.requests.append(parking_request)

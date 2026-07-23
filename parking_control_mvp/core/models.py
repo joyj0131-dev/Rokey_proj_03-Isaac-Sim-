@@ -50,6 +50,9 @@ class ParkingRequestCreate(BaseModel):
     request_type: RequestType
     vehicle_number: str = Field(min_length=1, max_length=20)
     slot_id: str | None = None
+    #: 웹 UI "교통약자 배려 차량" 체크박스. ENTRY에서만 의미 있음 — 배려석
+    #: (A1/A2) 전용으로 배정되고, 체크 안 하면 일반 슬롯 전용으로 배정된다.
+    accessible: bool = False
 
 
 class ParkingRequest(BaseModel):
@@ -64,6 +67,7 @@ class ParkingRequest(BaseModel):
     created_at: str
     #: task_dispatcher가 발급한 task_id (UUID). mock 모드에서는 None.
     external_task_id: str | None = None
+    accessible: bool = False
 
 
 class Robot(BaseModel):

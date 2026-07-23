@@ -1,6 +1,10 @@
 # [초안] user_request_gateway의 입고/출차 요청 접수 서비스 (SR-12).
 string request_type   # ENTRY, EXIT
 string vehicle_id
+# 2026-07-23: 웹 UI "교통약자 배려 차량" 체크박스 값. ENTRY에서만 의미 있음
+# (배려석 전용 vs 일반 슬롯 전용 배정을 가른다) — EXIT는 이미 주차된 슬롯을
+# 그대로 찾아가므로 이 값을 쓰지 않는다.
+bool accessible
 ---
 bool accepted
 string task_id
