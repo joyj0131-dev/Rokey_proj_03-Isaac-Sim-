@@ -621,3 +621,178 @@ git commit -m "feat(aruco): 배포 경로 측위 런처 — marker_localizer_nod
 - **좀비 프로세스**를 매 실행 전후로 확인·정리한다. `--gui` 실행은 창을 닫지 말고 유지, 헤드리스만 `app.close()`.
 - **T_base_cam 이 M5 의 핵심 리스크다.** 자동보정이 5cm 안에 못 들면 스윕 수치는 의미 없다 — 보정부터 통과시킨다(usd_to_np 전치, 광학 규약 후보). GT 로 검증하는 구조라 눈감고 맞추지 않는다.
 - 측위가 GT 를 "정답"으로 쓰는 것은 정확도 채점 목적이며, 로봇 제어에 GT 를 넣는 것이 아니다(규약 준수).
+
+---
+
+### Task 4: M5 다중프레임 융합 (p95 꼬리 감소)
+
+M5 단일프레임이 p95 4.15cm/1.68°(목표 2cm/1°)로 꼬리가 목표를 넘겼다(중앙값은 1.4cm/0.42°).
+한 자세에서 **K 프레임을 모아 측위 추정을 평균**해 프레임별 랜덤 노이즈를 줄인다. 효과가 실제로
+나오는지(정지 렌더가 결정론적이면 안 날 수 있음)를 **단일 vs 융합 p95 를 나란히 보고**해 정직하게 판정한다.
+
+**Files:**
+- Modify: `isaacpjt/Isaac_envo/parking_v4_runner.py` (`--probe=M5` 분기)
+
+**Interfaces:**
+- Consumes: 기존 M5 분기의 `place_and_capture(d, lat, yaw_deg) -> MarkerPose|None`, `localize(pose, T_base_cam) -> RobotFix`, `gt_pose_xz_yaw(art)`, 자동보정된 `T_base_cam`.
+- Produces:
+  - 러너 인자 `--m5-frames=K` (기본 1 = 기존 동작). K>1 이면 자세마다 K 프레임 융합.
+  - 콘솔 토큰 `M5_RESULT`(융합 p95 로 판정) + 추가 필드 `single_pos_p95`, `single_yaw_p95`(비교용).
+  - 리포트 `m5_accuracy.json` 에 `frames`, `single`(단일프레임 통계), `fused`(융합 통계) 추가.
+
+- [ ] **Step 1: place_and_capture 를 K회 반복 캡처로 확장**
+
+Modify `parking_v4_runner.py` — M5 분기에서 `--m5-frames` 를 파싱하고, 자세마다 K 프레임을
+캡처해 각각 측위한 뒤 (x,z 산술평균, yaw 원형평균) 융합한다. 기존 스윕 루프를 아래로 교체한다.
+
+`--cam-height` 파싱 부근에 추가:
+```python
+        n_frames = 1
+        for a in sys.argv[1:]:
+            if a.startswith("--m5-frames="):
+                n_frames = max(1, int(a.split("=", 1)[1]))
+```
+
+`place_and_capture` **정의 바로 뒤**에 K프레임 캡처+융합 헬퍼를 추가:
+```python
+        def capture_frames(d, lat, yaw_deg, k):
+            """같은 자세에서 k 프레임을 잡아 각 프레임의 측위를 리스트로 돌려준다.
+
+            프레임 사이에 app.update() 를 돌려 렌더가 갱신되게 한다. 정지 자세라
+            렌더가 결정론적이면 프레임들이 거의 같아 융합 효과가 없다 — 그 경우
+            single 과 fused 가 비슷하게 나오며, 그것이 정직한 결과다.
+            """
+            poses = []
+            first = place_and_capture(d, lat, yaw_deg)   # 첫 프레임(자세 세팅 포함)
+            gxx, gzz, gyy = gt_pose_xz_yaw(art)           # 이 자세의 GT
+            if first is not None:
+                poses.append(first)
+            for _ in range(k - 1):
+                for _ in range(2):
+                    app.update()
+                frame = rgb_annot.get_data()
+                img = (np.asarray(frame)[:, :, :3]
+                       if frame is not None and len(frame) else None)
+                if img is None:
+                    continue
+                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
+                hit = [p for p in det if int(p.marker_id) == ref_id]
+                if hit:
+                    poses.append(hit[0])
+            return poses, (gxx, gzz, gyy)
+
+        def fuse_localize(poses, T_base_cam):
+            """여러 프레임의 측위(RobotFix)를 융합: x,z 평균 + yaw 원형평균."""
+            fixes = [localize(p, T_base_cam) for p in poses]
+            fixes = [f for f in fixes if f is not None]
+            if not fixes:
+                return None
+            xs = sum(f.x for f in fixes) / len(fixes)
+            zs = sum(f.z for f in fixes) / len(fixes)
+            sy = sum(math.sin(math.radians(f.yaw_deg)) for f in fixes)
+            cy = sum(math.cos(math.radians(f.yaw_deg)) for f in fixes)
+            yaw = math.degrees(math.atan2(sy, cy))
+            return xs, zs, yaw, fixes[0]      # 융합값 + 첫 프레임(단일 비교용)
+```
+
+- [ ] **Step 2: 스윕 루프를 단일+융합 동시 측정으로 교체**
+
+M5 분기의 정확도 스윕 루프(`results = []` 부터 `M5_RESULT` 출력 직전까지)를 아래로 교체:
+```python
+        def err_of(fx, fz, fyaw_deg, gt):
+            gxx, gzz, gyy = gt
+            ex, ez = fx - gxx, fz - gzz
+            dyaw = (fyaw_deg - math.degrees(gyy) + 180.0) % 360.0 - 180.0
+            return math.hypot(ex, ez), abs(dyaw), ex, ez, dyaw
+
+        single_pos, single_yaw = [], []
+        fused_pos, fused_yaw, fused_vec = [], [], []
+        n_total = 0
+        for d in (1.3, 1.5, 1.7, 1.9):
+            for lat in (-0.15, 0.0, 0.15):
+                for yaw_deg in (-8.0, 0.0, 8.0):
+                    n_total += 1
+                    poses, gt = capture_frames(d, lat, yaw_deg, n_frames)
+                    if not poses:
+                        continue
+                    fused = fuse_localize(poses, T_base_cam)
+                    if fused is None:
+                        continue
+                    fx, fz, fyaw, f0 = fused
+                    sp, sy, *_ = err_of(f0.x, f0.z, f0.yaw_deg, gt)   # 단일=첫 프레임
+                    single_pos.append(sp); single_yaw.append(sy)
+                    fp, fy, ex, ez, dyaw = err_of(fx, fz, fyaw, gt)   # 융합
+                    fused_pos.append(fp); fused_yaw.append(fy)
+                    fused_vec.append((ex, ez, dyaw))
+
+        if not fused_pos:
+            print("M5_RESULT FAIL: 검출 표본 0개", flush=True)
+            if headless:
+                app.close()
+            raise RuntimeError("M5 검출 표본 0")
+
+        def p95(a):
+            b = sorted(a)
+            return b[min(len(b) - 1, int(math.ceil(0.95 * len(b)) - 1))]
+
+        def stats(errs):
+            b = sorted(errs)
+            return {"mean": sum(b) / len(b), "median": b[len(b) // 2],
+                    "p95": p95(b), "max": b[-1]}
+
+        cov = np.cov(np.array(fused_vec).T).tolist() if len(fused_vec) > 1 else None
+        s_pos, s_yaw = p95(single_pos), p95(single_yaw)
+        f_pos, f_yaw = p95(fused_pos), p95(fused_yaw)
+        ok = (f_pos <= 0.02) and (f_yaw <= 1.0)
+        report = {
+            "camera_height_m": cam_h, "frames": n_frames,
+            "tbasecam_convention": best_name, "tbasecam_verify_err_m": best_err,
+            "n_samples": len(fused_pos), "n_total": n_total,
+            "single": {"pos_err_m": stats(single_pos), "yaw_err_deg": stats(single_yaw)},
+            "fused": {"pos_err_m": stats(fused_pos), "yaw_err_deg": stats(fused_yaw)},
+            "cov_ex_ez_eyaw": cov,
+        }
+        import v4_probes as vp
+        path = vp.write_report("m5_accuracy", report)
+        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} frames={n_frames} "
+              f"fused_pos_p95={f_pos*100:.2f}cm fused_yaw_p95={f_yaw:.2f}deg "
+              f"single_pos_p95={s_pos*100:.2f}cm single_yaw_p95={s_yaw:.2f}deg "
+              f"n={len(fused_pos)}/{n_total} report={path.name}", flush=True)
+        if headless:
+            app.close()
+            return
+        while app.is_running():
+            app.update()
+        app.close()
+        return
+```
+
+- [ ] **Step 3: 문법 검사**
+
+Run: `cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo && python3 -m py_compile parking_v4_runner.py && echo OK`
+Expected: `OK`
+
+- [ ] **Step 4: 단일(K=1) 회귀 + 융합(K=10) 실행 비교**
+
+```bash
+cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo
+ps -eo pid,args --no-headers | grep -E "/kit/kit|python\.sh|isaacsim" | grep -v grep || echo clean
+bash parking_v4_runner.sh --probe=M5 --m5-frames=1  2>&1 | grep -E "M5_TBASECAM_CAL|M5_RESULT|Traceback"
+bash parking_v4_runner.sh --probe=M5 --m5-frames=10 2>&1 | grep -E "M5_TBASECAM_CAL|M5_RESULT|Traceback"
+```
+Expected: K=1 은 `single≈fused`(융합=단일). K=10 은 `fused_pos_p95`/`fused_yaw_p95` 가 single 대비
+줄었는지 관찰.
+- **fused_p95 ≤ 2cm 및 ≤ 1° 이면 PASS** — 다중프레임이 꼬리를 깎은 것.
+- **fused ≈ single(개선 없음)이면**: 정지 렌더가 결정론적이라 정적 융합이 안 듣는 것이다.
+  이 사실을 그대로 보고한다(억지로 PASS 만들지 않는다). 진짜 해법은 주행 중 오도메트리 융합
+  (Phase 3)이며, 그 판단은 사용자와 한다.
+
+- [ ] **Step 5: 좀비 정리 확인 + 커밋**
+
+```bash
+cd /home/rokey/p3/cobot_ws
+ps -eo pid,args --no-headers | grep -E "/kit/kit|python\.sh|isaacsim" | grep -v grep || echo clean
+git add isaacpjt/Isaac_envo/parking_v4_runner.py
+git commit -m "feat(probe): M5 다중프레임 융합 — K프레임 평균으로 p95 꼬리 감소 측정"
+```
