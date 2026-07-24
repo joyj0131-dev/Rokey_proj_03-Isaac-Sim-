@@ -68,6 +68,26 @@ def read_markers(stage):
     return out
 
 
+def marker_visual_center(stage, serves, time_code=None):
+    """실제로 렌더되는 마커 데칼 메시의 월드 중심(x, z)을 돌려준다.
+
+    Probe A 조사로 확인: 도크 마커(D_OUT_*/D_IN_*)는 `aruco:position` 속성값과
+    데칼 메시의 실제 월드 위치가 z 로 0.7m 어긋난다(속성=도크/스폰 좌표,
+    데칼=차선 쪽으로 밀린 실제 그림 위치). x 는 항상 일치했다. 카메라가
+    "실제로 보는" 대상은 그림이므로 자세 계측에는 이 함수를 쓰고,
+    `read_markers()`(속성 기반)는 기존 용도(로봇 스폰 좌표 등) 그대로 둔다.
+    """
+    from pxr import Gf, Usd, UsdGeom
+    tc = time_code if time_code is not None else Usd.TimeCode.Default()
+    for prim in stage.Traverse():
+        sv = prim.GetAttribute("aruco:serves")
+        if sv and sv.IsValid() and str(sv.Get()) == serves:
+            xf = UsdGeom.Xformable(prim)
+            wc = xf.ComputeLocalToWorldTransform(tc).Transform(Gf.Vec3d(0, 0, 0))
+            return float(wc[0]), float(wc[2])
+    raise RuntimeError(f"marker_visual_center: serves={serves!r} 데칼 메시를 찾지 못함")
+
+
 def _apply_physics(stage):
     from pxr import PhysxSchema
     sc = stage.GetPrimAtPath("/World/PhysicsScene")
@@ -319,6 +339,154 @@ def main():
             "cameras": n_cams, "robots": list(cam_robots), "rtf": rtf})
         print(f"PROBE_C_RESULT cameras={n_cams} rtf={rtf:.3f} report={path.name}",
               flush=True)
+        if headless:
+            app.close()
+            return
+
+    if probe == "A":
+        import json
+        import cv2
+        import v4_probes as vp
+        from pxr import Gf, UsdGeom
+        sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
+        from parkbot_aruco import aruco_pose
+        from parkbot_aruco.marker_localizer import default_marker_map_path
+
+        hold_sec = 3.0
+        cam_h = None
+        for a in sys.argv[1:]:
+            if a.startswith("--hold-sec="):
+                hold_sec = float(a.split("=", 1)[1])
+            if a.startswith("--cam-height="):
+                cam_h = float(a.split("=", 1)[1])
+
+        target = "entry_lead"
+        art = arts[target]
+        markers = read_markers(stage)
+        ref = markers[sm.ROBOT_DOCK_MARKER[target]]      # 자기 도크 마커를 본다(id/kind 용)
+
+        # read_markers() 의 aruco:position 속성과 실제 데칼 메시 위치가 도크
+        # 마커에서 z 로 0.7m 어긋나 있음을 실측으로 확인했다(진단 스크립트,
+        # 아래 PROBE_A_GEOMETRY 로그 참고). 카메라가 실제로 보는 건 그림이므로
+        # 배치/판정은 marker_visual_center() 로 구한 실좌표를 쓴다.
+        mx, mz = marker_visual_center(stage, sm.ROBOT_DOCK_MARKER[target])
+        print(f"PROBE_A_GEOMETRY attr_xz=({ref['x']:.3f},{ref['z']:.3f}) "
+              f"visual_xz=({mx:.3f},{mz:.3f})", flush=True)
+
+        cam_path = find_front_camera(stage, target)
+        cam_prim = stage.GetPrimAtPath(cam_path)
+        cam_xf = UsdGeom.Xformable(cam_prim)
+
+        # 스폰 자세(로봇 루트의 AddRotateXOp(-90), Z-up 에셋 -> Y-up 변환)를
+        # 그대로 재사용한다. 실측(진단 스크립트): 이 쿼터니언은
+        # (w,x,y,z)=(0.7071,-0.7071,0,0) 이고 카메라 정면(-Z)은 월드 +X 를
+        # 30도 아래로 본다. 브리프가 쓰려던 identity([1,0,0,0])는 이 변환을
+        # 통째로 지워버려 완전히 다른 자세가 되므로 쓰지 않는다.
+        # "마커 앞 d 미터"는 카메라가 실제로 보는 축인 x 로 재고(로봇 중심을
+        # mx - d 에 배치), z 는 마커 데칼과 맞춘다(로봇/카메라 모두 동일 z 유지).
+        spawn_pos, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+
+        # ---- 카메라 높이 오버라이드 ----
+        # 카메라 리프에 xformOp 를 추가로 이어붙이면(브리프 원안) USD 합성
+        # 순서상 그 오프셋이 카메라 자신의 30도 피치 회전을 그대로 타고 들어가
+        # 월드에서 수직이 아니게 어긋난다(진단 실측: 로컬 (0,1,0) -> 월드
+        # delta=(0.500, 0.866, 0), 순수 Y 가 아니었음). 그래서 원하는 "월드 Y만
+        # dy" 오프셋을 카메라의 현재 회전으로 역변환해 로컬 벡터를 구해 넣는다.
+        cam_height_actual_dy = None
+        if cam_h is not None:
+            dy_world = cam_h - 0.09
+            mat_before = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
+            local_delta = mat_before.GetInverse().TransformDir(Gf.Vec3d(0.0, dy_world, 0.0))
+            cam_xf.AddTranslateOp(
+                UsdGeom.XformOp.PrecisionDouble, "camHeightProbe"
+            ).Set(local_delta)
+            for _ in range(3):
+                app.update()
+            mat_after = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
+            cam_height_actual_dy = (mat_after.ExtractTranslation()[1]
+                                    - mat_before.ExtractTranslation()[1])
+            print(f"PROBE_A_CAM_HEIGHT requested_dy={dy_world:.4f} "
+                  f"actual_world_dy={cam_height_actual_dy:.4f}", flush=True)
+
+        import omni.replicator.core as rep
+        rp = rep.create.render_product(cam_path, (640, 480))
+        rgb_annot = rep.AnnotatorRegistry.get_annotator("rgb")
+        rgb_annot.attach([rp])
+
+        # aruco_pose 는 detect(img) 가 아니라 make_detector()+detect_and_estimate()
+        # 조합이다(실제 서명을 확인해 브리프 가정을 이걸로 대체). marker_map.json 은
+        # ROS 패키지가 소유(aruco_detector.py 와 동일 경로/방식으로 읽는다).
+        mm = json.loads(default_marker_map_path().read_text(encoding="utf-8"))
+        code_size_m = float(mm["code_size_m"])
+        detector = aruco_pose.make_detector(mm["dictionary"])
+        ucam = UsdGeom.Camera(cam_prim)
+        focal = ucam.GetFocalLengthAttr().Get()
+        haper = ucam.GetHorizontalApertureAttr().Get()
+        vaper = ucam.GetVerticalApertureAttr().Get()
+        K = np.array([[640.0 * focal / haper, 0.0, 320.0],
+                      [0.0, 480.0 * focal / vaper, 240.0],
+                      [0.0, 0.0, 1.0]], dtype=np.float64)
+        dist = np.zeros((5, 1), dtype=np.float64)
+
+        results = []
+        for i in range(16):
+            d = 0.6 + 0.1 * i                # 마커 앞 0.6~2.1 m (로봇 중심 기준, x 축)
+            art.set_world_poses(
+                np.array([[mx - d, ROBOT_SPAWN_Y, mz]]),
+                np.array([spawn_orn]))
+            for _ in range(int(hold_sec * RENDER_HZ)):
+                app.update()
+            frame = rgb_annot.get_data()
+            img = (np.asarray(frame)[:, :, :3]
+                   if frame is not None and len(frame) else None)
+            det = []
+            if img is not None:
+                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
+            ok = any(int(p.marker_id) == ref["id"] for p in det)
+            results.append({"distance_m": d, "detected": bool(ok)})
+            vp.draw_marker_dot(stage, f"/World/ProbeA/dot_{i:02d}",
+                               mx - d, mz,
+                               vp.GREEN if ok else vp.RED)
+
+        hits = [r["distance_m"] for r in results if r["detected"]]
+        if not hits:
+            cpos = cam_xf.ComputeLocalToWorldTransform(
+                timeline.get_current_time()).ExtractTranslation()
+            msg = ("PROBE_A_BLOCKED: 16개 표본 전부 미검출 — 창이 0인 게 아니라 "
+                   "기하 구조가 깨졌을 가능성이 높다. 기하를 재검토할 것. "
+                   f"cam_world_pos={list(cpos)} ref_marker={ref} "
+                   f"marker_visual_xz=({mx},{mz}) samples={results}")
+            print(msg, flush=True)
+            if headless:
+                app.close()
+            raise RuntimeError(msg)
+
+        d_min, d_max = min(hits), max(hits)
+        vp.draw_band(stage, "/World/ProbeA/band",
+                     mx - d_max, mx - d_min, mz, vp.GREEN)
+        path = vp.write_report(
+            f"probe_a_window_h{(cam_h or 0.09):.2f}",
+            {"camera_height_m": cam_h or 0.09,
+             "camera_height_actual_world_dy": cam_height_actual_dy,
+             "marker": ref,
+             "marker_attr_xz": [ref["x"], ref["z"]],
+             "marker_visual_xz": [mx, mz],
+             "samples": results,
+             "robot_placement": {
+                 "axis": "x",
+                 "note": ("로봇 중심을 (mx - d, ROBOT_SPAWN_Y, mz) 에 배치(mx,mz 는 "
+                          "marker_visual_center() 로 구한 실제 데칼 월드좌표), "
+                          "자세는 스폰 orn(로봇 루트 AddRotateXOp(-90))을 그대로 "
+                          "사용. 카메라 정면(-Z)이 월드 +X 를 30도 아래로 본다. "
+                          "aruco:position 속성(도크 마커)은 실제 데칼과 z 가 0.7m "
+                          "어긋나 있어 배치에는 쓰지 않았다(marker_attr_xz 참고)."),
+                 "spawn_orn_wxyz": spawn_orn.tolist()},
+             "d_min": d_min, "d_max": d_max, "window_m": max(0.0, d_max - d_min)})
+        print(f"PROBE_A_RESULT h={(cam_h or 0.09):.2f} d_min={d_min:.2f} "
+              f"d_max={d_max:.2f} window={max(0.0, d_max - d_min):.2f}m "
+              f"report={path.name}", flush=True)
         if headless:
             app.close()
             return

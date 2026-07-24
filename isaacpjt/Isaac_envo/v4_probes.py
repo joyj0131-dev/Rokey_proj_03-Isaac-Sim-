@@ -60,3 +60,16 @@ def draw_marker_dot(stage, path, x, z, color, size=0.18, y=0.02):
     xf.AddScaleOp().Set(Gf.Vec3f(size, 0.004, size))
     cube.GetDisplayColorAttr().Set([Gf.Vec3f(*color)])
     return cube
+
+
+def draw_band(stage, path, x0, x1, z, color, width=0.6, y=0.015):
+    """검출 가능 구간을 바닥 띠로 그린다. x0~x1 구간, z 중심."""
+    from pxr import Gf, UsdGeom
+    cube = UsdGeom.Cube.Define(stage, path)
+    cube.GetSizeAttr().Set(1.0)
+    xf = UsdGeom.Xformable(cube)
+    xf.ClearXformOpOrder()
+    xf.AddTranslateOp().Set(Gf.Vec3d((x0 + x1) * 0.5, y, z))
+    xf.AddScaleOp().Set(Gf.Vec3f(max(abs(x1 - x0), 0.02), 0.004, width))
+    cube.GetDisplayColorAttr().Set([Gf.Vec3f(*color)])
+    return cube
