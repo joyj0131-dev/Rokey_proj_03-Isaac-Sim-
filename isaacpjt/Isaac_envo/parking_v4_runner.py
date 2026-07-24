@@ -793,6 +793,140 @@ def main():
         app.close()
         return
 
+    if probe == "FUSE":
+        # 주행 접근 중 오도(예측)+마커(보정) 상보필터 융합 검증. 종단 수렴 오차로 판정.
+        from pxr import UsdGeom
+        from parkbot_aruco.marker_localizer import PoseFilter
+        from mecanum_drive import (WHEEL_JOINTS, wheel_velocities_from_cmd_vel,
+                                   cmd_vel_from_wheel_velocities, slew_twist)
+
+        speed, d_start, d_end = 0.25, 2.1, 1.25
+        pos_gain, yaw_gain = 0.5, 0.5
+        for a in sys.argv[1:]:
+            if a.startswith("--fuse-speed="):  speed = float(a.split("=", 1)[1])
+            if a.startswith("--fuse-dstart="): d_start = float(a.split("=", 1)[1])
+            if a.startswith("--fuse-dend="):   d_end = float(a.split("=", 1)[1])
+            if a.startswith("--fuse-posgain="): pos_gain = float(a.split("=", 1)[1])
+            if a.startswith("--fuse-yawgain="): yaw_gain = float(a.split("=", 1)[1])
+        cam_h = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--cam-height="): cam_h = float(a.split("=", 1)[1])
+
+        target = "entry_lead"
+        art = arts[target]
+        idx = wheel_idx[target]
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h)
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+        T_base_cam, cal_name, cal_err = calibrate_tbasecam(
+            ctx, art, app, timeline, gt_pose_xz_yaw, spawn_orn)
+        print(f"FUSE_TBASECAM_CAL best={cal_name} verify_pos_err={cal_err:.4f}m", flush=True)
+
+        # 로봇을 접근 시작점(마커 앞 d_start, 정면 자세)에 놓는다.
+        mx, mz = ctx["mx"], ctx["mz"]
+        art.set_world_poses(np.array([[mx - d_start, ROBOT_SPAWN_Y, mz]]),
+                            np.array([spawn_orn]))
+        for _ in range(30):
+            app.update()
+
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+        filt = PoseFilter(pos_gain=pos_gain, yaw_gain=yaw_gain)
+        cur_tw = (0.0, 0.0, 0.0)
+        prev = timeline.get_current_time()
+        traj = []                     # (gt_x,gt_z,gt_yawdeg, f_x,f_z,f_yaw, single_x,single_z,single_yaw|None)
+        max_steps = 2000
+        for _ in range(max_steps):
+            app.update()
+            now = timeline.get_current_time()
+            dt = min(0.1, max(0.0, now - prev)); prev = now
+            # 전진(+X_body) 주행. 종단 도달하면 정지.
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
+            d_now = mx - gx                     # 마커까지 남은 거리(월드 X)
+            tgt = (speed, 0.0, 0.0) if d_now > d_end else (0.0, 0.0, 0.0)
+            cur_tw = slew_twist(cur_tw, tgt, dt, linear_accel=LINEAR_ACCEL,
+                                linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+            omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+            vel_buf[...] = 0.0
+            for w, om in omegas.items():
+                vel_buf[idx[w]] = om
+            art.set_joint_velocity_targets(vel_buf)
+
+            # ---- 예측: 휠 오도(관절 각속도) → 바디 twist → predict_body ----
+            vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+            wv = {w: float(vel[i]) for w, i in idx.items()}
+            vx, vy, wz = cmd_vel_from_wheel_velocities(wv)
+            filt.predict_body(vx, vy, wz, dt)
+
+            # ---- 보정: 마커 검출 시 fix ----
+            pose = detect_current(ctx)
+            single = None
+            if pose is not None:
+                fix = localize_pose(ctx, pose, T_base_cam)
+                if fix is not None:
+                    if filt.x is None:
+                        filt.set_pose(fix.x, fix.z, fix.yaw_deg)   # 첫 fix 로 초기화(GT 아님)
+                    else:
+                        filt.update(fix)
+                    single = (fix.x, fix.z, fix.yaw_deg)
+
+            fp = filt.pose()
+            if fp is not None:
+                traj.append((gx, gz, math.degrees(gyaw), fp[0], fp[1], fp[2],
+                             single[0] if single else None,
+                             single[1] if single else None,
+                             single[2] if single else None))
+            if d_now <= d_end and cur_tw == (0.0, 0.0, 0.0):
+                # 종단 도달 + 정지. 몇 프레임 더 보정 후 종료.
+                for _ in range(30):
+                    app.update()
+                    pose = detect_current(ctx)
+                    if pose is not None:
+                        fix = localize_pose(ctx, pose, T_base_cam)
+                        if fix is not None and filt.x is not None:
+                            filt.update(fix)
+                break
+
+        if not traj or filt.x is None:
+            print("FUSE_RESULT FAIL: 융합 표본 없음(마커 미검출)", flush=True)
+            if headless: app.close()
+            raise RuntimeError("FUSE 융합 표본 없음")
+
+        # 종단(마지막) 지점 GT vs 융합
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        fp = filt.pose()
+        term_pos = math.hypot(fp[0] - gx, fp[1] - gz)
+        term_yaw = abs((fp[2] - math.degrees(gyaw) + 180.0) % 360.0 - 180.0)
+
+        # 궤적 p95(첫 fix 이후 융합 오차) — 참고
+        def p95(a):
+            b = sorted(a); return b[min(len(b)-1, int(math.ceil(0.95*len(b))-1))] if b else float("nan")
+        fpos = [math.hypot(r[3]-r[0], r[4]-r[1]) for r in traj]
+        fyaw = [abs((r[5]-r[2]+180.0) % 360.0 - 180.0) for r in traj]
+        spos = [math.hypot(r[6]-r[0], r[7]-r[1]) for r in traj if r[6] is not None]
+
+        ok = (term_pos <= 0.02) and (term_yaw <= 1.0)
+        import v4_probes as vp
+        report = {"camera_height_m": cam_h, "speed": speed,
+                  "d_start": d_start, "d_end": d_end,
+                  "pos_gain": pos_gain, "yaw_gain": yaw_gain,
+                  "tbasecam_convention": cal_name, "tbasecam_verify_err_m": cal_err,
+                  "n_traj": len(traj), "n_single": len(spos),
+                  "terminal_pos_err_m": term_pos, "terminal_yaw_err_deg": term_yaw,
+                  "fused_traj_pos_p95_m": p95(fpos), "fused_traj_yaw_p95_deg": p95(fyaw),
+                  "single_traj_pos_p95_m": p95(spos) if spos else None}
+        path = vp.write_report("fuse_approach", report)
+        print(f"FUSE_RESULT={'PASS' if ok else 'FAIL'} "
+              f"term_pos={term_pos*100:.2f}cm term_yaw={term_yaw:.2f}deg "
+              f"fused_traj_p95={p95(fpos)*100:.2f}cm "
+              f"single_traj_p95={(p95(spos)*100 if spos else float('nan')):.2f}cm "
+              f"n={len(traj)} cal={cal_name} report={path.name}", flush=True)
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
     BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
                         "/exts/isaacsim.ros2.bridge/humble/rclpy")
     if str(BRIDGE_RCLPY) not in sys.path:
