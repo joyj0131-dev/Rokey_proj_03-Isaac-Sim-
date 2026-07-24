@@ -526,7 +526,6 @@ def main():
         cur_tw = (0.0, 0.0, 0.0)
         prev = timeline.get_current_time()
         steps = 0
-        reached = False
         stopping = False        # done 판정 이후 래치: 이후 잔차가 tol 밖으로 흔들려도 계속 정지시킨다.
         for _ in range(max_steps):
             app.update()
@@ -573,8 +572,9 @@ def main():
             art.set_joint_velocity_targets(vel_buf)
 
             if stopping and cur_tw == (0.0, 0.0, 0.0):
-                reached = True
-                # 정지 후 몇 프레임 더 보정(FUSE 종단 처리와 동일 관례).
+                # 정지 후 몇 프레임 더 보정(FUSE 종단 처리와 동일 관례). reached 는
+                # 여기서 확정하지 않는다 — 이 보정이 filt.pose() 를 움직일 수 있어
+                # 루프 종료 후 최종 자세 기준으로 재판정한다(아래 reached 재검증).
                 for _ in range(30):
                     app.update()
                     pose = detect_current(ctx)
@@ -584,8 +584,19 @@ def main():
                             filt.update(fix)
                 break
 
-        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        # ---- reached 재검증(settle 후): 루프 중간에 래치한 값을 쓰지 않고, settle
+        # 루프가 끝난 뒤의 최종 filt.pose() 를 target_xzyaw 에 다시 견주어 판정한다.
+        # 루프가 정상 정지(break)로 끝났든 max_steps 소진으로 끝났든 동일하게
+        # 적용된다. 제어 경로와 마찬가지로 GT 가 아니라 filt.pose() 만 쓴다.
         fp = filt.pose()
+        if fp is None:
+            reached = False
+        else:
+            _, _, _, reached = body_twist_toward(
+                fp, target_xzyaw, pos_gain=pos_gain, yaw_gain=yaw_gain,
+                max_lin=max_lin, max_ang=max_ang, pos_tol=pos_tol, yaw_tol=yaw_tol)
+
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
         if fp is not None:
             err_pos_gt = math.hypot(fp[0] - gx, fp[1] - gz)
             err_yaw_gt = abs((fp[2] - math.degrees(gyaw) + 180.0) % 360.0 - 180.0)
@@ -596,7 +607,18 @@ def main():
 
     def rotate_in_place(ctx, art, idx, filt, T_base_cam, target_yaw_deg, **kwargs):
         """제자리 회전: 위치는 현재 융합 x,z 그대로 두고 yaw 만 target_yaw_deg 로."""
-        cx, cz, _ = filt.pose()
+        fp = filt.pose()
+        if fp is None:
+            # drive_to_pose 의 fp is None 처리(제어 루프 안에서 0 twist 로 대기하며
+            # 다음 fix 를 기다림)와 달리, 여기서는 대기할 target 자체를 아직 만들 수
+            # 없다(현재 x,z 가 없으면 (cx,cz,target_yaw_deg) 를 구성할 수 없다).
+            # GT 로 대신 채우면 제어 순수성이 깨지고 (0,0) 등으로 채우면 엉뚱한
+            # 좌표로 폭주할 수 있으므로, 조용히 넘기지 않고 명확한 에러로 실패한다.
+            raise RuntimeError(
+                "rotate_in_place: filt 가 아직 시딩되지 않았습니다(filt.pose() is "
+                "None). 회전 전에 filt.set_pose(...) 로 최소 한 번 시딩하거나 "
+                "drive_to_pose 로 먼저 위치를 확보한 뒤 호출하세요.")
+        cx, cz, _ = fp
         return drive_to_pose(ctx, art, idx, filt, T_base_cam, (cx, cz, target_yaw_deg), **kwargs)
 
     odom_mode = "wheel"
