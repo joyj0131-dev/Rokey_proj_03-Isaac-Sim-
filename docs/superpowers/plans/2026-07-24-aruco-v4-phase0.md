@@ -564,12 +564,39 @@ def test_forward_integrates_along_plus_z_when_yaw_zero():
     assert math.isclose(od.x, 0.0, abs_tol=1e-9)
 
 
-def test_left_strafe_integrates_along_minus_x_when_yaw_zero():
-    """+Z 를 볼 때 로봇 좌측(+vy)은 월드 -X 다."""
+def test_left_strafe_integrates_along_plus_x_when_yaw_zero():
+    """+Z 를 볼 때 로봇 좌측(+vy)은 월드 +X 다.
+
+    근거: marker_localizer.PoseFilter.predict_body 의 규약
+    "전방(+X_body)->월드 +Z, 좌(+Y_body)->월드 +X (yaw=0 기준)".
+    바디가 X전방/Y좌/Z상 우수계이고 월드가 Y-up 우수계이므로
+    좌 = 상 x 전방 = (+Y_world) x (+Z_world) = +X_world 다.
+    """
     od = WheelOdometry()
     od.update(0.0, 1.0, 0.0, 1.0)
-    assert math.isclose(od.x, -1.0, abs_tol=1e-9)
+    assert math.isclose(od.x, 1.0, abs_tol=1e-9)
     assert math.isclose(od.z, 0.0, abs_tol=1e-9)
+
+
+def test_matches_calibrated_predict_body():
+    """이미 GT 로 캘리브된 marker_localizer.PoseFilter.predict_body 와 일치해야 한다.
+
+    독립적인 오라클로 검증한다 — 구현이 스스로를 정당화하지 못하게 한다.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(REPO / "src" / "parkbot_aruco"))
+    from parkbot_aruco.marker_localizer import PoseFilter
+
+    for vx, vy, wz, yaw0 in [(1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0),
+                             (0.7, -0.4, 0.0, math.radians(35.0)),
+                             (-0.3, 0.9, 0.0, math.radians(-110.0))]:
+        od = WheelOdometry(yaw=yaw0)
+        od.update(vx, vy, wz, 0.5)
+        pf = PoseFilter()
+        pf.x, pf.z, pf.yaw = 0.0, 0.0, math.degrees(yaw0)
+        pf.predict_body(vx, vy, wz, 0.5)
+        assert math.isclose(od.x, pf.x, abs_tol=1e-9), (vx, vy, yaw0)
+        assert math.isclose(od.z, pf.z, abs_tol=1e-9), (vx, vy, yaw0)
 
 
 def test_yaw_accumulates_and_wraps():
@@ -606,9 +633,13 @@ Create `isaacpjt/Isaac_envo/wheel_odometry.py`:
 #!/usr/bin/env python3
 """휠 엔코더 오도메트리 — 로봇 로컬 twist 를 월드 (x, z, yaw) 로 적분한다.
 
-규약: yaw=0 은 월드 +Z 를 향한다(러너의 odom yaw 계산과 동일).
-따라서 로봇 전진(+vx)은 월드 (sin yaw, cos yaw) 방향,
-로봇 좌측(+vy)은 그를 CCW 90도 돌린 (-cos yaw, sin yaw) 방향이다.
+규약(marker_localizer.PoseFilter.predict_body 와 동일해야 한다):
+  전방(+X_body) -> 월드 +Z,  좌(+Y_body) -> 월드 +X   (yaw=0 기준)
+  nav yaw ψ 에서  전방 = (sinψ,  cosψ),  좌 = (cosψ, -sinψ)   [(x,z) 평면]
+
+바디가 X전방/Y좌/Z상 우수계이고 월드가 Y-up 우수계이므로
+좌 = 상 x 전방 = (+Y_world) x (+Z_world) = +X_world 다.
+좌 항의 부호를 뒤집으면 메카넘 횡이동이 통째로 좌우 반전되어 적분된다.
 
 순수 파이썬이라 Isaac 없이 테스트된다.
 """
@@ -638,8 +669,9 @@ class WheelOdometry:
         s, c = math.sin(yaw_mid), math.cos(yaw_mid)
         fwd = float(vx) * dt
         left = float(vy) * dt
-        self.x += fwd * s - left * c
-        self.z += fwd * c + left * s
+        # 전방=(sinψ, cosψ), 좌=(cosψ, -sinψ). predict_body 와 동일.
+        self.x += fwd * s + left * c
+        self.z += fwd * c - left * s
         self.yaw = _wrap(self.yaw + float(wz) * dt)
 ```
 
