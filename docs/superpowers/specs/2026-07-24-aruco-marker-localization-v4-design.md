@@ -358,3 +358,30 @@ Phase 0 probe 3종을 GUI 관찰형으로 구현·실행하고, 사용자가 수
   실제 데칼(z=±2.9)이 **0.7m 차이**. 슬롯·크로싱 등은 일치. **Phase 1 지도(marker_map)는 도크 마커에
   대해 데칼 실제 위치를 써야 한다** — `aruco:position` 을 그대로 쓰면 도크 근처 측위가 0.7m 틀어진다.
 - 카메라 실제 시선은 월드 +X(로봇 스폰이 RotateX(-90)). 검출·측위 배선에서 좌표축 주의.
+
+---
+
+## 부록 B — Phase 0 최종 리뷰가 남긴 Phase 1 필수 반영 사항
+
+Phase 0 은 "Ready to merge"(Critical 없음)로 통과. 아래는 다음 단계에서 반드시 처리한다.
+
+### 하드 블로커 (Phase 1 배선 전 해결 필수)
+
+1. **`/odom` 좌표 평면 불일치 (XZ vs XY).** v4 러너 `publish_odom` 은 지면 위치를 `position.x`+
+   `position.z` 에 담고 yaw 를 z/w 쿼터니언에 담는다(측위 스택 XZ, Y-up 규약과 일치). 그러나
+   기존 구독자 `parking_control/formation_gap_controller_node._pose_from_odom` 는 `p.x`+`p.y` 를
+   읽는다. yaw 는 왕복하지만 **지면 좌표는 러너가 .z 에 쓰고 컨트롤러가 .y(항상 0)에서 읽어**
+   연결 시 로봇이 한 축에 멈춘 것처럼 보인다. 저장소 전체가 측위=XZ / 이 컨트롤러=XY 로 갈려 있는
+   선행 문제다. Phase 1 에서 프레임 규약을 한쪽으로 통일할 것(측위 스택이 XZ 이므로 컨트롤러를 맞추는 방향 권장).
+
+2. **도크 마커 0.7m 오프셋 (부록 A 참고).** Phase 1 지도 생성은 도크 마커(D_IN/D_OUT)에 대해
+   `aruco:position` 이 아니라 **데칼 실제 위치(z=±2.9)** 를 써야 한다. `marker_map` 생성 시
+   도크 마커는 prim 의 `ComputeLocalToWorldTransform` 로 실제 위치를 읽을 것.
+
+### 다음 단계로 미룬 개선 (병합 가능성과 무관)
+
+- `cmd_vel_from_wheel_velocities` 가 매 호출 lstsq 기저 재구성 — 오도 hot path. 상수 A 캐시.
+- 카메라 attach 블록의 무조건 30틱 루프 제거 또는 정착을 절대값화(현재는 PROBE_SETTLE_FRAMES 로 무력화).
+- `read_markers`(last-wins) / `marker_visual_center`(first-match) 에 serves 중복 assert 추가.
+- `--odom=gt` 에서도 odom 적분(버려짐), `rclpy.shutdown()` 없음, frame_id 슬래시 혼재,
+  계획서의 옛 RTF 기준선(0.305~0.362) 갱신.
