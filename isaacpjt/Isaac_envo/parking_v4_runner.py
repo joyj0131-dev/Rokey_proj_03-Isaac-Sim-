@@ -32,6 +32,33 @@ PHYSICS_HZ = 120.0
 LINEAR_ACCEL = 0.5
 LINEAR_DECEL = 0.8
 ANGULAR_ACCEL = 0.8
+# 회전 오도 보정 배율(Mission Phase B 회전 버그, a869b49 에서 발견: 제자리 90도 회전이
+# GT 대비 ~31° 어긋남). 진단: mecanum_drive.YAW_SCALE=1.12 는 wz~0.5 한 동작점에서만
+# 실측 보정된 근사치이고, cmd_vel_from_wheel_velocities 는 그 IK 의 정확한 최소자승
+# 역이라 "명령된" 회전율을 그대로 돌려줄 뿐 실제 미끄러짐은 반영하지 않는다 — 그래서
+# 오도가 회전을 실제보다 크게 믿는다(진단은 맞았다). 그러나 이 값은 물리 상수 하나로
+# 깔끔히 보정되지 않았다 — 아래는 실측 과정 요약(전체는 taskBROT-report.md):
+#
+# 1) 폐루프(--probe=ROTCHK, entry_lead, n_fix=0 순수오도) 기준선 실측: d_filt_deg=
+#    -89.51 대 d_gt_deg=-58.31 -> scale=0.6514. a869b49 MISSIONB_ROT(entry_follow,
+#    같은 지오메트리) err_yaw_gt=31.39 에서 역산한 값(≈0.6512)과 0.0002 차이로
+#    독립 수렴 — 진단 자체의 신뢰도는 높다.
+# 2) 그런데 0.6514 를 predict_body 에 그대로 적용하면 ROTCHK 가 **더 나빠졌다**
+#    (gt_err_deg 31.69 -> 162.57, 로봇이 -252.57° 까지 과회전). 원인: 이 보정은
+#    폐루프 **안에서** filt 의 수렴 속도(=P 제어기가 명령을 얼마나 오래 유지하는지)
+#    를 바꾸는데, 이 로봇의 실제 제자리회전은 "명령 지속시간"에 따라 물리적 회전율이
+#    비선형·비단조로 변한다(--probe=YAWCAL 로 열린루프 정속회전을 따로 재보니 부호까지
+#    반대인 전혀 다른 값이 나왔다 -2.5~-3.3 — 원래 YAW_SCALE=1.12 를 보정한
+#    mecanum_holonomic_test.py 는 지금과 다른 로봇 에셋(hwia_parking_robot_final_
+#    caster.usd, 현재는 hwia_4cam_mecha_roller_lowered.usd)으로 측정된 것이라 이
+#    에셋에서 재검증된 적이 없었다 — report 참조). 즉 "단일 물리 상수" 가정이 이
+#    폐루프에서는 성립하지 않는다.
+# 3) 그래서 scale 자체를 폐루프 ROTCHK 로 직접 스윕(0.65/0.85/0.95/1.0/1.10/1.11/
+#    1.12/1.15)해 gt_err_deg 최소 지점을 찾았다: 1.10 에서 gt_err_deg=3.45°(재실행시
+#    steps=299,d_gt_deg=-86.55 로 정확히 동일 — 결정적/재현 가능 확인). 31.69° 대비
+#    91% 감소. 이 값은 "물리적 슬립비"가 아니라 이 컨트롤러·래치 구조에 대해 경험적
+#    으로 맞춘 값이다(한계는 report 참조 — 일반화 검증 안 됨, 노이즈 바닥 ~1°).
+YAW_ODOM_SCALE = 1.10
 ROBOT_SPAWN_Y = 0.06
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
@@ -541,10 +568,14 @@ def main():
             dt = min(0.1, max(0.0, now - prev)); prev = now
 
             # ---- 예측: 휠 오도(관절 각속도) -> 바디 twist -> predict_body ----
+            # wz 에만 YAW_ODOM_SCALE 을 곱한다(vx/vy 는 미보정 — probe B 실측상
+            # 선형 오도 드리프트는 이미 낮다, 회전만 별도 버그). --probe=FUSE 는
+            # 이 함수를 쓰지 않고 자체 인라인 predict_body 를 그대로 유지한다(회귀
+            # 방지 기준선 — YAW_ODOM_SCALE 미적용).
             vel = np.asarray(art.get_joint_velocities()).reshape(-1)
             wv = {w: float(vel[i]) for w, i in idx.items()}
             pvx, pvy, pwz = cmd_vel_from_wheel_velocities(wv)
-            filt.predict_body(pvx, pvy, pwz, dt)
+            filt.predict_body(pvx, pvy, pwz * YAW_ODOM_SCALE, dt)
 
             # ---- 보정: 마커 검출 시 fix ----
             pose = detect_current(ctx)
@@ -1255,6 +1286,188 @@ def main():
         print(f"REARXN_DIAG xn=({xn_x:.3f},{xn_z:.3f}) gt=({gx:.3f},{gz:.3f}) "
               f"gt_yaw={math.degrees(gyaw):.1f} fix_err_vs_gt_m={fix_err:.4f} "
               f"last_tried_pose=(x={xn_x + lat:.3f},z={xn_z - d:.3f},yaw~180)", flush=True)
+
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe == "YAWCAL":
+        # Phase B 회전 오도 보정 측정(원인: mecanum_drive.YAW_SCALE=1.12 는 wz~0.5
+        # 한 동작점에서만 실측 보정된 근사치이고, cmd_vel_from_wheel_velocities 는
+        # 그 IK 의 정확한 최소자승 역이라 "명령된" 회전율을 그대로 되돌려줄 뿐 실제
+        # 미끄러짐(roller-slip)은 반영하지 않는다 — 그래서 predict_body 가 회전을
+        # 과대추정한다. a869b49/MISSIONB_ROT 에서 제자리 90도 회전이 GT 대비 ~31°
+        # 어긋나는 것으로 처음 발견됐다(순수 오도 구간, 마커 fix 없음).
+        #
+        # entry_lead 를 스폰 도크(world x=-3.2, 바닥 위 ROBOT_SPAWN_Y, 접지 유지)
+        # 그 자리에서 그대로 열린루프로 제자리 회전시켜 GT(물리) 회전량과 오도(휠
+        # 각속도 기반) 회전량을 동시에 적분·비교한다. 텔레포트하지 않는다 — 이전
+        # 시도가 로봇을 z=+52.2 로 대피시켜 바닥 밖으로 나가 접지를 잃고 바퀴만
+        # 헛돌게 만들어 gt_deg=0.00(무의미) 결과를 낸 실패를 되풀이하지 않기
+        # 위함이다. 옆 도크 entry_follow(x≈-1.2, D_OUT_2)는 ~2m 떨어져 있고
+        # 회전 중인 로봇의 풋프린트는 ~0.7m 반경이라 제자리 회전으로는 충돌하지
+        # 않는다(이 미션의 실제 시나리오 그대로 — 로봇은 도크에서 제자리 회전한다).
+        # 구현 메모(1차 시도 이상 실측 — 정직하게 남긴다, report 참조): 처음엔 브리프
+        # 문구 그대로 wz_cmd 를 slew 없이 "즉시" set_joint_velocity_targets 했다.
+        # 결과가 물리적으로 말이 안 됐다: GT 가 매번 명령 크기(0.6 이든 0.3 이든)와
+        # 거의 무관하게 ~90°를 아주 짧은 시간에 돌았고, 심지어 odom 과 부호가
+        # 반대였다(scale -2.49~-3.09, spread 22%). 이 코드베이스의 다른 모든 경로
+        # (drive_to_pose/FUSE/probe B)는 wz 를 절대 즉시 걸지 않고 항상
+        # slew_twist(ANGULAR_ACCEL)로 램프한다 — 즉시-스텝 명령이 4륜에 순간적으로
+        # 큰 반대부호 토크를 걸어(damping=1500,max_force=6000 속도드라이브) 정상
+        # 미끄러짐이 아니라 튐/불안정 과도응답을 유발한 것으로 보고, 실제 미션이
+        # 로봇을 구동하는 것과 동일한 방식(slew_twist)으로 바꿔 재측정한다. drift_m/
+        # dy_m(수평 이동/부양) 을 함께 로그해 이 재측정이 실제로 "제자리" 회전인지
+        # 진단 근거를 남긴다.
+        from mecanum_drive import (wheel_velocities_from_cmd_vel,
+                                   cmd_vel_from_wheel_velocities, slew_twist)
+
+        target = "entry_lead"
+        art = arts[target]
+        idx = wheel_idx[target]
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+
+        def _spin_measure(wz_cmd, max_deg=90.0, max_steps=4000):
+            """wz_cmd 로 정속 제자리회전(slew_twist 가속 램프 — drive_to_pose/FUSE 와
+            동일한 명령 방식·ANGULAR_ACCEL), GT/오도 회전각을 매 스텝 동시 적분.
+
+            |ΔGT|>=max_deg 에서 조기 종료(그 전이면 max_steps 소진). 반환:
+            (gt_deg, odom_deg, steps, drift_m, dy_m) — 앞 둘은 부호 있는 누적각(도),
+            drift_m/dy_m 은 진단용(수평 이동/부양 — 튐·전복이 아니라 정말 제자리
+            회전인지 확인).
+            """
+            cur_tw = (0.0, 0.0, 0.0)
+            prev = timeline.get_current_time()
+            gx0, gz0, gyaw_prev = gt_pose_xz_yaw(art)
+            y0 = float(np.asarray(art.get_world_poses()[0]).reshape(-1)[1])
+            gt_deg = 0.0
+            odom_deg = 0.0
+            steps = 0
+            for _ in range(max_steps):
+                app.update()
+                steps += 1
+                now = timeline.get_current_time()
+                dt = min(0.1, max(0.0, now - prev)); prev = now
+
+                vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+                wv = {w: float(vel[i]) for w, i in idx.items()}
+                _, _, odom_wz = cmd_vel_from_wheel_velocities(wv)
+                odom_deg += math.degrees(odom_wz * dt)
+
+                _, _, gyaw = gt_pose_xz_yaw(art)
+                dyaw = (gyaw - gyaw_prev + math.pi) % (2.0 * math.pi) - math.pi
+                gt_deg += math.degrees(dyaw)
+                gyaw_prev = gyaw
+
+                cur_tw = slew_twist(cur_tw, (0.0, 0.0, wz_cmd), dt,
+                                    linear_accel=LINEAR_ACCEL, linear_decel=LINEAR_DECEL,
+                                    angular_accel=ANGULAR_ACCEL)
+                omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+                vel_buf[...] = 0.0
+                for w, om in omegas.items():
+                    vel_buf[idx[w]] = om
+                art.set_joint_velocity_targets(vel_buf)
+
+                if abs(gt_deg) >= max_deg:
+                    break
+            gx1, gz1, _ = gt_pose_xz_yaw(art)
+            y1 = float(np.asarray(art.get_world_poses()[0]).reshape(-1)[1])
+            drift_m = math.hypot(gx1 - gx0, gz1 - gz0)
+            # 정지 + 정착(다음 run 이 정지 상태에서 시작하도록).
+            vel_buf[...] = 0.0
+            art.set_joint_velocity_targets(vel_buf)
+            for _ in range(30):
+                app.update()
+            return gt_deg, odom_deg, steps, drift_m, (y1 - y0)
+
+        runs = (("ccw", 0.6), ("cw", -0.6), ("ccw", 0.3))   # 양방향 + 저속 1개
+        scales = []
+        aborted = False
+        for dir_label, wz_cmd in runs:
+            gt_deg, odom_deg, steps, drift_m, dy_m = _spin_measure(wz_cmd)
+            if abs(gt_deg) < 5.0:
+                # 게이트: GT 가 사실상 안 움직였다 — 로봇이 물리적으로 회전하지
+                # 않았다는 뜻(바닥 이탈/접지 상실/미구동 등). scale 을 계산하지
+                # 않고 중단한다(브리프 지시 — 억지로 scale 을 내지 않는다).
+                print(f"YAWCAL_ABORT dir={dir_label} wz={wz_cmd:+.2f} gt_deg={gt_deg:.2f} "
+                      f"odom_deg={odom_deg:.2f} steps={steps} "
+                      "reason=gt_not_moving(robot_not_physically_rotating)", flush=True)
+                aborted = True
+                break
+            scale = gt_deg / odom_deg if abs(odom_deg) > 1e-9 else float("nan")
+            scales.append(scale)
+            print(f"YAWCAL dir={dir_label} wz={wz_cmd:+.2f} gt_deg={gt_deg:.2f} "
+                  f"odom_deg={odom_deg:.2f} scale={scale:.4f} steps={steps} "
+                  f"drift_m={drift_m:.3f} dy_m={dy_m:.3f}", flush=True)
+
+        if not aborted:
+            avg_scale = sum(scales) / len(scales)
+            spread_pct = ((max(scales) - min(scales)) / avg_scale * 100.0
+                          if avg_scale else float("nan"))
+            print(f"YAWCAL_SUMMARY avg_scale={avg_scale:.4f} spread_pct={spread_pct:.2f}",
+                  flush=True)
+
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe == "ROTCHK":
+        # 폐루프 회전 검증(YAW_ODOM_SCALE 적용 후 gt_err_deg 가 줄어드는지 확인).
+        # entry_lead 를 스폰 도크의 GT 자세로 filt 를 시딩하고(스폰 직후라 GT ==
+        # 도크 실좌표 — MISSIONB_ROT 이 쓰는 read_markers 도크좌표 시딩과 동치)
+        # rotate_in_place 로 90도 튼다(spawn yaw≈90 -> target 0, a869b49/MISSIONB_ROT
+        # 과 동일 지오메트리 — 그때 err_yaw_gt≈31.39 실측, 수정 목표는 ≤~3°).
+        #
+        # drive_to_pose 는 매 스텝 detect_current(ctx) 를 호출하므로(크래시 방지) 진짜
+        # 카메라 ctx(fuse_camera_setup)를 만들되 ref_id 를 존재하지 않는 값으로 바꿔
+        # 마커 fix 가 전혀 섞이지 않게 한다 — predict_body 의 YAW_ODOM_SCALE 보정 그
+        # 자체만 격리해서 검증하는 것이 목적이다. T_base_cam 도 None 으로 두는데,
+        # ref_id 불일치로 detect_current 가 항상 None 을 돌려줘 localize_pose 호출
+        # 자체가 없으므로 안전하다(순수 오도 회전 검증).
+        cam_h = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--cam-height="):
+                cam_h = float(a.split("=", 1)[1])
+        target = "entry_lead"
+        art = arts[target]
+        idx = wheel_idx[target]
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h)
+        ctx["ref_id"] = -1     # 존재하지 않는 id -> detect_current 는 항상 None(순수 오도)
+
+        gx0, gz0, gyaw0 = gt_pose_xz_yaw(art)
+        filt = PoseFilter(pos_gain=0.5, yaw_gain=0.9)
+        filt.set_pose(gx0, gz0, math.degrees(gyaw0))
+
+        target_yaw = 0.0
+        rot_res = rotate_in_place(ctx, art, idx, filt, None, target_yaw)
+        fp = filt.pose()
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        gt_yaw_deg = math.degrees(gyaw)
+        gt_err_deg = abs((gt_yaw_deg - target_yaw + 180.0) % 360.0 - 180.0)
+        # seed_yaw/d_filt_deg/d_gt_deg/implied_scale: 진단용 부가 필드. d_filt_deg(필터가
+        # 움직였다고 믿은 양, predict_body 에 이미 현재 YAW_ODOM_SCALE 이 적용된 뒤 값) 대
+        # d_gt_deg(실제 GT 가 움직인 양)의 비율이다 — YAW_ODOM_SCALE=1.0(무보정) 상태로
+        # 돌리면 "폐루프 안에서 필요한 배율"의 기준선을 바로 보여준다(실측: 0.6514,
+        # a869b49 MISSIONB_ROT 역산치 0.6512 와 0.0002 차 독립 수렴). 단, 이 기준선 값을
+        # 그대로 YAW_ODOM_SCALE 에 넣으면 폐루프 피드백 때문에 오히려 악화된다(report 참조
+        # — 최종 채택값은 이 필드를 이용한 폐루프 스윕으로 별도로 찾았다, 1.10). 지금
+        # YAW_ODOM_SCALE(1.10)로 돌리면 implied_scale≈1 에 가깝게 나오는 것이 정상이다
+        # (filt 와 GT 가 서로 잘 맞아간다는 뜻).
+        seed_yaw_deg = math.degrees(gyaw0)
+        d_filt = fp[2] - seed_yaw_deg
+        d_gt = gt_yaw_deg - seed_yaw_deg
+        implied_scale = (d_gt / d_filt) if abs(d_filt) > 1e-6 else float("nan")
+        print(f"ROTCHK target_yaw={target_yaw:.0f} filt_yaw={fp[2]:.2f} "
+              f"gt_yaw={gt_yaw_deg:.2f} gt_err_deg={gt_err_deg:.2f} "
+              f"reached={rot_res['reached']} steps={rot_res['steps']} "
+              f"n_fix={rot_res['n_fix']} seed_yaw={seed_yaw_deg:.2f} "
+              f"d_filt_deg={d_filt:.2f} d_gt_deg={d_gt:.2f} implied_scale={implied_scale:.4f}",
+              flush=True)
 
         if headless:
             app.close(); return
