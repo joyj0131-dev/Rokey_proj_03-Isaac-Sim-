@@ -495,6 +495,11 @@ def main():
             if a.startswith("--cam-height="):
                 cam_h = float(a.split("=", 1)[1])
 
+        n_frames = 1
+        for a in sys.argv[1:]:
+            if a.startswith("--m5-frames="):
+                n_frames = max(1, int(a.split("=", 1)[1]))
+
         target = "entry_lead"
         art = arts[target]
         ref_serves = sm.ROBOT_DOCK_MARKER[target]           # "D_OUT_1"
@@ -574,6 +579,46 @@ def main():
             hit = [p for p in det if int(p.marker_id) == ref_id]
             return (hit[0] if hit else None)
 
+        def capture_frames(d, lat, yaw_deg, k):
+            """같은 자세에서 k 프레임을 잡아 각 프레임의 측위를 리스트로 돌려준다.
+
+            프레임 사이에 app.update() 를 돌려 렌더가 갱신되게 한다. 정지 자세라
+            렌더가 결정론적이면 프레임들이 거의 같아 융합 효과가 없다 — 그 경우
+            single 과 fused 가 비슷하게 나오며, 그것이 정직한 결과다.
+            """
+            poses = []
+            first = place_and_capture(d, lat, yaw_deg)   # 첫 프레임(자세 세팅 포함)
+            gxx, gzz, gyy = gt_pose_xz_yaw(art)           # 이 자세의 GT
+            if first is not None:
+                poses.append(first)
+            for _ in range(k - 1):
+                for _ in range(2):
+                    app.update()
+                frame = rgb_annot.get_data()
+                img = (np.asarray(frame)[:, :, :3]
+                       if frame is not None and len(frame) else None)
+                if img is None:
+                    continue
+                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
+                hit = [p for p in det if int(p.marker_id) == ref_id]
+                if hit:
+                    poses.append(hit[0])
+            return poses, (gxx, gzz, gyy)
+
+        def fuse_localize(poses, T_base_cam):
+            """여러 프레임의 측위(RobotFix)를 융합: x,z 평균 + yaw 원형평균."""
+            fixes = [localize(p, T_base_cam) for p in poses]
+            fixes = [f for f in fixes if f is not None]
+            if not fixes:
+                return None
+            xs = sum(f.x for f in fixes) / len(fixes)
+            zs = sum(f.z for f in fixes) / len(fixes)
+            sy = sum(math.sin(math.radians(f.yaw_deg)) for f in fixes)
+            cy = sum(math.cos(math.radians(f.yaw_deg)) for f in fixes)
+            yaw = math.degrees(math.atan2(sy, cy))
+            return xs, zs, yaw, fixes[0]      # 융합값 + 첫 프레임(단일 비교용)
+
         def localize(pose, T_base_cam):
             T_cm = ML.rvec_tvec_to_T(pose.rvec, pose.tvec)
             return ML.robot_pose_from_marker(ref_id, T_cm, T_base_cam, marker_map)
@@ -628,57 +673,66 @@ def main():
             raise RuntimeError(f"M5 T_base_cam 보정 실패(best_err={best_err:.4f})")
         T_base_cam = best_T
 
-        # ---- 정확도 스윕 ----
-        results = []
+        # ---- 정확도 스윕(단일+융합 동시 측정) ----
+        def err_of(fx, fz, fyaw_deg, gt):
+            gxx, gzz, gyy = gt
+            ex, ez = fx - gxx, fz - gzz
+            dyaw = (fyaw_deg - math.degrees(gyy) + 180.0) % 360.0 - 180.0
+            return math.hypot(ex, ez), abs(dyaw), ex, ez, dyaw
+
+        single_pos, single_yaw = [], []
+        fused_pos, fused_yaw, fused_vec = [], [], []
+        n_total = 0
         for d in (1.3, 1.5, 1.7, 1.9):
             for lat in (-0.15, 0.0, 0.15):
                 for yaw_deg in (-8.0, 0.0, 8.0):
-                    pose = place_and_capture(d, lat, yaw_deg)
-                    if pose is None:
-                        results.append({"d": d, "lat": lat, "yaw": yaw_deg,
-                                        "detected": False})
+                    n_total += 1
+                    poses, gt = capture_frames(d, lat, yaw_deg, n_frames)
+                    if not poses:
                         continue
-                    fix = localize(pose, T_base_cam)
-                    gxx, gzz, gyy = gt_pose_xz_yaw(art)
-                    ex, ez = fix.x - gxx, fix.z - gzz
-                    dyaw = (fix.yaw_deg - math.degrees(gyy) + 180.0) % 360.0 - 180.0
-                    results.append({
-                        "d": d, "lat": lat, "yaw": yaw_deg, "detected": True,
-                        "pos_err_m": math.hypot(ex, ez), "yaw_err_deg": abs(dyaw),
-                        "ex": ex, "ez": ez, "eyaw": dyaw,
-                        "reproj_px": float(pose.reproj_err_px)})
+                    fused = fuse_localize(poses, T_base_cam)
+                    if fused is None:
+                        continue
+                    fx, fz, fyaw, f0 = fused
+                    sp, sy, *_ = err_of(f0.x, f0.z, f0.yaw_deg, gt)   # 단일=첫 프레임
+                    single_pos.append(sp); single_yaw.append(sy)
+                    fp, fy, ex, ez, dyaw = err_of(fx, fz, fyaw, gt)   # 융합
+                    fused_pos.append(fp); fused_yaw.append(fy)
+                    fused_vec.append((ex, ez, dyaw))
 
-        det = [r for r in results if r["detected"]]
-        if not det:
+        if not fused_pos:
             print("M5_RESULT FAIL: 검출 표본 0개", flush=True)
             if headless:
                 app.close()
             raise RuntimeError("M5 검출 표본 0")
-        pos_errs = sorted(r["pos_err_m"] for r in det)
-        yaw_errs = sorted(r["yaw_err_deg"] for r in det)
 
         def p95(a):
-            return a[min(len(a) - 1, int(math.ceil(0.95 * len(a)) - 1))]
-        cov = np.cov(np.array([[r["ex"], r["ez"], r["eyaw"]] for r in det]).T).tolist()
-        pos_p95, yaw_p95 = p95(pos_errs), p95(yaw_errs)
-        ok = (pos_p95 <= 0.02) and (yaw_p95 <= 1.0)
+            b = sorted(a)
+            return b[min(len(b) - 1, int(math.ceil(0.95 * len(b)) - 1))]
+
+        def stats(errs):
+            b = sorted(errs)
+            return {"mean": sum(b) / len(b), "median": b[len(b) // 2],
+                    "p95": p95(b), "max": b[-1]}
+
+        cov = np.cov(np.array(fused_vec).T).tolist() if len(fused_vec) > 1 else None
+        s_pos, s_yaw = p95(single_pos), p95(single_yaw)
+        f_pos, f_yaw = p95(fused_pos), p95(fused_yaw)
+        ok = (f_pos <= 0.02) and (f_yaw <= 1.0)
         report = {
-            "camera_height_m": cam_h, "tbasecam_convention": best_name,
-            "tbasecam_verify_err_m": best_err,
-            "n_samples": len(det), "n_total": len(results),
-            "pos_err_m": {"mean": sum(pos_errs) / len(pos_errs),
-                          "median": pos_errs[len(pos_errs) // 2],
-                          "p95": pos_p95, "max": pos_errs[-1]},
-            "yaw_err_deg": {"mean": sum(yaw_errs) / len(yaw_errs),
-                            "median": yaw_errs[len(yaw_errs) // 2],
-                            "p95": yaw_p95, "max": yaw_errs[-1]},
-            "cov_ex_ez_eyaw": cov, "samples": results,
+            "camera_height_m": cam_h, "frames": n_frames,
+            "tbasecam_convention": best_name, "tbasecam_verify_err_m": best_err,
+            "n_samples": len(fused_pos), "n_total": n_total,
+            "single": {"pos_err_m": stats(single_pos), "yaw_err_deg": stats(single_yaw)},
+            "fused": {"pos_err_m": stats(fused_pos), "yaw_err_deg": stats(fused_yaw)},
+            "cov_ex_ez_eyaw": cov,
         }
         import v4_probes as vp
         path = vp.write_report("m5_accuracy", report)
-        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} "
-              f"pos_p95={pos_p95*100:.2f}cm yaw_p95={yaw_p95:.2f}deg "
-              f"n={len(det)}/{len(results)} conv={best_name} report={path.name}", flush=True)
+        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} frames={n_frames} "
+              f"fused_pos_p95={f_pos*100:.2f}cm fused_yaw_p95={f_yaw:.2f}deg "
+              f"single_pos_p95={s_pos*100:.2f}cm single_yaw_p95={s_yaw:.2f}deg "
+              f"n={len(fused_pos)}/{n_total} report={path.name}", flush=True)
         if headless:
             app.close()
             return
