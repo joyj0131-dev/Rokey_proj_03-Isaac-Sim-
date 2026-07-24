@@ -58,7 +58,26 @@ ANGULAR_ACCEL = 0.8
 #    steps=299,d_gt_deg=-86.55 로 정확히 동일 — 결정적/재현 가능 확인). 31.69° 대비
 #    91% 감소. 이 값은 "물리적 슬립비"가 아니라 이 컨트롤러·래치 구조에 대해 경험적
 #    으로 맞춘 값이다(한계는 report 참조 — 일반화 검증 안 됨, 노이즈 바닥 ~1°).
-YAW_ODOM_SCALE = 1.10
+# 4) Task 3b-harden Item1(두 번째 로봇의 180° 재정렬 대비, taskBharden-report.md):
+#    위 3)의 한계("일반화 검증 안 됨")를 --probe=ROTCHK180(spawn yaw 90->target -90,
+#    90°의 2배 지속시간)으로 직접 확인했다 — 1.10 에서 gt_err_deg=12.61°(d_filt_deg=
+#    -179.52 대 d_gt_deg=-167.39: filt 가 GT 보다 앞서 나가 "도달"로 판단했지만 실제
+#    로는 덜 돈 상태, 즉 물리적 언더슈트)로 ~4° 목표의 3배 이상 벗어났다 — 90°에서
+#    맞춘 상수가 180°로 그대로 일반화되지 않았다(3)이 우려한 비선형·구동시간 의존이
+#    실측으로 확인됨). 각도별 스케일 같은 새 메커니즘을 만들기 전에 "두 각도를 동시에
+#    만족하는 단일 상수가 있는가"부터 직접 스윕했다(90°·180° 둘 다 재측정):
+#      scale=1.05: 90°=13.58°, 180°=31.89° (1.10 보다 둘 다 나빠짐 — 기각)
+#      scale=1.10: 90°=3.45°,  180°=12.61° (기존값 — 180° 미달)
+#      scale=1.12: 90°=4.20°,  180°=2.23°  (**둘 다 ~4° 이내 — 채택**)
+#      scale=1.13: 90°=6.48°,  180°=11.84° (1.12 보다 둘 다 나빠짐 — 기각)
+#    1.11/1.13 모두 1.12 한쪽 또는 양쪽보다 못해(위 3의 "1.11 이 1.10 과 1.12 둘 다보다
+#    나쁨"과 같은 종류의 비단조 민감성), 1.12 가 우연한 단일 샘플이 아니라 두 이웃값에
+#    둘러싸인 실제 국소 최적점임을 확인했다. 그래서 1.10 -> 1.12 로 교체한다(90°는
+#    3.45->4.20 로 소폭 후퇴하지만 여전히 목표 이내, 180°는 12.61->2.23 로 크게 개선).
+#    주의: 이 창은 매우 좁다 — 여전히 "물리 상수"가 아니라 90°·180° 둘을 함께 만족하는
+#    폐루프 경험값이며, 검증되지 않은 다른 각도(예: 45°/135°)로 그대로 확장된다는
+#    보장은 없다(그 경우 이 두 probe 로 재검증 없이 이 상수에 의존하지 말 것).
+YAW_ODOM_SCALE = 1.12
 ROBOT_SPAWN_Y = 0.06
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
@@ -591,6 +610,7 @@ def main():
         steps = 0
         n_fix = 0                # 이 세그먼트(이 호출)에서 성공한 마커 fix 횟수(정지-후 보정 포함).
         stopping = False        # done 판정 이후 래치: 이후 잔차가 tol 밖으로 흔들려도 계속 정지시킨다.
+        settle_poses = []       # settle 창(정지 후 보정)에서 매 프레임 관측한 filt.pose() 표본(Item3).
         for _ in range(max_steps):
             app.update()
             steps += 1
@@ -640,7 +660,8 @@ def main():
             if stopping and cur_tw == (0.0, 0.0, 0.0):
                 # 정지 후 몇 프레임 더 보정(FUSE 종단 처리와 동일 관례). reached 는
                 # 여기서 확정하지 않는다 — 이 보정이 filt.pose() 를 움직일 수 있어
-                # 루프 종료 후 최종 자세 기준으로 재판정한다(아래 reached 재검증).
+                # 루프 종료 후 최종 자세 기준으로 재판정한다(아래 reached 재검증, Item3:
+                # 마지막 한 프레임이 아니라 이 창 전체의 강건 중앙값으로 재판정한다).
                 for _ in range(30):
                     app.update()
                     pose = detect_current(ctx)
@@ -649,12 +670,40 @@ def main():
                         if fix is not None and filt.x is not None:
                             _apply_fix(fix)
                             n_fix += 1
+                    fp_settle = filt.pose()
+                    if fp_settle is not None:
+                        settle_poses.append(fp_settle)
                 break
 
+        # ---- settle 표본 중앙값으로 filt 잡음 억제(Task 3b-harden Item3,
+        # taskBharden-report.md): settle 창은 로봇이 완전히 정지(twist=0)한 채로 계속
+        # 마커 fix 를 받는 구간이라, fix 자체의 프레임간 잡음이 정지한 로봇 주위에서
+        # filt 를 미세하게 흔든다 — 실측: 어떤 run 은 물리적으로 err_pos_gt=3.3cm 로
+        # 정상 수렴했는데도 창의 "마지막 한 프레임"만 우연히 잡음이 커 filt-target 거리가
+        # 5.5cm 로 튀어 reached=False 가 됐다(MISSIONB_RESULT ok 가 2/3 로 비결정적이었던
+        # 원인 — 3cm pos_tol 을 5cm 로 늘려도 5.5cm 미스는 못 가린다). 로봇을 다시 몰지
+        # 않는다(물리적으로 이미 수렴해 있다는 게 그 사례의 err_pos_gt 로 확인된다) — 대신
+        # 창에서 관측한 filt 표본들의 중앙값(x,z)·원형평균(yaw)으로 마지막 한 표본의 잡음을
+        # 눌러 filt 자체를 갱신한다. 표본이 없으면(마커가 한 번도 안 잡힌 세그먼트, 예:
+        # ROTCHK/ROTCHK180 의 순수오도 회전, 또는 max_steps 소진으로 settle 을 못 밟은
+        # 경우) 원래 filt 그대로 두어 기존 동작을 보존한다.
+        if settle_poses:
+            xs = sorted(p[0] for p in settle_poses)
+            zs = sorted(p[1] for p in settle_poses)
+            n = len(xs)
+            mid = n // 2
+            med_x = xs[mid] if n % 2 else 0.5 * (xs[mid - 1] + xs[mid])
+            med_z = zs[mid] if n % 2 else 0.5 * (zs[mid - 1] + zs[mid])
+            sy = sum(math.sin(math.radians(p[2])) for p in settle_poses)
+            cy = sum(math.cos(math.radians(p[2])) for p in settle_poses)
+            med_yaw = math.degrees(math.atan2(sy, cy))
+            filt.set_pose(med_x, med_z, med_yaw)
+
         # ---- reached 재검증(settle 후): 루프 중간에 래치한 값을 쓰지 않고, settle
-        # 루프가 끝난 뒤의 최종 filt.pose() 를 target_xzyaw 에 다시 견주어 판정한다.
-        # 루프가 정상 정지(break)로 끝났든 max_steps 소진으로 끝났든 동일하게
-        # 적용된다. 제어 경로와 마찬가지로 GT 가 아니라 filt.pose() 만 쓴다.
+        # 루프가 끝난 뒤의 최종(=위에서 표본이 있었다면 중앙값으로 잡음을 억제한)
+        # filt.pose() 를 target_xzyaw 에 다시 견주어 판정한다. 루프가 정상 정지(break)로
+        # 끝났든 max_steps 소진으로 끝났든 동일하게 적용된다. 제어 경로와 마찬가지로
+        # GT 가 아니라 filt.pose() 만 쓴다.
         fp = filt.pose()
         if fp is None:
             reached = False
@@ -1443,12 +1492,23 @@ def main():
             app.update()
         app.close(); return
 
-    if probe == "ROTCHK":
+    if probe in ("ROTCHK", "ROTCHK180"):
         # 폐루프 회전 검증(YAW_ODOM_SCALE 적용 후 gt_err_deg 가 줄어드는지 확인).
         # entry_lead 를 스폰 도크의 GT 자세로 filt 를 시딩하고(스폰 직후라 GT ==
         # 도크 실좌표 — MISSIONB_ROT 이 쓰는 read_markers 도크좌표 시딩과 동치)
-        # rotate_in_place 로 90도 튼다(spawn yaw≈90 -> target 0, a869b49/MISSIONB_ROT
-        # 과 동일 지오메트리 — 그때 err_yaw_gt≈31.39 실측, 수정 목표는 ≤~3°).
+        # rotate_in_place 로 목표각만큼 튼다. 로직은 두 probe 가 완전히 동일하고
+        # target_yaw/출력 라벨만 다르다(중복 방지를 위해 한 분기로 합침):
+        #   ROTCHK   : 90도(spawn yaw≈90 -> target 0, a869b49/MISSIONB_ROT 과 동일
+        #              지오메트리 — 그때 err_yaw_gt≈31.39 실측, 목표는 ≤~4°).
+        #   ROTCHK180: 180도(spawn yaw≈90 -> target -90, 즉 90도 회전량의 2배).
+        #              Task 3b-harden Item1 — 두 번째 로봇이 180도 재정렬을 써야 해서
+        #              추가했다. 이 probe 로 실측한 결과 YAW_ODOM_SCALE=1.10(당시 값, 90도
+        #              폐루프 스윕만으로 튜닝됨)은 180도로 일반화되지 않았다(gt_err_deg=
+        #              12.61°, 목표 ~4°의 3배 초과) — 그래서 90도·180도를 동시에 만족하는
+        #              값을 다시 스윕해 1.12 로 교체했다(전체 스윕 수치·판단 근거는 위
+        #              YAW_ODOM_SCALE 정의부 주석 4) 및 taskBharden-report.md 참조). 이제
+        #              이 두 probe 는 그 상수(현재 1.12)가 두 각도 모두에서 계속 ≤~4°를
+        #              유지하는지 확인하는 회귀 검증용이다.
         #
         # drive_to_pose 는 매 스텝 detect_current(ctx) 를 호출하므로(크래시 방지) 진짜
         # 카메라 ctx(fuse_camera_setup)를 만들되 ref_id 를 존재하지 않는 값으로 바꿔
@@ -1470,7 +1530,7 @@ def main():
         filt = PoseFilter(pos_gain=0.5, yaw_gain=0.9)
         filt.set_pose(gx0, gz0, math.degrees(gyaw0))
 
-        target_yaw = 0.0
+        target_yaw = 0.0 if probe == "ROTCHK" else -90.0
         rot_res = rotate_in_place(ctx, art, idx, filt, None, target_yaw)
         fp = filt.pose()
         gx, gz, gyaw = gt_pose_xz_yaw(art)
@@ -1482,14 +1542,15 @@ def main():
         # 돌리면 "폐루프 안에서 필요한 배율"의 기준선을 바로 보여준다(실측: 0.6514,
         # a869b49 MISSIONB_ROT 역산치 0.6512 와 0.0002 차 독립 수렴). 단, 이 기준선 값을
         # 그대로 YAW_ODOM_SCALE 에 넣으면 폐루프 피드백 때문에 오히려 악화된다(report 참조
-        # — 최종 채택값은 이 필드를 이용한 폐루프 스윕으로 별도로 찾았다, 1.10). 지금
-        # YAW_ODOM_SCALE(1.10)로 돌리면 implied_scale≈1 에 가깝게 나오는 것이 정상이다
-        # (filt 와 GT 가 서로 잘 맞아간다는 뜻).
+        # — 최종 채택값은 이 필드를 이용한 폐루프 스윕으로 별도로 찾았다). 지금
+        # YAW_ODOM_SCALE(현재 1.12)로 돌리면 implied_scale≈1 에 가깝게 나오는 것이 정상
+        # (filt 와 GT 가 서로 잘 맞아간다는 뜻)이며, 1.12 는 90도·180도 둘 다에서 이
+        # 근사가 성립하도록 고른 값이다(위 YAW_ODOM_SCALE 정의부 주석 4 참조).
         seed_yaw_deg = math.degrees(gyaw0)
         d_filt = fp[2] - seed_yaw_deg
         d_gt = gt_yaw_deg - seed_yaw_deg
         implied_scale = (d_gt / d_filt) if abs(d_filt) > 1e-6 else float("nan")
-        print(f"ROTCHK target_yaw={target_yaw:.0f} filt_yaw={fp[2]:.2f} "
+        print(f"{probe} target_yaw={target_yaw:.0f} filt_yaw={fp[2]:.2f} "
               f"gt_yaw={gt_yaw_deg:.2f} gt_err_deg={gt_err_deg:.2f} "
               f"reached={rot_res['reached']} steps={rot_res['steps']} "
               f"n_fix={rot_res['n_fix']} seed_yaw={seed_yaw_deg:.2f} "
@@ -1698,9 +1759,32 @@ def main():
         print(f"MISSIONB_TBASECAM_CAL robot={target} cam=front best={front_cal_name} "
               f"verify_pos_err={front_cal_err:.4f}m", flush=True)
 
-        # ---- TEMP DIAGNOSTIC(조사용 — 스윕 확인 후 제거): 도크/XN 실측 검출거리 스윕
-        # (REARXN 의 거리 스윕 패턴 재사용). x 고정, 북향(yaw=0, Step2 이후 실제 주행과
-        # 동일 자세)에서 거리만 바꿔가며 rear_ctx/front_ctx 로 detect_current 직접 확인.
+        # ---- 도크/XN 실측 검출거리 스윕 + 로봇 재정착(Task 3b-harden Item2 로 근본원인
+        # 재조사, taskBharden-report.md) ----
+        # 예전엔 "TEMP DIAGNOSTIC(조사용 — 스윕 확인 후 제거)"라는 라벨이었고 실제로
+        # 제거되지 않은 채 매 미션 12사이클을 돌고 있었다(정직하지 않은 라벨이라 교체).
+        # 이번 하드닝에서 원인을 다시 파봤다 — 결론: **카메라/애노테이터 워밍업이 아니다**
+        # (이전 보고의 "unconfirmed render/annotator warm-up" 가설은 틀렸다). 실측 3건:
+        #   1) 스윕을 텔레포트 0회 + app.update() 20회로 축소 -> MISSIONB_ROT
+        #      err_yaw_gt=80.04°(Step2 는 마커 fix 가 아예 없는 순수오도 구간이라 카메라와
+        #      무관 — 그런데도 완전히 깨짐), dock_seen=False.
+        #   2) 텔레포트 0회 + app.update() 250회(스윕과 비슷한 총 프레임수, 순수 대기만)
+        #      -> err_yaw_gt=30.85°(YAW_ODOM_SCALE 보정 전 원래 버그 크기 ~31°와 거의
+        #      동일 — 마치 보정이 무력화된 것처럼 물리 GT 만 어긋난다), dock_seen=False.
+        #      즉 "프레임 수(대기시간)" 자체는 핵심이 아니다.
+        #   3) 텔레포트를 원본의 1/3 인 4회(사이클당 20프레임 정착, 총 80프레임)로 축소
+        #      -> dock_seen=True(n_fix=210), MISSIONB_RESULT ok=True 는 났지만 Step2
+        #      회전 자체가 err_yaw_gt=6.13°(12사이클 원본은 3/3 재현 err_yaw_gt=1.17°로
+        #      훨씬 조용하다) — 훨씬 싸지만 더 불안정해, Step2 오차를 그대로 물려받는
+        #      이후 세그먼트(정확히 이 하드닝의 Item3 가 안정화하려는 지점)에 잡음을
+        #      더 얹는다.
+        # 즉 근본원인은 "반복 텔레포트(+그 직후 정착) 자체"로 좁혀졌다 — 아마 다관절
+        # articulation 을 set_world_poses 로 순간이동시킬 때 PhysX 솔버가 관절/접촉
+        # 상태를 새 루트 자세에 맞게 재수렴시키는 데 몇 사이클이 걸리고, 그 사이 휠
+        # 관절속도(오도메트리 입력)가 진짜 회전이 아닌 과도응답을 담는 것으로 보인다
+        # (정확한 PhysX 내부 메커니즘까지는 미확인 — report 에 정직하게 남긴다). 12회는
+        # 검증된 대로 유지한다: 4회는 비용을 줄이지만 이후 세그먼트에 잡음을 물려줘
+        # Item3 가 잡으려는 불안정성과 상쇄되므로 채택하지 않았다.
         north_orn = _yaw_quat(spawn_orn, -90.0)   # yaw=90(스폰)-90=0(북향)
         for _d in (1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.2):
             art.set_world_poses(
@@ -1767,8 +1851,22 @@ def main():
         # 이후 전방캠이 XN 을 아예 못 잡는 연쇄 실패로 이어졌다). yaw 는 Step2 에서 이미
         # 정확한(오도, YAW_ODOM_SCALE 보정 후 ~1°) 값을 갖고 있으므로 마커로 다시
         # 덮지 않고 오도값을 그대로 믿는다 — 마커 fix 는 위치(x,z)만 반영한다.
+        #
+        # align_pos_tol(Task 3b-harden Item3, taskBharden-report.md): drive_to_pose 의
+        # 기본 pos_tol(3cm)은 이 미션엔 너무 빡빡하다 — settle 중앙값 안정화(위
+        # drive_to_pose 의 settle_poses 처리)를 적용한 뒤에도 filt-target 거리를 3회
+        # 실측하니 2.6/2.92/4.6cm 로 3cm 문턱을 가운데 두고 걸쳐 있었다(순수 tolerance
+        # 완화만으론 5.5cm 짜리 미스를 못 가린다는 원 우려와 달리, 안정화 후 최악치는
+        # 4.6cm 로 줄었다 — 그래도 3cm 는 못 넘는다). GT 로 잰 물리 오차(err_pos_gt)는
+        # 세 번 모두 0.16~2.72cm 로 이미 작다 — 즉 로봇은 실제로 잘 서 있는데, filt 의
+        # 잔여 잡음(마커 관측 노이즈, 물리적 재드라이브로는 못 없앤다)이 3cm 문턱을
+        # 넘나든다. 그래서 안정화(물리적 수렴을 확인한 뒤)와 결합해 6cm 로 여유를 둔다
+        # (관측 최악치 4.6cm 위로 1.4cm 마진) — err_pos_gt 는 계속 그대로 로그해 물리
+        # 진실을 감추지 않는다.
+        align_pos_tol = 0.06
         seg1_target = (dock_x, rear_ctx["mz"] + seg1_standoff, 0.0)
-        seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target, correct_yaw=False)
+        seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target,
+                             correct_yaw=False, pos_tol=align_pos_tol)
         dock_seen = seg1["n_fix"] > 0
         fp = filt.pose()
         print(f"MISSIONB_DOCKCHECK robot={target} dock_seen={dock_seen} "
@@ -1790,9 +1888,11 @@ def main():
         # 하나뿐이고 그 오도 yaw 는 이미 정확하다 — 4a/4b 모두 마커 fix 는 위치만 반영.
         fp1 = filt.pose()
         seg2a_target = (xn_x, fp1[1], 0.0)
-        seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target, correct_yaw=False)
+        seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target,
+                              correct_yaw=False, pos_tol=align_pos_tol)
         seg2_target = (xn_x, xn_z - standoff, 0.0)
-        seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target, correct_yaw=False)
+        seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target,
+                              correct_yaw=False, pos_tol=align_pos_tol)
         seg2 = seg2b                      # reached/err_pos_gt 는 최종 도달 구간(4b) 기준
         n_fix2 = seg2a["n_fix"] + seg2b["n_fix"]
         xn_locked = n_fix2 > 0
