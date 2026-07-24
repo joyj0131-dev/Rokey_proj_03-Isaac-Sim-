@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
-"""인계장 전체 환경 ROS2 촉발 도킹·리프트·오미 운반 Isaac 러너.
+"""v3 주차장(parking_environment_v3.usd) 기반 도킹·리프트·오미 운반 Isaac 러너.
 
-씬: 주차장 전체 환경(parking_environment_v2.usd) + 출차 인계 구역의
-Pickup + A3의 Offroad + 낮춘 바퀴 로봇 2대(입·출차 로봇 대기 도크).
-프로그램 켜두고 대기 — parking_robot_system의 액션 서버·오케스트레이터가 구동.
+v1 러너(dock_lift_handoff_runner.py)를 팀원의 소형 주차장 에셋(v3)에 맞춰 변형한 것.
+v1 원본은 그대로 보존한다.
+
+씬 구성:
+  - 주차장 전체 환경 parking_environment_v3.usd (PhysX VehicleContext·ArUco 마커 14장 내장).
+  - 로봇 2대(낮춘 깊이캠+메카넘 로봇)를 v3의 두 로봇 도크에 배치:
+      robot_rear  -> EntryRobotDock  dockPose (-8.5, 0, -1.7)
+      robot_front -> ExitRobotDock   dockPose (-8.5, 0,  1.7)
+  - 입차 차량 Pickup 을 게이트 바깥 에이프런(z+ 쪽) (-17.3, 0.040, +5.5) 에
+      yaw=-90(길이축을 x축에 맞추고 게이트를 등짐)으로 배치. 운전자가 두고 간 상태.
+      -> 콜라이더 폭 보정 + 축 좌표 계산 + /vehicle/pose 발행.
+      (참고: 실내 대기 베이 ExitVehicleWait(-8.5,*,+5.5)=ArUco id 51 은 별도 구역이다.)
+  - 오프로드 차를 슬롯 A3 (9.6, 0.035, 0) 에 이미 주차된 상태로 배치(출차/장애물 대상).
+      -> 구동계 유지(레이캐스트 서스펜션이 지지해 안정). /parking_slots 에서 A3 점유로 보고.
 
 ROS2: /robot_N/cmd_vel 구독, /robot_N/odom 발행(x,y=높이,z,yaw),
-      /robot_N/arm_control 서비스, /vehicle/pose 발행.
+      /robot_N/arm_control 서비스, /vehicle/pose(운반 대상 Pickup) 발행,
+      /parking_slots(A1~A3 점유) 발행. parking_robot_system 의 액션 서버·오케스트레이터가 구동.
 
-실행: dock_lift_handoff_runner.sh [--gui] [--headless-test]
+실행: dock_lift_handoff_runner_v2.sh [--gui] [--headless-test] [--drive-test]
 """
 import json
 import math
@@ -18,7 +30,10 @@ import time
 from pathlib import Path
 
 WORK_DIR = Path(__file__).resolve().parent
-PARKING_USD = WORK_DIR / "parking" / "parking_environment_v2.usd"
+# 팀원이 환경 에셋을 v2 -> v3 로 갈아끼웠다(좌표는 동일: 슬롯 A1~A3 x=2.8/6.2/9.6 z=0,
+# 도크 (-8.5,0,+-1.7), 에이프런 (-17.3,-0.055,+-5.5) 8x5, 실내 바닥 윗면 y=0, 마커 14장).
+# 파일명이 계속 바뀌므로 없으면 무엇이 있는지 찍어주고 즉시 죽는다(조용한 오작동 방지).
+PARKING_USD = WORK_DIR / "parking" / "parking_environment_v3.usd"
 ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
              / "hwia_depth_cam_mecha_roller_lowered.usd")
 VEHICLES_USD = WORK_DIR / "fab_vehicles.usd"
@@ -26,17 +41,15 @@ ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/r
 BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
                     "/exts/isaacsim.ros2.bridge/humble/rclpy")
 
-TARGET_VEHICLE = "Pickup"
-VEHICLE_PATH = f"/World/VehicleAsset/Vehicles/{TARGET_VEHICLE}"
-PARKED_VEHICLE = "Offroad"
+# 운반 대상(입차) + 이미 주차된 차(출차/장애물).
+CARRY_VEHICLE = "Pickup"                       # 인계장 z+ 에서 슬롯으로 운반할 대상
+PARKED_VEHICLE = "Offroad"                     # 슬롯 A3 에 이미 주차돼 있는 차
+CARRY_VEHICLE_PATH = f"/World/VehicleAsset/Vehicles/{CARRY_VEHICLE}"
 PARKED_VEHICLE_PATH = f"/World/VehicleAsset/Vehicles/{PARKED_VEHICLE}"
-ACTIVE_VEHICLES = (TARGET_VEHICLE, PARKED_VEHICLE)
 FAB_VEHICLE_TYPES = ("Compact", "Coupe", "Hatchback", "Minivan", "Offroad",
                      "Pickup", "Sedan", "Sport", "SUV", "Wagon")
+KEEP_VEHICLES = (CARRY_VEHICLE, PARKED_VEHICLE)
 TARGET_COLLIDER_WIDTH = 0.30
-# ROS odom/vehicle pose 발행이 app.update()에 묶여 있어 30Hz로 낮추면 운반 중 wall-time
-# 피드백률이 7Hz 아래로 떨어지고 차량 heading 최대 오차가 1.22deg까지 증가했다.
-# 제어 안정성을 위해 timeline은 60Hz를 유지하고, 해상도와 headless viewport만 줄인다.
 RENDER_HZ = 60.0
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 400
@@ -44,55 +57,55 @@ PHYSICS_HZ = 120.0
 LINEAR_ACCEL = 0.5       # m/s^2, body X/Y 벡터 가속도
 LINEAR_DECEL = 0.8       # m/s^2, 감속·반전은 조금 더 빠르게
 ANGULAR_ACCEL = 0.8      # rad/s^2
-VEHICLE_SPAWN_Y = 0.035
-PICKUP_ANCHOR = "/World/ParkingEnvironment/VehicleWaitAreas/ExitVehicleWait"
-OFFROAD_ANCHOR = "/World/ParkingEnvironment/Spaces/A3"
-PLACEMENT = {}
+
+# 입차 차량은 게이트 **바깥** 외부 에이프런에 둔다(z+ 쪽 = ExitApron 패드).
+#   패드: 중심 x=-17.3, z=+5.5, 크기 8(x) x 5(z) -> x∈[-21.3,-13.3], z∈[3.0,8.0]
+#   표면 높이: Floor cube scale.y=0.12, translate.y=-0.055 -> 윗면 y=+0.005
+#   (실내 바닥은 scale.y=0.12, translate.y=-0.06 -> 윗면 y=0.0. 에이프런이 5mm 높다.)
+# 따라서 실내와 같은 3.5cm 여유를 주려면 0.005+0.035 = 0.040.
+CARRY_VEHICLE_POS = (-17.3, 0.040, 5.5)
+# 패드가 x로 8m / z로 5m라 길이축을 x축에 맞춰야 들어간다. 차량 길이축은 로컬 +Z 이고
+# RotateY(t) 는 로컬 +Z 를 (sin t, 0, cos t) 로 보낸다.
+# yaw=-90 -> 월드 -X, 즉 게이트(x=-13.15) 를 **등지고** 바깥(서쪽)을 향해 선다.
+CARRY_VEHICLE_YAW_DEG = -90.0
+# 슬롯 A3 중심. v2 Spaces/A3 = (9.6, *, 0).
+PARKED_VEHICLE_POS = (9.6, 0.035, 0.0)
+
 ARM_TARGETS = {
     "arm_left_front_joint": 90.0, "arm_left_rear_joint": -90.0,
     "arm_right_front_joint": -90.0, "arm_right_rear_joint": 90.0,
 }
 VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", "RearRightWheel")
 
-# 입차 로봇은 -Z 도크, 출차 로봇은 +Z 도크. 둘 다 도크 메타데이터의 +X 방향을 본다.
+# 로봇: robot_rear -> EntryRobotDock, robot_front -> ExitRobotDock. 초기엔 +X 향함(도크 기본).
+ROBOT_SERVICE = "/World/ParkingEnvironment/RobotServiceArea"
 ROBOTS = {
     "rear":  {"xform": "/World/Robots/robot_rear",
-              "dock": "/World/ParkingEnvironment/RobotServiceArea/EntryRobotDock"},
+              "dock": f"{ROBOT_SERVICE}/EntryRobotDock"},
     "front": {"xform": "/World/Robots/robot_front",
-              "dock": "/World/ParkingEnvironment/RobotServiceArea/ExitRobotDock"},
+              "dock": f"{ROBOT_SERVICE}/ExitRobotDock"},
 }
 AXLE = {}
 
-# --- /parking_slots 발행용 ---
-_HALF_LEN, _HALF_WID = 3.3, 1.7
-_ACCESSIBLE = set()
-
-
-def _all_slots_usd(stage):
-    """v2 USD의 슬롯 메타데이터에서 중심 좌표를 읽는다."""
-    slots = {}
-    spaces = stage.GetPrimAtPath("/World/ParkingEnvironment/Spaces")
-    if not spaces or not spaces.IsValid():
-        raise RuntimeError("주차 슬롯 메타데이터 없음: /World/ParkingEnvironment/Spaces")
-    for prim in spaces.GetChildren():
-        center = prim.GetAttribute("parking:center").Get()
-        if center is None:
-            continue
-        slots[prim.GetName()] = (float(center[0]), float(center[2]), 0.0)
-    if not slots:
-        raise RuntimeError("parking:center가 정의된 주차 슬롯이 없습니다.")
-    return slots
+# --- /parking_slots 발행용 (v2 는 A1~A3 세 칸. Spaces/A{i} 중심 z=0) ---
+# (x_center, z_center, yaw_deg). 점유 판정은 차량 world (x,z) 가 슬롯 박스 안인지로 한다.
+_SLOTS_V2 = {"A1": (2.8, 0.0, 0.0), "A2": (6.2, 0.0, 0.0), "A3": (9.6, 0.0, 0.0)}
+_HALF_LEN, _HALF_WID = 2.5, 1.7          # z(길이축) 반, x(폭) 반
+_ACCESSIBLE = {"A1"}
 
 
 def _vehicle_world_positions(stage):
-    """활성 차량(Pickup/Offroad)의 world (x,z)."""
+    """활성 fab 차량(운반 대상 + 주차 차량)의 world (x,z)."""
+    import omni.usd
     from pxr import UsdGeom
     positions = []
-    for name in ACTIVE_VEHICLES:
-        prim = stage.GetPrimAtPath(f"/World/VehicleAsset/Vehicles/{name}")
-        if not prim or not prim.IsValid() or not prim.IsActive():
+    root = stage.GetPrimAtPath("/World/VehicleAsset/Vehicles")
+    if not root or not root.IsValid():
+        return positions
+    for child in root.GetChildren():
+        if not child.IsActive() or not child.IsA(UsdGeom.Xformable):
             continue
-        m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(0)
+        m = UsdGeom.Xformable(child).ComputeLocalToWorldTransform(0)
         t = m.ExtractTranslation()
         positions.append((float(t[0]), float(t[2])))
     return positions
@@ -135,30 +148,6 @@ def _dock_position(stage, dock_path):
     return tuple(float(c) for c in v)
 
 
-def _layout_vehicle_pose(stage, anchor_path, *, heading_default=0.0):
-    """레이아웃 프림의 parking:center/heading을 차량 월드 pose로 변환한다."""
-    prim = stage.GetPrimAtPath(anchor_path)
-    if not prim or not prim.IsValid():
-        raise RuntimeError(f"차량 배치 기준 프림 없음: {anchor_path}")
-    center = prim.GetAttribute("parking:center").Get()
-    if center is None:
-        raise RuntimeError(f"parking:center 없음: {anchor_path}")
-    heading = prim.GetAttribute("parking:heading").Get()
-    if heading is None:
-        heading = heading_default
-    return (float(center[0]), VEHICLE_SPAWN_Y, float(center[2])), float(heading)
-
-
-def _place_vehicle(UsdGeom, Gf, prim, pos, heading_deg):
-    """로컬 +Z가 차량 전방인 fab 차량을 v2 레이아웃 heading으로 배치한다."""
-    xf = UsdGeom.Xformable(prim)
-    xf.ClearXformOpOrder()
-    m = Gf.Matrix4d(1.0)
-    m.SetRotate(Gf.Rotation(Gf.Vec3d(0.0, 1.0, 0.0), heading_deg))
-    m.SetTranslateOnly(Gf.Vec3d(*pos))
-    xf.AddTransformOp().Set(m)
-
-
 def _place_robot_dock(UsdGeom, Gf, prim, pos):
     """도크에 로봇을 세운다(Z-up->Y-up). 초기 방향은 +X(도크 기본, 회전은 미션이)."""
     xf = UsdGeom.Xformable(prim)
@@ -167,26 +156,37 @@ def _place_robot_dock(UsdGeom, Gf, prim, pos):
     xf.AddRotateXOp().Set(-90.0)
 
 
-def _apply_vehicle_context(stage):
-    """주차장 씬의 PhysicsScene에 PhysX Vehicle 컨텍스트 + 리프트 안정화 설정을 붙인다.
+def _place_vehicle(UsdGeom, Gf, prim, pos, yaw_deg=0.0):
+    """차량을 world pos 에 yaw_deg 로 놓는다.
 
-    주차장 에셋의 차량(주차칸·인계장)은 전부 PhysX Vehicle 프림인데 에셋의
-    PhysicsScene 에는 VehicleContext 가 없어(applied schemas=[]) play 시 구동계가
-    기본값으로 오작동해 폭발한다(=사용자가 본 '차가 벽으로 떨어짐'). Plan 3 러너와
-    동일 설정을 세션 레이어에서 덮어 적용한다.
+    차량 길이축은 로컬 +Z. xformOpOrder=[translate, rotateY] 는 T*R 이므로
+    로컬 원점에서 회전한 뒤 이동한다. RotateY(t) 는 로컬 +Z 를 (sin t, 0, cos t) 로
+    보내므로 yaw=0 이면 월드 +Z(세로), yaw=90 이면 월드 +X 를 향한다.
     """
-    from pxr import UsdPhysics
+    xf = UsdGeom.Xformable(prim)
+    xf.ClearXformOpOrder()
+    xf.AddTranslateOp().Set(Gf.Vec3d(*pos))
+    if abs(float(yaw_deg)) > 1e-9:
+        xf.AddRotateYOp().Set(float(yaw_deg))
+
+
+def _apply_vehicle_context(stage):
+    """v2 PhysicsScene 에 GPU/120Hz PhysX 설정을 보강한다.
+
+    v2 에셋의 PhysicsScene 은 이미 PhysxVehicleContextAPI 를 갖고 있으나(에셋 저작 시),
+    Broadphase/Solver/GPU/timestep 등 씬 물리 설정은 명시돼 있지 않을 수 있다. v1 러너와
+    동일한 설정을 세션 레이어에서 덮어 결정론적 GPU 120Hz 로 맞춘다(재적용은 idempotent).
+    """
     from pxr import PhysxSchema
     sc = stage.GetPrimAtPath("/World/PhysicsScene")
     if not sc or not sc.IsValid():
-        raise RuntimeError("주차장 PhysicsScene 없음 — vehicle context 적용 불가")
+        raise RuntimeError("v2 PhysicsScene 없음 — vehicle context 적용 불가")
     px = PhysxSchema.PhysxSceneAPI.Apply(sc)
     px.CreateBroadphaseTypeAttr("GPU")
     px.CreateSolverTypeAttr("TGS")
     px.CreateEnableCCDAttr(True)
     px.CreateEnableStabilizationAttr(True)
     px.CreateEnableGPUDynamicsAttr(True)
-    # 120Hz를 유지하되 cmd_vel 가속도 제한으로 롤러 접촉에 들어가는 토크 충격을 줄인다.
     px.CreateTimeStepsPerSecondAttr(PHYSICS_HZ)
     vctx = PhysxSchema.PhysxVehicleContextAPI.Apply(sc)
     vctx.CreateUpdateModeAttr(PhysxSchema.Tokens.velocityChange)
@@ -195,39 +195,22 @@ def _apply_vehicle_context(stage):
 
 
 def _disable_unused_scene(stage):
-    """미션에 필요 없는 차량·센서·차량 충돌 그룹을 세션 레이어에서 비활성화한다.
+    """미션에 필요 없는 천장 라이다를 세션 레이어에서 비활성화한다(원본 미수정).
 
-    원본 주차장 USD는 수정하지 않는다. v2는 차량을 포함하지 않지만 이전 USD와 함께
-    사용할 때 남아 있을 수 있는 `/World/ParkingVehicles`도 방어적으로 비활성화한다.
-    Pickup과 Offroad는 별도 `/World/VehicleAsset` 아래에 추가되므로 영향을 받지 않는다.
+    v2 는 v1 과 달리 사전 배치된 주차 차량(/World/ParkingVehicles)이 없다. /World/VehiclePhysics
+    는 타이어 마찰 테이블·충돌 그룹·바닥 그룹을 정의하므로 살려둔다(끄면 차량 접지가 깨진다).
     """
-    vehicle_count = 0
-    parking_vehicles = stage.GetPrimAtPath("/World/ParkingVehicles")
-    if parking_vehicles and parking_vehicles.IsValid():
-        for container_name in ("Parked", "HandoffQueue"):
-            container = stage.GetPrimAtPath(f"/World/ParkingVehicles/{container_name}")
-            if container and container.IsValid():
-                vehicle_count += len(container.GetChildren())
-        parking_vehicles.SetActive(False)
-
     sensors = stage.GetPrimAtPath("/World/Sensors")
     sensor_count = 0
     if sensors and sensors.IsValid():
         sensor_count = sum(
-            "Lidar" in child.GetName() and not child.GetName().endswith("Mount")
-            for child in sensors.GetChildren())
+            "Lidar" in child.GetName() for child in sensors.GetChildren())
         sensors.SetActive(False)
-
-    # 제거된 주차 차량만 사용하던 collision group 메타데이터도 제외한다.
-    vehicle_physics = stage.GetPrimAtPath("/World/VehiclePhysics")
-    if vehicle_physics and vehicle_physics.IsValid():
-        vehicle_physics.SetActive(False)
-
-    return vehicle_count, sensor_count
+    return sensor_count
 
 
 def build_stage(app):
-    from pxr import Gf, UsdGeom, UsdPhysics
+    from pxr import Gf, UsdGeom
     import omni.usd
 
     ctx = omni.usd.get_context()
@@ -236,24 +219,26 @@ def build_stage(app):
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
     stage.SetTimeCodesPerSecond(RENDER_HZ)
-    # 주차장 전체 환경을 서브레이어로(물리씬·인계장·차량 vehicle context 포함).
-    # 런타임 익명 stage라 절대경로(상대경로는 CWD에 의존해 깨짐).
+    # v2 주차장 전체 환경을 서브레이어로. 런타임 익명 stage라 절대경로.
+    if not PARKING_USD.is_file():
+        avail = sorted(p.name for p in PARKING_USD.parent.glob("parking_environment*.usd"))
+        raise RuntimeError(
+            f"주차장 에셋 없음: {PARKING_USD}\n"
+            f"  parking/ 안에 있는 것: {avail}\n"
+            f"  팀원이 파일명을 바꿨다면 PARKING_USD 상수를 갱신할 것.")
     stage.GetRootLayer().subLayerPaths.append(str(PARKING_USD))
     world = stage.GetPrimAtPath("/World")
     if not world or not world.IsValid():
-        raise RuntimeError("서브레이어에서 /World를 찾지 못했습니다.")
+        raise RuntimeError(f"서브레이어 {PARKING_USD.name} 에서 /World를 찾지 못했습니다.")
     stage.SetDefaultPrim(world)
-    # 주차장 PhysicsScene 에 vehicle context 보강(차량 폭발 방지).
     _apply_vehicle_context(stage)
     for _ in range(30):
         app.update()
 
-    # 기존 주차·대기 차량과 천장 RTX LiDAR를 끈 뒤 요청한 두 차량만 별도로 추가한다.
-    disabled_vehicles, disabled_sensors = _disable_unused_scene(stage)
-
+    disabled_sensors = _disable_unused_scene(stage)
     _grip_material(stage)
 
-    # fab 전체 참조 후 Pickup과 Offroad만 활성화(재질·차량물리 바인딩 유지).
+    # fab 전체 참조 후 Pickup·Offroad 만 남기고 재배치(재질·차량물리 바인딩 유지).
     asset = stage.DefinePrim("/World/VehicleAsset", "Xform")
     asset.GetReferences().AddReference(str(VEHICLES_USD))
     for _ in range(20):
@@ -263,44 +248,48 @@ def build_stage(app):
         if p and p.IsValid():
             p.SetActive(False)
     for vt in FAB_VEHICLE_TYPES:
-        if vt in ACTIVE_VEHICLES:
+        if vt in KEEP_VEHICLES:
             continue
         p = stage.GetPrimAtPath(f"/World/VehicleAsset/Vehicles/{vt}")
         if p and p.IsValid():
             p.SetActive(False)
 
-    pickup_pos, pickup_heading = _layout_vehicle_pose(stage, PICKUP_ANCHOR)
-    offroad_pos, offroad_heading = _layout_vehicle_pose(stage, OFFROAD_ANCHOR)
-    PLACEMENT.clear()
-    PLACEMENT.update(
-        Pickup={"pos": pickup_pos, "heading": pickup_heading},
-        Offroad={"pos": offroad_pos, "heading": offroad_heading},
-    )
-    for name, path in ((TARGET_VEHICLE, VEHICLE_PATH),
-                       (PARKED_VEHICLE, PARKED_VEHICLE_PATH)):
-        prim = stage.GetPrimAtPath(path)
-        if not prim or not prim.IsValid():
-            raise RuntimeError(f"{name} 없음: {path}")
-        spec = PLACEMENT[name]
-        _place_vehicle(UsdGeom, Gf, prim, spec["pos"], spec["heading"])
+    carry = stage.GetPrimAtPath(CARRY_VEHICLE_PATH)
+    if not carry or not carry.IsValid():
+        raise RuntimeError(f"{CARRY_VEHICLE} 없음: {CARRY_VEHICLE_PATH}")
+    _place_vehicle(UsdGeom, Gf, carry, CARRY_VEHICLE_POS, CARRY_VEHICLE_YAW_DEG)
+
+    parked = stage.GetPrimAtPath(PARKED_VEHICLE_PATH)
+    if not parked or not parked.IsValid():
+        raise RuntimeError(f"{PARKED_VEHICLE} 없음: {PARKED_VEHICLE_PATH}")
+    _place_vehicle(UsdGeom, Gf, parked, PARKED_VEHICLE_POS)
     for _ in range(20):
         app.update()
 
-    n_fixed = sum(_fix_vehicle_colliders(stage, path)
-                  for path in (VEHICLE_PATH, PARKED_VEHICLE_PATH))
+    # 콜라이더 폭 보정·축 계산은 운반 대상(Pickup)에만. 주차된 Offroad 는 구동계 유지로 안정.
+    n_fixed = _fix_vehicle_colliders(stage, CARRY_VEHICLE_PATH)
 
     cache = UsdGeom.XformCache()
     centers = {}
     for wn in VEHICLE_WHEELS:
-        w = stage.GetPrimAtPath(f"{VEHICLE_PATH}/{wn}")
+        w = stage.GetPrimAtPath(f"{CARRY_VEHICLE_PATH}/{wn}")
         if not w.IsValid():
-            raise RuntimeError(f"휠 없음: {VEHICLE_PATH}/{wn}")
+            raise RuntimeError(f"휠 없음: {CARRY_VEHICLE_PATH}/{wn}")
         centers[wn] = cache.GetLocalToWorldTransform(w).ExtractTranslation()
-    front_z = (centers["FrontLeftWheel"][2] + centers["FrontRightWheel"][2]) * 0.5
-    rear_z = (centers["RearLeftWheel"][2] + centers["RearRightWheel"][2]) * 0.5
-    center_x = sum(c[0] for c in centers.values()) / 4.0
-    AXLE.update(rear_z=min(front_z, rear_z), front_z=max(front_z, rear_z),
-                center_x=center_x)
+    # 차량이 yaw 로 돌아가면 앞/뒤 축을 가르는 세계축이 z 에서 x 로 바뀐다.
+    # 길이축 방향 u=(sin yaw, 0, cos yaw) 에 투영해 앞/뒤를 가르고, 축 중심은
+    # 그와 직교한 횡축 v=(cos yaw, 0, -sin yaw) 로 잡는다.
+    yaw_rad = math.radians(CARRY_VEHICLE_YAW_DEG)
+    u = (math.sin(yaw_rad), math.cos(yaw_rad))      # (x, z) 길이축
+    v = (math.cos(yaw_rad), -math.sin(yaw_rad))     # (x, z) 횡축
+    def _proj(c, a):
+        return float(c[0]) * a[0] + float(c[2]) * a[1]
+    front_l = (_proj(centers["FrontLeftWheel"], u) + _proj(centers["FrontRightWheel"], u)) * 0.5
+    rear_l = (_proj(centers["RearLeftWheel"], u) + _proj(centers["RearRightWheel"], u)) * 0.5
+    lateral_c = sum(_proj(c, v) for c in centers.values()) / 4.0
+    AXLE.update(rear_l=min(front_l, rear_l), front_l=max(front_l, rear_l),
+                lateral_c=lateral_c, yaw_deg=CARRY_VEHICLE_YAW_DEG,
+                wheelbase=abs(front_l - rear_l))
 
     # 로봇 2대 도크 배치
     UsdGeom.Xform.Define(stage, "/World/Robots")
@@ -311,17 +300,13 @@ def build_stage(app):
         _place_robot_dock(UsdGeom, Gf, r, pos)
     for _ in range(30):
         app.update()
+    print(f"DOCK_STAGE_READY carry={CARRY_VEHICLE}@{CARRY_VEHICLE_POS}"
+          f"yaw={CARRY_VEHICLE_YAW_DEG:.0f} parked={PARKED_VEHICLE}@{PARKED_VEHICLE_POS} "
+          f"axle rear_l={AXLE['rear_l']:.3f} front_l={AXLE['front_l']:.3f} "
+          f"wheelbase={AXLE['wheelbase']:.3f} lateral_c={AXLE['lateral_c']:.3f} "
+          f"colliders_fixed={n_fixed}", flush=True)
     print(
-        "DOCK_STAGE_READY "
-        f"parking={PARKING_USD.name} "
-        f"pickup_pos={pickup_pos} pickup_heading={pickup_heading:.1f}deg "
-        f"offroad_pos={offroad_pos} offroad_heading={offroad_heading:.1f}deg "
-        f"axle rear_z={AXLE['rear_z']:.3f} front_z={AXLE['front_z']:.3f} "
-        f"center_x={center_x:.3f} colliders_fixed={n_fixed}",
-        flush=True)
-    print(
-        f"SCENE_OPTIMIZED disabled_vehicles={disabled_vehicles} "
-        f"disabled_sensors={disabled_sensors} "
+        f"SCENE_OPTIMIZED disabled_sensors={disabled_sensors} "
         f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
         f"physics={PHYSICS_HZ:.0f}Hz",
         flush=True)
@@ -341,8 +326,6 @@ def main():
         "headless": headless,
         "width": RENDER_WIDTH,
         "height": RENDER_HEIGHT,
-        # 자동시험은 화면을 소비하지 않으므로 렌더 프레임 갱신 자체를 생략한다.
-        # --gui에서는 False라 640x400 viewport를 그대로 볼 수 있다.
         "disable_viewport_updates": headless,
     })
     try:
@@ -391,76 +374,68 @@ def main():
 
         if "--headless-test" in sys.argv[1:]:
             from isaacsim.core.prims import RigidPrim
-
             def _p(a):
                 return np.asarray(a.get_world_poses()[0]).reshape(-1)[:3]
-
-            def _vehicle_pose(rb):
-                pos, orn = rb.get_world_poses()
-                p = np.asarray(pos).reshape(-1)[:3]
-                q = np.asarray(orn).reshape(-1)[:4]
-                w, x, y, z = (float(v) for v in q)
-                axis_x = 2.0 * (x * z + w * y)
-                axis_z = 1.0 - 2.0 * (x * x + y * y)
-                return p, math.degrees(math.atan2(axis_x, axis_z))
-
-            vehicle_rb = {
-                TARGET_VEHICLE: RigidPrim(VEHICLE_PATH),
-                PARKED_VEHICLE: RigidPrim(PARKED_VEHICLE_PATH),
-            }
+            carry_rb = RigidPrim(CARRY_VEHICLE_PATH)
+            parked_rb = RigidPrim(PARKED_VEHICLE_PATH)
+            def _rb_p(rb):
+                return np.asarray(rb.get_world_poses()[0]).reshape(-1)[:3]
             p0 = {k: _p(a) for k, a in arts.items()}
-            v0 = {name: _vehicle_pose(rb)[0] for name, rb in vehicle_rb.items()}
+            carry0, parked0 = _rb_p(carry_rb), _rb_p(parked_rb)
             for _ in range(180):
                 app.update()
             p1 = {k: _p(a) for k, a in arts.items()}
-            v1 = {name: _vehicle_pose(rb) for name, rb in vehicle_rb.items()}
+            carry1, parked1 = _rb_p(carry_rb), _rb_p(parked_rb)
             disp = {k: float(np.linalg.norm(p1[k] - p0[k])) for k in arts}
-            vehicle_disp = {
-                name: float(np.linalg.norm(v1[name][0] - v0[name]))
-                for name in vehicle_rb
-            }
-            robot_xz_error = {}
-            for key, cfg in ROBOTS.items():
-                dock = _dock_position(stage, cfg["dock"])
-                robot_xz_error[key] = float(np.linalg.norm(
-                    p1[key][[0, 2]] - np.asarray([dock[0], dock[2]])))
-            vehicle_xz_error = {}
-            vehicle_yaw_error = {}
-            for name, (pos, yaw_deg) in v1.items():
-                expected = PLACEMENT[name]
-                vehicle_xz_error[name] = float(np.linalg.norm(
-                    pos[[0, 2]] - np.asarray([expected["pos"][0], expected["pos"][2]])))
-                vehicle_yaw_error[name] = abs(
-                    (yaw_deg - expected["heading"] + 180.0) % 360.0 - 180.0)
-            slot_table = _all_slots_usd(stage)
-            slots_ok = (
-                set(slot_table) == {"A1", "A2", "A3"}
-                and np.linalg.norm(
-                    np.asarray(slot_table["A3"][:2])
-                    - np.asarray([PLACEMENT[PARKED_VEHICLE]["pos"][0],
-                                  PLACEMENT[PARKED_VEHICLE]["pos"][2]])) < 1e-4
-            )
-
-            # vehicle context가 없으면 play 시 수 m 튄다. 위치·방향도 요청한 레이아웃
-            # 메타데이터에서 벗어나지 않는지 함께 검사한다.
+            carry_disp = float(np.linalg.norm(carry1 - carry0))
+            parked_disp = float(np.linalg.norm(parked1 - parked0))
             robots_ok = all(d < 0.35 for d in disp.values())
-            vehicle_stable = all(d < 0.30 for d in vehicle_disp.values())
-            placement_ok = (
-                all(e < 0.20 for e in robot_xz_error.values())
-                and all(e < 0.20 for e in vehicle_xz_error.values())
-                and all(e < 1.0 for e in vehicle_yaw_error.values())
-                and slots_ok
-            )
-            ok = robots_ok and vehicle_stable and placement_ok
+            carry_ok = carry_disp < 0.30
+            parked_ok = parked_disp < 0.30
+            ok = robots_ok and carry_ok and parked_ok
             print(f"DOCK_PHYSICS_TEST={'PASS' if ok else 'FAIL'} "
-                   f"robot_disp={ {k: round(v,4) for k,v in disp.items()} } "
-                   f"vehicle_disp={ {k: round(v,4) for k,v in vehicle_disp.items()} } "
-                   f"robot_xz_error={ {k: round(v,4) for k,v in robot_xz_error.items()} } "
-                   f"vehicle_xz_error={ {k: round(v,4) for k,v in vehicle_xz_error.items()} } "
-                   f"vehicle_yaw_error_deg="
-                   f"{ {k: round(v,3) for k,v in vehicle_yaw_error.items()} } "
-                   f"slots={sorted(slot_table)} slots_ok={slots_ok}",
-                   flush=True)
+                  f"robot_disp={ {k: round(v,4) for k,v in disp.items()} } "
+                  f"carry_disp={carry_disp:.4f} parked_disp={parked_disp:.4f} "
+                  f"carry_pos1={ [round(float(v),2) for v in carry1] } "
+                  f"parked_pos1={ [round(float(v),2) for v in parked1] }", flush=True)
+            app.close()
+            return
+
+        if "--drive-test" in sys.argv[1:]:
+            # ROS 없이 메카넘 구동만 검증한다. v2 바닥/마찰에서 로봇이 실제로
+            # 전진·횡이동하는지 확인하는 용도(--headless-test 는 정지 안정성만 본다).
+            def _pos(a):
+                return np.asarray(a.get_world_poses()[0]).reshape(-1)[:3]
+
+            def run_twist(tw, steps):
+                cur = {k: (0.0, 0.0, 0.0) for k in arts}
+                prev = timeline.get_current_time()
+                for _ in range(steps):
+                    app.update()
+                    now = timeline.get_current_time()
+                    dt = min(0.1, max(0.0, now - prev))
+                    prev = now
+                    for k in arts:
+                        cur[k] = slew_twist(
+                            cur[k], tw, dt, linear_accel=LINEAR_ACCEL,
+                            linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+                        apply_wheel_velocity(k, *cur[k])
+
+            run_twist((0.0, 0.0, 0.0), 60)          # 정착
+            p0 = {k: _pos(a) for k, a in arts.items()}
+            run_twist((0.35, 0.0, 0.0), 180)        # 전진 3s
+            run_twist((0.0, 0.0, 0.0), 60)
+            p1 = {k: _pos(a) for k, a in arts.items()}
+            run_twist((0.0, 0.35, 0.0), 180)        # 좌 strafe 3s
+            run_twist((0.0, 0.0, 0.0), 60)
+            p2 = {k: _pos(a) for k, a in arts.items()}
+            fwd = {k: float(np.linalg.norm(p1[k] - p0[k])) for k in arts}
+            strafe = {k: float(np.linalg.norm(p2[k] - p1[k])) for k in arts}
+            ok = (all(v > 0.30 for v in fwd.values())
+                  and all(v > 0.30 for v in strafe.values()))
+            print(f"DRIVE_TEST={'PASS' if ok else 'FAIL'} "
+                  f"forward={ {k: round(v,3) for k,v in fwd.items()} } "
+                  f"strafe={ {k: round(v,3) for k,v in strafe.items()} }", flush=True)
             app.close()
             return
 
@@ -472,18 +447,14 @@ def main():
         from std_srvs.srv import SetBool
         from std_msgs.msg import String as RosString
         from isaacsim.core.prims import RigidPrim
-        # ROS2 Bridge가 환경에 따라 내부 context를 먼저 초기화할 수 있다.
-        # 이미 활성인 context에 init()을 다시 호출하면 Isaac 기동 직후 종료된다.
         if not rclpy.ok():
             rclpy.init()
-        node = rclpy.create_node("dock_lift_handoff_bridge")
+        node = rclpy.create_node("dock_lift_handoff_v2_bridge")
         veh_pub = node.create_publisher(PoseStamped, "/vehicle/pose", 10)
-        veh_rb = RigidPrim(VEHICLE_PATH)
+        veh_rb = RigidPrim(CARRY_VEHICLE_PATH)
 
         def make_cb(key):
             def cb(msg):
-                # 콜백에서는 목표만 갱신한다. 실제 휠 목표는 시뮬레이션 시간 기준
-                # slew-rate limiter를 거쳐 출발·정지·반전 충격을 줄인다.
                 target_twist[key] = (
                     float(msg.linear.x), float(msg.linear.y), -float(msg.angular.z))
             return cb
@@ -521,9 +492,8 @@ def main():
         for key in arts:
             node.create_service(SetBool, f"/robot_{key}/arm_control", make_arm_cb(key))
 
-        print(f"DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] "
+        print(f"DOCK_LIFT_HANDOFF_V2_READY robots=['robot_rear','robot_front'] "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
-        _SLOT_TABLE = _all_slots_usd(stage)
         _slot_tick = 0
         _rtf_wall = time.monotonic()
         _rtf_sim = timeline.get_current_time()
@@ -573,9 +543,6 @@ def main():
             vp = np.asarray(veh_pos).reshape(-1)[:3]
             vq = np.asarray(veh_orn).reshape(-1)[:4]
             vw, vx, vy, vz = (float(v) for v in vq)
-            # 차량의 길이축은 로컬 +Z다. 월드 XZ 평면으로 투영한 길이축의
-            # yaw(0=월드 +Z)를 ROS식 z/w quaternion으로 담는다. Isaac의 원래
-            # Y-up quaternion을 그대로 넣으면 ROS 소비자가 Z-up yaw로 오해한다.
             vehicle_axis_x = 2.0 * (vx * vz + vw * vy)
             vehicle_axis_z = 1.0 - 2.0 * (vx * vx + vy * vy)
             vehicle_yaw = math.atan2(vehicle_axis_x, vehicle_axis_z)
@@ -588,15 +555,15 @@ def main():
             ps.pose.orientation.z = math.sin(vehicle_yaw * 0.5)
             ps.pose.orientation.w = math.cos(vehicle_yaw * 0.5)
             veh_pub.publish(ps)
-            # /parking_slots: 시뮬레이션 시간 기준 약 2Hz.
             _slot_tick += 1
             if _slot_tick % max(1, int(RENDER_HZ / 2.0)) == 0:
                 positions = _vehicle_world_positions(stage)
                 arr = []
-                for sid, (sx, sz, yaw) in _SLOT_TABLE.items():
-                    occ = any(abs(vx - sx) <= _HALF_WID and abs(vz - sz) <= _HALF_LEN
-                              for vx, vz in positions)
-                    arr.append({"slot_id": sid, "occupied": occ, "is_accessible": sid in _ACCESSIBLE,
+                for sid, (sx, sz, yaw) in _SLOTS_V2.items():
+                    occ = any(abs(px - sx) <= _HALF_WID and abs(pz - sz) <= _HALF_LEN
+                              for px, pz in positions)
+                    arr.append({"slot_id": sid, "occupied": occ,
+                                "is_accessible": sid in _ACCESSIBLE,
                                 "x": round(sx, 3), "y": round(-sz, 3), "yaw_deg": yaw})
                 msg = RosString(); msg.data = json.dumps(arr); slots_pub.publish(msg)
         app.close()

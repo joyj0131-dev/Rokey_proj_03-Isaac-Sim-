@@ -400,34 +400,203 @@
   일반화, 무해). **진짜 해법은 미적용** — 가상중심 협조제어(설계노트 a37a1fc): carry_to에
   차 heading P제어(두 로봇 차분 스트래이프로 formation 회전 보정) 추가 필요. 사용자와 상의 후 진행.
 
-### 운반 heading 가상강체 폐루프 적용 — 최종 오차 1° 이내 2회 재현
-- **기준 재현(240Hz, A2 풀 E2E)**: 기존 `wz=0` 제어는 작업 자체는 `DONE`이지만 운반 시작
-  대비 차량 최종 heading 오차 **-3.764°**, 최대 **3.764°**.
-- **구현**:
-  - runner가 `/vehicle/pose.orientation`에 차량 로컬 +Z 길이축의 월드 heading을 발행.
-  - `carry_to`가 운반 시작 heading을 고정하고 차량 quaternion을 피드백(없으면 로봇 baseline 폴백).
-  - heading P출력 `omega`를 두 로봇에 같은 자전으로만 주지 않고, 가상중심 기준
-    `V_i = V_center + omega × r_i` 접선속도까지 분배해 하나의 강체 운동으로 만듦.
-  - 위치와 heading(<0.5°)이 모두 수렴해야 leg 종료, 최종 1° 초과 시 액션 실패.
-- **게인**: `Kp=0.8`, `omega_max=0.10rad/s`, deadband=0.10°, leg tol=0.50°.
-- **GPU Isaac 240Hz A2 풀 E2E 결과**(동일 설정 2회, 모두 `DONE`):
+### 운반 heading 폐루프 + 두 로봇 가상 중심 강체 제어 적용
+- **기준 재현(물리 240Hz, A2 풀 E2E)**: 기존 `wz=0` 운반은 작업 상태는 `DONE`이지만
+  운반 시작 대비 차량 heading 최종 오차가 **-3.764°**, 최대 오차도 **3.764°**였다.
+- **차량 자세 피드백 추가**:
+  - Isaac runner가 `/vehicle/pose.orientation`에 차량 로컬 +Z 길이축의 월드 heading을 발행.
+  - `carry_to()`는 운반 시작 heading을 기준값으로 고정하고 차량 quaternion을 우선 피드백으로
+    사용한다. 차량 자세가 없을 때만 두 로봇 baseline 방향으로 폴백한다.
+- **가상 중심 속도 분배**:
+  - 매 제어 주기 두 로봇 중점 `C=(P_rear+P_front)/2`를 가상 중심으로 계산.
+  - 각 로봇 상대 위치 `r_i=P_i-C`를 계산.
+  - 각 로봇에 강체 속도식 `V_i = V_center + ω × r_i`를 적용.
+  - 따라서 두 로봇이 각자 제자리에서 같은 방향으로만 도는 대신, 차량을 포함한 편대 전체가
+    가상 중심 주위로 회전하는 데 필요한 서로 다른 접선속도를 받는다.
+- **heading 제어값**:
+  - `Kp=0.8`
+  - `omega_max=0.10rad/s`
+  - deadband `0.10°`
+  - leg 종료 heading tolerance `0.50°`
+  - 최종 오차가 `1°`를 넘으면 운반 성공으로 처리하지 않는다.
+- **240Hz GPU Isaac 재현 2회**:
   1. 차량 최대 **0.555°**, 최종 **+0.066°**, formation 최대 **0.700°**,
-     baseline 길이 최대 변화 **0.0159m**.
+     baseline 길이 변화 최대 **0.0159m**.
   2. 차량 최대 **0.605°**, 최종 **-0.128°**, formation 최대 **0.767°**,
-     baseline 길이 최대 변화 **0.0155m**.
-- **판정**: 두 번 모두 운반 전 구간과 최종값이 1° 이내이며 baseline 변형도 1.6cm 이내.
-  추가 게인 상승은 접촉 진동 여지만 늘리므로 현 설정으로 확정.
+     baseline 길이 변화 최대 **0.0155m**.
+- **판정**: 두 번 모두 차량 방향 오차 1° 이내. 추가 게인 상승은 접촉 진동을 키울 수 있어
+  현재 heading 게인을 유지했다.
 
-### 인계장 앞·뒤축 동시 진입
-- **기존 문제**: rear가 차량 북쪽에서 뒷축까지 먼저 깊게 진입한 뒤 front가 같은 북쪽
-  진입로로 앞축에 들어가는 직렬 시퀀스여서 두 번째 로봇이 오래 대기했다.
+### 인계장 앞축·뒤축 동시 진입
+- **기존 문제**: rear 로봇이 먼저 차량 뒤쪽으로 완전히 들어간 뒤에야 front 로봇이 움직이는
+  직렬 시퀀스라 대기 시간이 길고 두 로봇의 움직임이 어긋나 보였다.
 - **변경**:
-  - rear는 남쪽 스테이징 `(center_x, -4.0)`에서 `+z`를 바라보고 뒷축으로 진입.
-  - front는 북쪽 스테이징 `(center_x, +4.0)`에서 `-z`를 바라보고 앞축으로 진입.
-  - 남·북 스테이징 접근, 반대 방향 회전, 각 축 진입을 모두 병렬 제어.
-  - 독립 목표 yaw를 같은 tick에 처리하는 `rotate_parallel()` 추가.
-- **GPU Isaac 240Hz A2 풀 E2E**:
-  - 동시 진입 완료 후 리프트·운반·하차·복귀까지 `DONE`.
+  - rear는 차량 남쪽 스테이징에서 `+z` 방향으로 뒷축에 진입.
+  - front는 차량 북쪽 스테이징에서 `-z` 방향으로 앞축에 진입.
+  - 게이트 접근, 남·북 스테이징 이동, 반대 방향 회전, 각 축 진입을 같은 제어 tick에서 병렬 수행.
+  - 서로 다른 목표 yaw를 동시에 처리하는 `rotate_parallel()` 추가.
+- **240Hz GPU Isaac A2 풀 E2E**:
+  - 동시 진입 → 리프트 → 운반 → 하차 → 복귀까지 `DONE`.
   - 차량 heading 최대 **0.529°**, 최종 **-0.079°**.
-  - formation 최대 **0.771°**, baseline 길이 최대 변화 **0.0154m**.
-  - 로그: `/tmp/parking-heading-e2e.rVP2g2`.
+  - formation 최대 **0.771°**, baseline 길이 변화 최대 **0.0154m**.
+
+### 시뮬레이션 속도·단위·RTF 조사
+- **단위**:
+  - USD stage는 `metersPerUnit=1.0`, 즉 길이 단위는 **m**.
+  - `/cmd_vel.linear.x`, `/cmd_vel.linear.y`는 **m/s**.
+  - `/cmd_vel.angular.z`는 **rad/s**.
+  - 메카넘 IK가 계산한 휠 목표속도는 **rad/s**.
+- **240Hz 전체 runner 유휴 RTF 실측**: **0.305~0.306**.
+  - 실제로 시뮬레이션 1초가 wall time 약 3.3초 걸리므로 체감 약 0.3배속이라는 설명이 맞았다.
+  - 주행 명령 속도만 느리게 설정된 문제가 아니라 PhysX 접촉·메카넘 롤러·ROS 처리까지 포함한
+    전체 시뮬레이션 처리량이 병목이었다.
+- **환경 경고**:
+  - GPU는 PCIe 최대 x16, 현재 x8 경고가 출력됨.
+  - 이것이 주 병목이라는 증거는 없으며, 현재 workload는 PhysX 접촉 계산 영향이 더 크다.
+  - CPU governor가 `powersave`로 보고됐지만 이 로그 작성 시점까지 영구 설정 변경은 하지 않았다.
+
+### 픽업 외 차량·센서 비활성화 및 렌더 경량화
+- **런타임 scene pruning**:
+  - `/World/ParkingVehicles` 아래 현재 USD에 존재하는 주차·대기 차량 **8대** 비활성화.
+  - 차량 하위 rigid body, wheel, collider도 함께 PhysX와 렌더 대상에서 제외.
+  - `/World/Sensors`의 천장 RTX LiDAR **2대** 비활성화.
+  - 제거 차량 전용 `/World/VehiclePhysics` 충돌 그룹 비활성화.
+  - 인계장 Pickup은 별도 `/World/VehicleAsset` 아래에 있어 유지.
+  - 원본 USD는 수정하지 않고 runner의 익명 session layer에서만 비활성화한다.
+- **렌더 설정**:
+  - `1280x800 → 640x400`.
+  - headless 실행에서는 viewport update를 완전히 비활성화.
+  - GUI 실행에서는 640x400 viewport 유지.
+- **30Hz 실험은 최종 적용하지 않음**:
+  - timeline 30Hz 풀 E2E는 작업은 `DONE`이었지만 차량 heading 최대 오차 **1.219°**로
+    1° 기준을 실패했다.
+  - 운반 중 RTF 약 0.225에서 `/odom`과 `/vehicle/pose` 발행이 `app.update()`에 묶여 있어
+    wall-time 피드백률이 약 6.8Hz까지 떨어진 것이 원인.
+  - 최종 timeline은 제어 안정성을 위해 **60Hz** 유지.
+- **240Hz 최종 검증 당시 결과**:
+  - 유휴 RTF `0.305~0.306 → 0.335`, 약 **9.7% 개선**.
+  - A2 풀 E2E `DONE`.
+  - 차량 heading 최대 **0.755°**, 최종 **-0.096°**.
+  - formation 최대 **0.687°**, baseline 길이 변화 최대 **0.0155m**.
+- **판정**: 장면 최적화만으로 체감 속도가 크게 바뀌지는 않았다. RTF가 여전히 약 0.3이라
+  “속도 문제 해결”로 판단하지 않고 소폭 개선으로만 기록한다.
+
+### 물리 120Hz 유지 결정 + 단독 주행 휘청임 분석
+- 사용자 결정으로 Physics timestep을 **120Hz**로 변경하고 이후 유지.
+- **휘청임 원인 분석**:
+  - 단순 횡슬립만의 문제라기보다 물리 스텝 감소로 접촉 해상도가 낮아진 상태에서,
+    휠당 10개인 이산 메카넘 롤러의 접점 전환과 강한 속도 drive 충격이 겹치는 현상으로 판단.
+  - 기존 `/cmd_vel` 콜백은 목표 휠 속도를 즉시 변경.
+  - hub drive 기본값은 `damping=1500`, `max_force=6000`.
+  - 제어 주기는 20Hz이고 최고 직선 명령은 최대 1.08m/s라 출발·정지·반전 시 충격 가능성이 컸다.
+  - 슬립은 주로 경로·yaw 드리프트로 나타나고, 눈에 보이는 roll/pitch 휘청임은 접촉점 전환과
+    토크 step 입력의 영향이 더 크다고 판단했다.
+- **이번에 실제 적용한 것**: 최고속도는 유지하고 body twist에 simulation-time 가속도 제한 추가.
+  - X/Y 벡터 가속도 **0.50m/s²**.
+  - 감속·반전 **0.80m/s²**.
+  - 각가속도 **0.80rad/s²**.
+  - X/Y를 축별 제한하지 않고 벡터 크기로 제한해 대각선 가속도가 `sqrt(2)`배가 되지 않도록 함.
+  - ROS callback은 목표 twist만 저장하고 runner loop가 현재 twist를 목표까지 점진적으로 적용.
+  - wall time이 아니라 simulation time delta를 써 RTF 변화와 무관하게 동일하게 동작.
+- **120Hz GPU Isaac A2 풀 E2E**:
+  - 작업 상태 `DONE`.
+  - 차량 heading 최대 **0.628°**, 최종 **-0.358°**.
+  - formation 최대 **0.862°**, 최종 **-0.222°**.
+  - baseline 길이 변화 최대 **0.0146m**.
+  - 유휴/접근 RTF 약 **0.348~0.362**, 접촉 운반 중 약 **0.251~0.283**,
+    복귀 후 구간은 약 **0.40~0.56**.
+- **검증 한계**: headless E2E로 기능·정밀도는 확인했지만, 차체의 시각적 휘청임 감소량은
+  roll/pitch baseline을 따로 기록하지 않아 정량 비교하지 못했다.
+- **아직 적용하지 않은 후보**:
+  - hub drive damping/max_force 하향.
+  - articulation solver iteration 증가.
+  - 휠당 롤러 수 증가 또는 단순화된 접촉 모델.
+
+### 현재 가상 중심 제어의 정확한 적용 범위
+- `carry_to()` 직선·횡방향 운반에서는 두 로봇 중점을 가상 중심으로 두고
+  `V_i = V_center + ω × r_i`를 적용한다.
+- 병진 목표는 가상 중심 자체가 아니라 `/vehicle/pose`의 차량 위치 오차를 사용한다.
+- heading은 차량 quaternion을 우선 사용하고 없을 때 두 로봇 baseline으로 폴백한다.
+- 두 로봇 사이 거리 오차를 직접 닫는 별도 제어, 접촉력/하중 분배 제어는 없다.
+- `carry_rotate_to()`는 현재 가상 중심 접선속도를 계산하지 않고 두 로봇에 동시 제자리 회전을
+  명령하므로 완전한 가상 강체 회전 제어는 아니다.
+- 진입·리프트·하차·개별 복귀에는 가상 중심 제어를 사용하지 않는다.
+
+### 구형·임시 파일 정리
+- 현재 사용 명령은 다음 runner이며 보존:
+  - `bash isaacpjt/Isaac_envo/dock_lift_handoff_runner.sh --gui`
+- 삭제한 구형 오케스트레이터/runner:
+  - `dock_lift_mission.py`
+  - `dock_lift_runner.py`, `dock_lift_runner.sh`
+  - `dock_lift_handoff_mission.py`, `dock_lift_handoff_mission.sh`
+- 현재 런타임에서 사용하지 않는 일회성 demo/experiment/check/probe/verify 스크립트,
+  전용 USD/GIF, heading E2E 디버깅 도구와 생성 캐시를 삭제.
+- 구형 `dock_lift_mission.py`만 사용하던 `parkbot_aruco/dock_lift_state.py`와 전용 테스트도 삭제.
+- `__pycache__`, `.pytest_cache`, `*.pyc` 재생성을 Git에서 제외하도록 `.gitignore` 추가.
+- 보존한 핵심:
+  - `dock_lift_handoff_runner.py/.sh`
+  - `mecanum_drive.py`
+  - Pickup/로봇/주차장 필수 USD
+  - `parking_robot_system` 9개 ROS2 노드
+  - 정식 `src/*/test` 단위 테스트
+  - 에셋 재생성 스크립트
+- **삭제 후 검증**:
+  - 남은 정식 단위 테스트 **82 passed**.
+  - `dock_lift_handoff_runner.sh --headless-test`:
+    `DOCK_PHYSICS_TEST=PASS`, 로봇 정지 변위 0, Pickup 정착 변위 0.0020m.
+  - runner 시작 로그:
+    `render=640x400@60Hz physics=120Hz`,
+    `linear_accel=0.50m/s²`, `linear_decel=0.80m/s²`,
+    `angular_accel=0.80rad/s²`.
+
+### 현재 남은 주의사항
+- 120Hz는 사용자가 유지하기로 확정한 설정이다. 240Hz보다 접촉이 거칠 수 있으므로 이후 튜닝은
+  물리 주파수를 되돌리기보다 가속도, hub drive, solver iteration 순으로 진행한다.
+- 임시 전체 E2E 실행 스크립트는 정리 요청에 따라 삭제됐다. 이후 전체 자동 검증을 다시 하려면
+  Git 기록에서 복구하거나 새 정식 테스트 도구로 재작성해야 한다.
+- 과거 테스트에서 생성한 `/tmp/parking-heading-e2e.*` 로그 경로는 임시 디렉터리이므로
+  장기 보존을 기대하면 안 된다. 핵심 수치는 이 문서에 남겼다.
+
+## 2026-07-24 — parking_environment_v2 초기 객체 배치
+
+### 새 주차장 연결
+- 사용자가 추가한 실제 파일명은 `parking_environment_v2.usd`다.
+  요청문에 적힌 `parking_environmnet_v2.usd`(environment 철자 순서 오류)는 존재하지 않았다.
+- 활성 `dock_lift_handoff_runner.py`가 기존 `parking_environment_with_markers.usd` 대신
+  `parking_environment_v2.usd`를 서브레이어로 사용하도록 변경했다.
+- v2 USD 규약은 `metersPerUnit=1`, `upAxis=Y`이며 객체 배치 평면은 X–Z다.
+- 배치 좌표를 runner에 중복 하드코딩하지 않고 다음 USD 사용자 속성에서 읽는다.
+  - 입차 로봇: `EntryRobotDock.robot:dockPose = (-8.5, 0, -1.7)`
+  - 출차 로봇: `ExitRobotDock.robot:dockPose = (-8.5, 0, +1.7)`
+  - Pickup: `ExitVehicleWait.parking:center = (-8.5, 0, +5.5)`,
+    `parking:heading = 270°`
+  - Offroad: `A3.parking:center = (+9.6, 0, 0)`, heading `0°`
+- Pickup은 +Z 쪽 출차 차량 인계 구역에 놓고, 로컬 +Z 차량 전방을 heading 270°로 회전해
+  출구 방향인 월드 -X를 바라보게 했다.
+- Offroad는 A3의 긴 축인 월드 Z축과 평행하게 배치했다.
+- fab 차량 중 Pickup과 Offroad만 활성화하고 나머지 차량 타입은 비활성화한다.
+- `/parking_slots` 테이블도 구형 A1~B8 계산식 대신 v2 USD의
+  `/World/ParkingEnvironment/Spaces/*/parking:center`를 읽어 A1/A2/A3만 발행한다.
+
+### 자동 검증 보강 및 결과
+- `--headless-test`가 이제 다음을 함께 판정한다.
+  - 두 로봇의 물리 정착 변위와 각 도크 중심 오차
+  - Pickup/Offroad의 물리 정착 변위
+  - 두 차량의 요청 중심 X–Z 오차와 yaw 오차(<1°)
+  - 슬롯 목록이 정확히 A1/A2/A3인지, Offroad 기준 위치가 A3 중심과 같은지
+- RTX 5080 Laptop GPU, PhysX 120Hz에서 180 프레임 정착 후 최종 결과:
+  - `DOCK_PHYSICS_TEST=PASS`
+  - 로봇 정착 변위: rear `0.0m`, front `0.0m`
+  - 차량 정착 변위: Pickup `0.0308m`, Offroad `0.0784m`
+  - 도크 중심 오차: 두 로봇 모두 `0.0m`
+  - 차량 중심 X–Z 오차: Pickup `0.0307m`, Offroad `0.0010m`
+  - yaw 오차: Pickup `0.217°`, Offroad `0.019°`
+  - 슬롯 판정: `['A1', 'A2', 'A3']`, `slots_ok=True`
+- Python 문법 검사와 diff whitespace 검사 통과.
+- ROS/제어 정식 단위 테스트: **82 passed**.
+
+### 후속 작업 시 주의
+- 이번 변경 범위는 새 환경 선택, 초기 객체 배치, 정적 물리 안정성, 슬롯 발행이다.
+- 기존 ROS 미션의 접근/운반/복귀 좌표는 구형 대형 주차장과 차량 길이축 Z 방향을 전제로 한다.
+  v2에서는 Pickup이 길이축 X 방향으로 90° 돌아가 있으므로 실제 전체 입·출차 미션을 실행하기
+  전에 경로·축 접근 제어·검출 스텁·도크 복귀 좌표를 v2 규약으로 이식하고 풀 E2E 검증해야 한다.

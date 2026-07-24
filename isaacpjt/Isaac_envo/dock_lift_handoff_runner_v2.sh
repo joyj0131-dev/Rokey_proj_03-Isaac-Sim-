@@ -9,4 +9,4 @@ export ROS_DISTRO=humble
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export LD_LIBRARY_PATH="$REL/exts/isaacsim.ros2.bridge/humble/lib"
-exec "$REL/python.sh" "$SCRIPT_DIR/dock_lift_runner.py" "$@"
+exec "$REL/python.sh" "$SCRIPT_DIR/dock_lift_handoff_runner_v2.py" "$@"

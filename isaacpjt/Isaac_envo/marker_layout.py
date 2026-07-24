@@ -170,8 +170,7 @@ def markers():
 #
 # 지금은 모든 마커를 같은 방향으로 깐다 → 전부 0. 특정 마커(예: 어느 교차점)를 돌려
 # 깔고 싶으면 여기서 kind/label 별로 지정한다. 0 이 아닌 값을 쓰면 그 부호가 USD
-# 배치(AddRotateYOp)와 측위(rot_y)에서 일치하는지 GT 로 한 번 확인할 것
-# (align_yaw 캘리브와 같은 방식 — m3_localize_demo).
+# 배치(AddRotateYOp)와 측위(rot_y)에서 일치하는지 Isaac GT로 확인할 것.
 MARKER_YAW_BY_KIND = {
     "slot": 0.0, "dock": 0.0, "crossing": 0.0,
     "gateway": 0.0, "handoff_bay": 0.0, "handoff_lane": 0.0,

@@ -11,8 +11,8 @@ M2 는 마커의 카메라 기준 자세 T_cam_marker 만 낸다. M3 는 그걸 
 
 주의 — 규약은 손으로 추론하지 않는다. ARUCO_PLAN 0절이 경고하듯 우수계·이미지
 up·와인딩이 얽혀 첫 시도에 틀린다. marker→world 회전(R_base)과 카메라 장착
-T_base_cam 은 Isaac ground truth 와 대조해 실측으로 맞춘다(m3_localize_demo.py).
-여기서는 그 체인을 '파라미터화'만 해두고 값은 데모가 캘리브레이션한다.
+    T_base_cam 은 Isaac ground truth와 대조해 실측으로 맞춘다.
+    여기서는 그 체인을 파라미터화하고 캘리브레이션된 값을 사용한다.
 
 스테이지 up=+Y, 바닥=XZ. 로봇 yaw ψ = atan2(fwd_x, fwd_z) (0=월드 +Z),
 회전축 월드 +Y. (ARUCO_PLAN 0절 계약)

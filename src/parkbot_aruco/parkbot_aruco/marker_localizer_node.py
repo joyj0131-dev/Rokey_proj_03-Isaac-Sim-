@@ -126,9 +126,8 @@ class MarkerLocalizerNode(Node):
             ps = PoseStamped()
             ps.header = msg.header
             if self.frame == "ros_map":
-                # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2
-                # (psi=atan2(fwd_x,fwd_z). 부호는 GT 대조 실측으로 확정 —
-                #  verify_leader_localization.py)
+                # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2.
+                # psi=atan2(fwd_x,fwd_z), 부호는 Isaac GT 대조 실측으로 확정했다.
                 ps.header.frame_id = "map"
                 ps.pose.position.x = fix.x
                 ps.pose.position.y = -fix.z
