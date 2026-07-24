@@ -1564,22 +1564,32 @@ def main():
         app.close(); return
 
     if probe is None and mission == "B":
-        # Mission Phase B, Task 3b-2: 입차팀 두 대(entry_lead=후축, entry_follow=전축)
+        # Mission Phase B, Task 3b-2(→ redo): 입차팀 두 대(entry_lead=후축, entry_follow=전축)
         # 완주 + 스태거 + 합산 결과. Task 3b-1(entry_follow 단독: 도크체크(후방캠)->
         # 90도 회전->XN정렬(전방캠))의 인라인 로직을 Part 1 에서 재사용 가능한 헬퍼
         # (_mission_setup/_run_entry_follow_b)로 추출했다 — 동작 자체는 바꾸지 않았고,
         # 리팩터 직후 entry_follow 단독 재검증으로 xn_locked=True/ok=True 재현을 확인했다
         # (report 참조, 이 파일 diff 로는 확인 불가 — 검증 로그가 근거다).
         #
-        # entry_lead(후축)는 도크체크·XN정렬 모두 REAR 카메라 하나로 한다(전방캠
-        # 불필요 — Task 3b-2 브리프 지시). ctx["ref_id"] 를 21(도크)->31(XN)로 전환하는
-        # 시점만 다르다(REAR 카메라 하나가 두 마커를 순서대로 본다). 안무: 스폰(yaw90)
-        # -> 제자리 90도 회전(북향, 후방캠은 남향=도크 쪽) -> 도크체크 북진(REAR, ref_id=21)
-        # -> XN 부근까지 서향 접근(순수 오도 — 이 구간은 후방캠이 XN 반대쪽인 남쪽을
-        # 보므로 fix 없음이 정상) -> 제자리 180도 회전(남향, 후방캠은 이제 북향=XN 쪽 —
-        # YAW_ODOM_SCALE 은 --probe=ROTCHK180 로 180도 회전에서도 검증됨, err 2.2°) ->
-        # XN 정렬(REAR, ref_id=31) -> 충돌회피용 x 오프셋으로 최종 대기자세(아래 HARD
-        # REQUIREMENT 절 및 _run_entry_lead_b 참조).
+        # entry_lead(후축) redo(사용자 결정, e0666c2 WIP 대체): 도크체크는 그대로 REAR
+        # 카메라(ref_id=21)지만, XN정렬은 REAR 가 아니라 **FRONT 카메라**(ref_id=31)로
+        # 한다. e0666c2 WIP 는 "도크체크·XN정렬 모두 REAR 하나로" 시도했는데, 그러려면
+        # 도크체크(북향 필요)와 XN정렬(REAR 로 북쪽의 XN 을 보려면 로봇이 남향이어야
+        # 함) 사이에 제자리 180도 재정렬이 필요했다 — mecanum 제자리회전은 명령
+        # 지속시간에 비선형으로 반응해(YAW_ODOM_SCALE 정의부 주석 4 참조) 180도가
+        # 간헐적으로 수렴 실패했다(실측: err_yaw_gt 최대 96°, target=(-4.200,5.575,
+        # 180.0) 인데 n_fix=0 — 이 실패가 이 redo 의 근거다). 사용자 결정: 180도
+        # 회전을 아예 없애고 entry_lead 도 entry_follow 와 똑같이 "북향 유지 + 전방캠
+        # 으로 XN 을 정면에서" 검출한다 — entry_follow 가 이미 3/3 로 안정적으로 검증한
+        # 바로 그 지오메트리·카메라 조합을 재사용하는 것이라 저위험이다(entry_lead 는
+        # 도크가 다르고(D_OUT_1, id 21) 종점에 충돌회피용 x 오프셋이 하나 더 붙는다는
+        # 점만 entry_follow 와 다르다). 안무: 스폰(yaw90) -> 제자리 90도 회전(북향,
+        # 후방캠은 남향=도크 쪽) -> 도크체크 북진(REAR, ref_id=21) -> XN 정렬 2단계
+        # (FRONT, ref_id=31 — x 정렬 후 순수 북진, entry_follow Step4 와 동일 패턴:
+        # 대각선 진입은 검출창에서 횡오차가 남아 n_fix=0 을 낸 실측 때문에 피한다) ->
+        # 충돌회피 x 오프셋으로 최종 대기자세(아래 HARD REQUIREMENT 절 및
+        # _run_entry_lead_b 참조). 로봇은 XN 정렬부터 끝까지 계속 북향(yaw=0)이다 —
+        # 더 이상 180도로 끝나지 않는다.
         #
         # 순서(사용자 스펙): entry_lead(늦게 입차하지만 먼저 자리를 잡아야 하는 쪽)가
         # 먼저 완주하고, 그 다음 entry_follow 가 시작한다(스태거). _mission_setup 은
@@ -1902,20 +1912,32 @@ def main():
 
         def _run_entry_lead_b(setup, *, dockcheck_standoff, xn_standoff,
                               final_x_offset, align_pos_tol):
-            """Task 3b-2 Part 2: entry_lead(후축) 안무 — REAR 카메라 하나로 도크체크
-            (ref_id=21)와 XN정렬(ref_id=31)을 순서대로 본다. entry_follow 와 달리
-            180도 재정렬이 하나 더 들어간다(후방캠으로 XN 을 보려면 로봇이 XN 남쪽에서
-            "남향"이어야 하고, 도크체크 때는 "북향"이어야 하기 때문 — 후방캠은 항상
-            heading 의 반대를 본다).
+            """entry_lead(후축) 안무 — redo(사용자 결정): XN정렬을 REAR 가 아니라
+            **FRONT 카메라**(ref_id=31)로 한다. 구조적으로 entry_follow 와 동일하다 —
+            스폰(yaw90) -> 90도 회전(북향) -> 도크체크(REAR, ref_id=21) -> XN정렬 2단계
+            (FRONT, ref_id=31, x 정렬 후 순수 북진) -> 충돌회피 x 오프셋. entry_follow
+            와 다른 점은 도크(D_OUT_1, id 21)와 종점의 +x 오프셋뿐이다.
+
+            이전 버전(e0666c2 WIP)은 REAR 카메라 하나로 도크체크·XN정렬을 모두
+            하려고 제자리 180도 재정렬을 끼워 넣었는데, mecanum 제자리회전이 180도
+            에서 간헐적으로 수렴하지 않아(비선형 동역학, YAW_ODOM_SCALE 정의부 주석
+            4 참조) XN 을 놓치는 경우가 실측됐다(n_fix=0, err_yaw_gt 최대 96°).
+            180도 회전을 아예 없애고 로봇이 XN정렬부터 끝까지 계속 북향(yaw=0)을
+            유지한 채 FRONT 카메라로 XN 을 정면에서 보게 하면, entry_follow 가 이미
+            3/3 검증한 것과 동일한 지오메트리·카메라 조합이 된다 — 그래서 이 redo 를
+            저위험으로 본다. 최종 그랩 지오메트리(반대편 축 배치)는 Phase C 에서 실제
+            차량으로 다듬는다 — 여기서는 XN 정렬(충돌없는 대기자세)까지만 다룬다.
             """
             target = "entry_lead"
             art, idx, filt = setup["art"], setup["idx"], setup["filt"]
             rear_ctx, T_rear = setup["rear_ctx"], setup["T_rear"]
+            front_ctx, T_front = setup["front_ctx"], setup["T_front"]
             dock_x, dock_decal = setup["dock_x"], setup["dock_decal"]
-            xn_x, xn_z, xn_id = setup["xn_x"], setup["xn_z"], setup["xn_id"]
+            xn_x, xn_z = setup["xn_x"], setup["xn_z"]
 
             # ---- Step 2: 제자리 90도 회전(+X -> +Z, yaw 90 -> 0, 북향). 후방캠은
-            # heading 반대인 남향(도크 쪽)이 된다. ----
+            # heading 반대인 남향(도크 쪽)이 된다. entry_follow Step2 와 마찬가지로
+            # 이 시점엔 마커 fix 를 기대하지 않는다(filt 는 시드+오도로 충분). ----
             rot_res = rotate_in_place(rear_ctx, art, idx, filt, T_rear, 0.0)
             fp = filt.pose()
             print(f"MISSIONB_ROT robot={target} yaw={fp[2]:.2f} reached={rot_res['reached']} "
@@ -1923,7 +1945,7 @@ def main():
                   f"err_yaw_gt={rot_res['err_yaw_gt']:.2f}", flush=True)
 
             # ---- Step 3: 도크체크 — 북진(+Z, x 는 도크와 동일 유지), 후방캠이 남쪽의
-            # 도크 데칼을 본다(ref_id=21, entry_follow Step3 와 동일 패턴).
+            # 도크 데칼을 본다(ref_id=21, entry_follow Step3 와 동일 패턴). 미변경.
             # correct_yaw=False(위치전용) — Step2 오도 yaw 를 그대로 믿는다.
             seg1_target = (dock_x, dock_decal[1] + dockcheck_standoff, 0.0)
             seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target,
@@ -1937,66 +1959,54 @@ def main():
                   f"err_pos_gt={seg1['err_pos_gt']:.4f} err_yaw_gt={seg1['err_yaw_gt']:.2f}",
                   flush=True)
 
-            # ---- Step 4: XN 부근까지 x 만 옮긴다(z 는 그대로, 여전히 북향) — 이
-            # 구간은 후방캠이 XN 반대쪽(남쪽)을 보므로 fix 없음이 정상이다(odometry로
-            # 만 이동). ref_id 는 아직 21 그대로 둔다(다음 스텝의 180도 회전 전에
-            # 바꿀 이유가 없다 — 회전 중 오검출 방지는 스텝6 직전 전환으로 충분).
+            # ---- Step 4(THE CHANGE): XN 정렬 — REAR 가 아니라 FRONT 카메라로 본다
+            # (ref_id=31, _mission_setup 이 need_front=True 보정 후 이미 xn_id 로
+            # 전환해 뒀다). 180도 재정렬 없이 로봇은 계속 북향(yaw=0) — 전방캠이 정면의
+            # XN 을 그대로 본다. entry_follow Step4 와 동일하게 2단계로 나눈다: 4a 먼저
+            # x 만 xn_x 에 맞추고(이 시점 z 는 아직 도크체크 z 라 검출창 밖 — fix 없음이
+            # 정상), 4b 에서 x=xn_x 고정한 채 순수 북진해 검출창을 통과시킨다(대각선
+            # 주행은 검출창 진입 시 횡오차가 남아 n_fix=0 이 났던 entry_follow 실측
+            # 때문에 피한다 — body_twist_toward 는 yaw 고정 상태에서 dx,dz 를 동시에
+            # 좌/전진으로 섞어 몰기 때문에, 목표를 한 번에 주면 대각선으로 접근하게
+            # 된다). correct_yaw=False — 마커 fix 는 위치만 반영, yaw 는 Step2 오도값
+            # 유지.
             fp1 = filt.pose()
-            seg_app_target = (xn_x, fp1[1], 0.0)
-            seg_app = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg_app_target,
-                                    correct_yaw=False, pos_tol=align_pos_tol)
-            print(f"MISSIONB_APPROACH robot={target} n_fix={seg_app['n_fix']} "
-                  f"reached={seg_app['reached']} filt=({seg_app['final_filt'][0]:.3f},"
-                  f"{seg_app['final_filt'][1]:.3f},{seg_app['final_filt'][2]:.2f}) "
-                  f"target=({seg_app_target[0]:.3f},{seg_app_target[1]:.3f},"
-                  f"{seg_app_target[2]:.1f}) err_pos_gt={seg_app['err_pos_gt']:.4f}",
+            seg2a_target = (xn_x, fp1[1], 0.0)
+            seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target,
+                                  correct_yaw=False, pos_tol=align_pos_tol)
+            seg2_target = (xn_x, xn_z - xn_standoff, 0.0)
+            seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target,
+                                  correct_yaw=False, pos_tol=align_pos_tol)
+            n_fix2 = seg2a["n_fix"] + seg2b["n_fix"]
+            xn_locked = n_fix2 > 0
+            fp = filt.pose()
+            print(f"MISSIONB_XNALIGN robot={target} n_fix_a={seg2a['n_fix']} "
+                  f"n_fix_b={seg2b['n_fix']} reached_a={seg2a['reached']} "
+                  f"reached_b={seg2b['reached']} filt_a=({seg2a['final_filt'][0]:.3f},"
+                  f"{seg2a['final_filt'][1]:.3f},{seg2a['final_filt'][2]:.2f}) "
+                  f"target_a=({seg2a_target[0]:.3f},{seg2a_target[1]:.3f},{seg2a_target[2]:.1f}) "
+                  f"err_pos_gt_a={seg2a['err_pos_gt']:.4f} err_pos_gt_b={seg2b['err_pos_gt']:.4f}",
                   flush=True)
 
-            # ---- Step 5: 제자리 180도 회전(북향 -> 남향, yaw 0 -> 180). 후방캠이
-            # 이제 북향(XN 쪽)이 된다. YAW_ODOM_SCALE=1.12 는 --probe=ROTCHK180 로
-            # 180도 회전에서도 검증됨(gt_err_deg=2.23, 위 YAW_ODOM_SCALE 정의부 주석
-            # 참조) — entry_lead 가 두 번째 로봇의 180도 재정렬 검증 대상이었다.
-            rot180_res = rotate_in_place(rear_ctx, art, idx, filt, T_rear, 180.0)
-            fp = filt.pose()
-            print(f"MISSIONB_ROT180 robot={target} yaw={fp[2]:.2f} reached={rot180_res['reached']} "
-                  f"steps={rot180_res['steps']} err_pos_gt={rot180_res['err_pos_gt']:.4f} "
-                  f"err_yaw_gt={rot180_res['err_yaw_gt']:.2f}", flush=True)
-
-            # ---- Step 6: XN 정렬(REAR, ref_id 를 여기서 21->31 로 전환 — 회전 이후에만
-            # 바꿔 회전 도중 오검출 가능성을 원천 차단한다). REARXN probe(Task3a)가
-            # 정확히 이 자세(xn_x, xn_z-standoff, yaw180)에서 0.56cm 로 검증한 지점과
-            # 동일하다 — proven 지오메트리 재사용.
-            rear_ctx["ref_id"] = xn_id
-            seg_xn_target = (xn_x, xn_z - xn_standoff, 180.0)
-            seg_xn = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg_xn_target,
-                                   correct_yaw=False, pos_tol=align_pos_tol)
-            xn_locked = seg_xn["n_fix"] > 0
-            fp = filt.pose()
-            print(f"MISSIONB_XNALIGN robot={target} n_fix={seg_xn['n_fix']} "
-                  f"reached={seg_xn['reached']} filt=({seg_xn['final_filt'][0]:.3f},"
-                  f"{seg_xn['final_filt'][1]:.3f},{seg_xn['final_filt'][2]:.2f}) "
-                  f"target=({seg_xn_target[0]:.3f},{seg_xn_target[1]:.3f},"
-                  f"{seg_xn_target[2]:.1f}) err_pos_gt={seg_xn['err_pos_gt']:.4f}",
-                  flush=True)
-
-            # ---- Step 7: 충돌회피 x 오프셋 -> 최종 후축 대기자세. entry_follow 의
-            # XN 정렬 종점(xn_x, xn_z-standoff)과 이 스텝6 종점이 사실상 같은 지점이라
-            # (둘 다 REARXN/entry_follow 가 검증한 (-2.5,5.575) 부근), 그대로 두면
-            # 겹친다 — HARD REQUIREMENT: 최종 두 로봇 위치가 >=1.5m 떨어져야 한다.
-            # final_x_offset(기본 -1.7m, 서쪽=entry_lead 자기 도크 쪽)만큼 x 로 이동해
-            # 분리한다 — 이 시점 yaw=180 에서는 body 기준 "좌(+y)" 스트레이프 이동이라
-            # mecanum 홀로노믹으로 자연스럽다(회전 불필요). 정확한 오프셋 부호/크기는
-            # 이 태스크의 판단이다(브리프: "Exact offsets are nominal/tunable") — 아래
-            # HARD REQUIREMENT 주석 및 report 에 충돌 계산 근거를 남긴다. Phase C 에서
-            # 실제 차량 배치로 다시 다듬는다.
-            final_target = (xn_x + final_x_offset, xn_z - xn_standoff, 180.0)
-            seg_final = drive_to_pose(rear_ctx, art, idx, filt, T_rear, final_target,
+            # ---- Step 5: 충돌회피 x 오프셋 -> 최종 후축 대기자세. entry_follow 의 XN
+            # 정렬 종점(xn_x, xn_z-standoff)과 이 스텝4 종점이 사실상 같은 지점이라
+            # (둘 다 (-2.5,5.575) 부근), 그대로 두면 겹친다 — HARD REQUIREMENT: 최종 두
+            # 로봇 위치가 >=1.5m 떨어져야 한다. final_x_offset(기본 -1.7m, 서쪽=
+            # entry_lead 자기 도크 쪽)만큼 x 로 이동해 분리한다 — 이 시점 yaw=0(북향)
+            # 에서는 body 기준 좌/우 스트레이프 이동이라 mecanum 홀로노믹으로
+            # 자연스럽다(회전 불필요). front_ctx 로 계속 보정한다(오프셋이 커지면 XN
+            # 이 프레임 밖으로 나가 n_fix=0 이 될 수 있으나 이 세그먼트의 n_fix 는
+            # xn_locked 판정에 쓰지 않는다 — Step4 에서 이미 확정됨). 정확한 오프셋
+            # 부호/크기는 이 태스크의 판단이다(아래 HARD REQUIREMENT 주석 및 report 에
+            # 충돌 계산 근거를 남긴다). Phase C 에서 실제 차량 배치로 다시 다듬는다.
+            final_target = (xn_x + final_x_offset, xn_z - xn_standoff, 0.0)
+            seg_final = drive_to_pose(front_ctx, art, idx, filt, T_front, final_target,
                                       correct_yaw=False, pos_tol=align_pos_tol)
             fp = filt.pose()
             print(f"MISSIONB_DONE robot={target} role=rear_axle xn_locked={xn_locked} "
                   f"reached={seg_final['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) "
                   f"yaw={fp[2]:.2f} err_pos_gt={seg_final['err_pos_gt']:.4f} "
-                  f"n_fix={seg_xn['n_fix']} "
+                  f"n_fix={n_fix2} "
                   f"target=({final_target[0]:.3f},{final_target[1]:.3f},{final_target[2]:.1f})",
                   flush=True)
             return {"xn_locked": xn_locked, "reached": seg_final["reached"]}
@@ -2007,8 +2017,13 @@ def main():
         # probe 가 검증한 entry_lead 의 자연스러운 XN 정렬 종점이 entry_follow 의 최종
         # 정지 좌표 (-2.5, 5.575) 와 사실상 같은 지점이라는 게 실측으로 확인됨).
         # 선택한 좌표(모두 world x,z):
-        #   entry_lead  최종: (xn_x + LEAD_FINAL_X_OFFSET, xn_z - XN_STANDOFF, yaw=180)
-        #               기본값 대입 시 (-4.20, 5.575, 180)
+        #   entry_lead  최종: (xn_x + LEAD_FINAL_X_OFFSET, xn_z - XN_STANDOFF, yaw=0)
+        #               기본값 대입 시 (-4.20, 5.575, 0)   [redo: 이전 버전은 REAR 로
+        #               XN 을 보려고 180도 재정렬해 남향(yaw=180)으로 끝났으나, 이
+        #               버전은 그 회전을 없애 북향(yaw=0)으로 끝난다 — 아래 클리어런스
+        #               계산은 로봇 풋프린트를 반경 0.68m 원으로 모델링하므로 yaw 는
+        #               계산에 들어가지 않는다(원은 방향 무관) — 180->0 변경이 이
+        #               계산을 무효화하지 않는다.]
         #   entry_follow 최종: (xn_x, xn_z - XN_STANDOFF, yaw=0) = (-2.50, 5.575, 0)  [미변경]
         # 분리 거리 = |LEAD_FINAL_X_OFFSET| = 1.70m > 1.5m 요구치(0.34m 여유 — 로봇 몸체
         # 사이 간극 0.34m, 반경합 1.36m 기준). 서쪽(오프셋 음수)을 택한 이유: entry_lead
@@ -2024,8 +2039,11 @@ def main():
         # 접근 가로구간 z~4.3 x -3.2~-2.5)도 entry_follow 도크(-1.2,2.2)와 항상 x 로
         # >=2.0m 떨어져 스태거 중(entry_follow 는 아직 도크에 대기) 충돌하지 않는다.
         # standoff(XN 남쪽 1.3m, 도크체크 1.4m)는 Task3a/3b-1 이 검증한 사각(<1.1m)
-        # 밖 창을 그대로 재사용한다. 이 좌표는 모두 nominal — Phase C 가 실제 차량
-        # 배치로 다시 다듬는다.
+        # 밖 창을 그대로 재사용한다. redo 로 바뀐 건 XN 을 보는 카메라(REAR->FRONT)와
+        # 180도 회전의 유무뿐이다 — entry_lead 가 실제로 지나가는 x,z 웨이포인트
+        # 자체는 이전 버전과 동일하므로(도크체크 -> x 정렬 -> z 접근 -> x 오프셋,
+        # 제자리회전은 위치를 바꾸지 않는다) 위 클리어런스 계산을 다시 유도할 필요가
+        # 없다. 이 좌표는 모두 nominal — Phase C 가 실제 차량 배치로 다시 다듬는다.
         LEAD_FINAL_X_OFFSET = -1.7
 
         cam_h = 0.15
@@ -2048,7 +2066,7 @@ def main():
 
         # ---- Part 3: 스태거 — entry_lead 먼저 완주 -> entry_follow 시작(사용자 스펙) ----
         lead_setup = _mission_setup("entry_lead", "entry_follow",
-                                    need_front=False, need_rear=True, cam_h=cam_h)
+                                    need_front=True, need_rear=True, cam_h=cam_h)
         lead_result = _run_entry_lead_b(lead_setup, dockcheck_standoff=seg1_standoff,
                                         xn_standoff=standoff,
                                         final_x_offset=lead_final_x_offset,
