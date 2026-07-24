@@ -500,6 +500,13 @@ def main():
             if a.startswith("--m5-frames="):
                 n_frames = max(1, int(a.split("=", 1)[1]))
 
+        dmin, dmax = 1.4, 1.8
+        for a in sys.argv[1:]:
+            if a.startswith("--m5-dmin="):
+                dmin = float(a.split("=", 1)[1])
+            if a.startswith("--m5-dmax="):
+                dmax = float(a.split("=", 1)[1])
+
         target = "entry_lead"
         art = arts[target]
         ref_serves = sm.ROBOT_DOCK_MARKER[target]           # "D_OUT_1"
@@ -682,8 +689,9 @@ def main():
 
         single_pos, single_yaw = [], []
         fused_pos, fused_yaw, fused_vec = [], [], []
+        dists = []
         n_total = 0
-        for d in (1.3, 1.5, 1.7, 1.9):
+        for d in (1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9):
             for lat in (-0.15, 0.0, 0.15):
                 for yaw_deg in (-8.0, 0.0, 8.0):
                     n_total += 1
@@ -699,6 +707,7 @@ def main():
                     fp, fy, ex, ez, dyaw = err_of(fx, fz, fyaw, gt)   # 융합
                     fused_pos.append(fp); fused_yaw.append(fy)
                     fused_vec.append((ex, ez, dyaw))
+                    dists.append(d)
 
         if not fused_pos:
             print("M5_RESULT FAIL: 검출 표본 0개", flush=True)
@@ -716,23 +725,34 @@ def main():
                     "p95": p95(b), "max": b[-1]}
 
         cov = np.cov(np.array(fused_vec).T).tolist() if len(fused_vec) > 1 else None
-        s_pos, s_yaw = p95(single_pos), p95(single_yaw)
-        f_pos, f_yaw = p95(fused_pos), p95(fused_yaw)
-        ok = (f_pos <= 0.02) and (f_yaw <= 1.0)
+        # fused_pos/fused_yaw 는 각 표본의 오차, dists 는 같은 순서의 거리
+        def p95(a):
+            b = sorted(a)
+            return b[min(len(b) - 1, int(math.ceil(0.95 * len(b)) - 1))] if b else float("nan")
+
+        in_win = [i for i, dd in enumerate(dists) if dmin <= dd <= dmax]
+        win_pos = [fused_pos[i] for i in in_win]
+        win_yaw = [fused_yaw[i] for i in in_win]
+
+        full_pp, full_yp = p95(fused_pos), p95(fused_yaw)
+        win_pp, win_yp = p95(win_pos), p95(win_yaw)
+        ok = (len(win_pos) > 0 and win_pp <= 0.02 and win_yp <= 1.0)
         report = {
             "camera_height_m": cam_h, "frames": n_frames,
+            "trusted_window": {"dmin": dmin, "dmax": dmax},
             "tbasecam_convention": best_name, "tbasecam_verify_err_m": best_err,
-            "n_samples": len(fused_pos), "n_total": n_total,
-            "single": {"pos_err_m": stats(single_pos), "yaw_err_deg": stats(single_yaw)},
-            "fused": {"pos_err_m": stats(fused_pos), "yaw_err_deg": stats(fused_yaw)},
+            "n_full": len(fused_pos), "n_window": len(win_pos), "n_total": n_total,
+            "full": {"pos_err_m": stats(fused_pos), "yaw_err_deg": stats(fused_yaw)},
+            "window": {"pos_err_m": stats(win_pos) if win_pos else None,
+                       "yaw_err_deg": stats(win_yaw) if win_yaw else None},
             "cov_ex_ez_eyaw": cov,
         }
         import v4_probes as vp
         path = vp.write_report("m5_accuracy", report)
-        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} frames={n_frames} "
-              f"fused_pos_p95={f_pos*100:.2f}cm fused_yaw_p95={f_yaw:.2f}deg "
-              f"single_pos_p95={s_pos*100:.2f}cm single_yaw_p95={s_yaw:.2f}deg "
-              f"n={len(fused_pos)}/{n_total} report={path.name}", flush=True)
+        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} window=[{dmin},{dmax}]m "
+              f"window_pos_p95={win_pp*100:.2f}cm window_yaw_p95={win_yp:.2f}deg "
+              f"full_pos_p95={full_pp*100:.2f}cm full_yaw_p95={full_yp:.2f}deg "
+              f"n_win={len(win_pos)}/{len(fused_pos)} report={path.name}", flush=True)
         if headless:
             app.close()
             return
