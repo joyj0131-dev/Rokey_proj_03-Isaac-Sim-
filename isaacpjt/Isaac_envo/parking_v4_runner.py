@@ -572,9 +572,15 @@ def main():
         # 루프(--cameras=0 이어도 무조건 30프레임 app.update() 를 도는 코드,
         # 이 함수 앞부분)가 우연히 로봇을 더 정착시켜 drift 19.65% -> 2.69%
         # 로 결과가 7.3배 달라진 적이 있다. 측정과 무관한 코드 변경이 결과를
-        # 바꾸면 안 되므로, probe B 는 여기서 자체적으로 PROBE_SETTLE_FRAMES
-        # 만큼 0 twist 로 정착시킨 뒤에만 측정을 시작한다(결과는 버린다).
-        drive((0.0, 0.0, 0.0), PROBE_SETTLE_FRAMES)
+        # 바꾸면 안 되므로, probe B 는 여기서 자체적으로 settle 프레임만큼
+        # 0 twist 로 정착시킨 뒤에만 측정을 시작한다(결과는 버린다).
+        # 재특성화용으로 --settle-frames 로 정착값을 스윕할 수 있다(부록 C).
+        settle_frames = PROBE_SETTLE_FRAMES
+        for a in sys.argv[1:]:
+            if a.startswith("--settle-frames="):
+                settle_frames = int(a.split("=", 1)[1])
+        print(f"PROBE_B_SETTLE frames={settle_frames}", flush=True)
+        drive((0.0, 0.0, 0.0), settle_frames)
 
         gt_all, od_all = [], []
         legs = []
