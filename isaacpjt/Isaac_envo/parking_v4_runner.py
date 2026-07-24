@@ -258,8 +258,14 @@ def attach_camera_graph(robot_id, cam_path, role="front", width=640, height=480)
 # ---- M5/FUSE 공용 헬퍼 (카메라 셋업·보정·검출·측위) ----
 # M5 분기가 인라인으로 갖고 있던 로직을 모듈 함수로 추출한 것이다. --probe=FUSE 가
 # 주행 중에 같은 셋업/보정/검출/측위를 재사용한다. 계산·값·순서는 M5 인라인과 동일.
-def fuse_camera_setup(stage, timeline, app, target, cam_h):
-    """카메라 높이 오버라이드 + rgb annotator + K/detector/marker_map 컨텍스트."""
+def fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front"):
+    """카메라 높이 오버라이드 + rgb annotator + K/detector/marker_map 컨텍스트.
+
+    cam_role: "front"(기본, 하위호환) | "rear" — 어느 카메라에 붙을지 선택한다.
+    mx/mz/ref_id 는 cam_role 과 무관하게 항상 target 의 도크 마커 기준이다(호출부가
+    다른 마커를 검출하려면 반환된 ctx["ref_id"] 를 직접 바꿔치기한다 — 예:
+    --probe=REARXN).
+    """
     import json
     from pxr import Gf, UsdGeom
     import omni.replicator.core as rep
@@ -279,7 +285,7 @@ def fuse_camera_setup(stage, timeline, app, target, cam_h):
     detector = aruco_pose.make_detector(mm_json["dictionary"])
 
     art_path = robot_prim_path(target)
-    cam_path = find_front_camera(stage, target)
+    cam_path = find_front_camera(stage, target) if cam_role == "front" else find_rear_camera(stage, target)
     cam_prim = stage.GetPrimAtPath(cam_path)
     cam_xf = UsdGeom.Xformable(cam_prim)
     dy_world = cam_h - 0.09
@@ -1128,6 +1134,125 @@ def main():
               f"fused_traj_p95={p95(fpos)*100:.2f}cm "
               f"single_traj_p95={(p95(spos)*100 if spos else float('nan')):.2f}cm "
               f"n={len(traj)} cal={cal_name} report={path.name}", flush=True)
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe == "REARXN":
+        # Task 3a 증명: fuse_camera_setup(cam_role="rear") 로 entry_lead 후방캠이
+        # 핸드오프 마커 XN(id 31)을 인프로세스로(Isaac 안에서 렌더→검출→측위) 잡아내는지
+        # 확인한다. FUSE(위)가 셋업→보정→검출→측위 패턴이다 — 여기선 그 패턴을 후방캠
+        # 기하에 맞게 두 지점만 조정한다(fuse_camera_setup/calibrate_tbasecam/
+        # detect_at_pose 자체는 건드리지 않는다, 호출부 인자·ctx 필드만 조정):
+        #
+        #   ① calibrate_tbasecam 은 내부에서 detect_at_pose(...,1.5,0,0,spawn_orn) 로
+        #      "마커가 로봇 정면(+X, spawn 방향)"이 되도록 로봇을 놓는다 — 이건 전방캠
+        #      전제다. 후방캠은 반대(-X)를 본다(REAR_probe 실측 주석: "마커가 뒤에
+        #      오도록 mx+d 에 둔다" — DEBUG_LOG 2026-07-24). 같은 mx-1.5 배치에서
+        #      후방캠에 도크 마커가 잡히게 하려면 로봇을 180° 반전한 방향으로 세워야
+        #      한다(그러면 로봇 앞은 -X 를 보고 뒤(-로컬X=후방캠 시선)가 +X 를 봐서
+        #      도크 마커 쪽을 향한다). spawn_orn 을 그대로 넘기지 않고 180° 돌려 넘긴다.
+        #   ② ctx["ref_id"]/["mx"]/["mz"] 는 Step1 요구대로 fuse_camera_setup 안에서는
+        #      항상 도크 마커 기준이다(안 건드림). detect_current/localize_pose 는 실제로
+        #      ctx["ref_id"] 로 필터링한다(코드 확인 완료) — 도크가 아니라 XN 을 검출하려면
+        #      보정이 끝난 뒤 이 호출부에서 ctx["ref_id"] 를 XN id 로 바꿔치기해야 한다.
+        #      (Task 3b 브리프도 entry_lead 가 후방캠 하나로 도크→XN 을 순서대로 봐야
+        #      한다고 명시한다 — 이 ref_id 전환이 바로 그 메커니즘이다.)
+        cam_h = 0.15
+        target = "entry_lead"
+        art = arts[target]
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="rear")
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+
+        def _yaw_quat(base_orn, extra_yaw_deg):
+            """base_orn 을 월드 수직축 기준 extra_yaw_deg 만큼 더 돌린 쿼터니언.
+
+            detect_at_pose(320줄)의 yaw_deg 회전과 동일한 관례(_quat_mul(base,qy))다.
+            검산: fwd0=(sin ψ0,·,cos ψ0) 에 이 합성을 적용하면 새 yaw = ψ0+extra_yaw_deg
+            (필터-yaw convention, ARUCO_PLAN 0절과 일치) — 브리프의 "+X→−Z 는 수직축
+            기준 +90°" 힌트와 일치한다.
+            """
+            half = math.radians(extra_yaw_deg) * 0.5
+            qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])
+            return _quat_mul(base_orn, qy)
+
+        # ---- ① 보정: 도크 마커로 T_base_cam(후방캠 마운트, 고정 외부파라미터) 확정 ----
+        # calib_orn = spawn_orn 을 180° 반전 — calibrate_tbasecam 내부의 고정 배치
+        # (mx-1.5, orn 방향 그대로)에서도 도크 마커가 후방캠 시야에 들어오게 한다.
+        calib_orn = _yaw_quat(spawn_orn, 180.0)
+        try:
+            T_base_cam, cal_name, cal_err = calibrate_tbasecam(
+                ctx, art, app, timeline, gt_pose_xz_yaw, calib_orn)
+        except RuntimeError as e:
+            if "미검출" in str(e):
+                print("REARXN_TBASECAM_CAL FAIL: 보정 자세(도크, 180°반전)에서 "
+                      "후방캠 마커 미검출 — 반전 기하 재검토", flush=True)
+            else:
+                print("REARXN_TBASECAM_CAL FAIL: 어떤 광학 규약도 5cm 안에 못 맞춤", flush=True)
+            if headless:
+                app.close()
+            raise
+        print(f"REARXN_TBASECAM_CAL best={cal_name} verify_pos_err={cal_err:.4f}m", flush=True)
+
+        # ---- ② 검출 대상을 도크→XN 으로 전환(보정 완료 후에만; fuse_camera_setup 은 안 건드림) ----
+        xn_id = read_markers(stage)["XN"]["id"]
+        xn_x, xn_z = marker_visual_center(stage, "XN")
+        ctx["ref_id"] = xn_id
+
+        # 로봇을 XN 남쪽에 남향(월드 -Z, 필터-yaw≈180°)으로: spawn(+X,yaw90)에서 +90°.
+        south_orn = _yaw_quat(spawn_orn, 90.0)
+
+        def _detect_all_ids():
+            """진단 전용: ref_id 필터 없이 현재 프레임에서 검출된 모든 마커 id."""
+            import cv2
+            frame = ctx["rgb_annot"].get_data()
+            img = (np.asarray(frame)[:, :, :3] if frame is not None and len(frame) else None)
+            if img is None:
+                return []
+            gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+            det = ctx["aruco_pose"].detect_and_estimate(
+                gray, ctx["detector"], ctx["code_size_m"], ctx["K"], ctx["dist"])
+            return sorted(int(p.marker_id) for p in det)
+
+        # ---- ③ 근거리 사각(<1.1m, DEBUG_LOG 2026-07-24 REAR 실측) 밖에서 프레이밍될 때까지
+        # (거리,좌우) 를 이터레이트한다. yaw 는 위 south_orn 으로 고정(브리프 지시).
+        pose = None
+        for d in (1.3, 1.2, 1.4, 1.1, 1.5, 1.6, 1.7):
+            for lat in (0.0, 0.15, -0.15):
+                art.set_world_poses(
+                    np.array([[xn_x + lat, ROBOT_SPAWN_Y, xn_z - d]]),
+                    np.array([south_orn]))
+                for _ in range(30):
+                    app.update()
+                pose = detect_current(ctx)
+                gxx, gzz, gyy = gt_pose_xz_yaw(art)
+                seen = [xn_id] if pose is not None else _detect_all_ids()
+                print(f"REARXN_TRY d={d:.2f} lat={lat:+.2f} hit={pose is not None} "
+                      f"seen_ids={seen} gt=({gxx:.3f},{gzz:.3f}) gt_yaw={math.degrees(gyy):.1f}",
+                      flush=True)
+                if pose is not None:
+                    break
+            if pose is not None:
+                break
+
+        fix = localize_pose(ctx, pose, T_base_cam) if pose is not None else None
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        if fix is not None:
+            fix_err = math.hypot(fix.x - gx, fix.z - gz)
+            fix_str = f"({fix.x:.3f},{fix.z:.3f})"
+        else:
+            fix_err = float("nan")
+            fix_str = "(nan,nan)"
+        seen_str = str(int(pose.marker_id)) if pose is not None else "none"
+        print(f"REARXN_DETECT locked={fix is not None} fix={fix_str} "
+              f"marker_seen={seen_str} tbasecam={cal_name} cal_err={cal_err:.4f}", flush=True)
+        print(f"REARXN_DIAG xn=({xn_x:.3f},{xn_z:.3f}) gt=({gx:.3f},{gz:.3f}) "
+              f"gt_yaw={math.degrees(gyaw):.1f} fix_err_vs_gt_m={fix_err:.4f} "
+              f"last_tried_pose=(x={xn_x + lat:.3f},z={xn_z - d:.3f},yaw~180)", flush=True)
+
         if headless:
             app.close(); return
         while app.is_running():
