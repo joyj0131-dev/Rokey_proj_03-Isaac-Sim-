@@ -431,6 +431,12 @@ def main():
     for a in sys.argv[1:]:
         if a.startswith("--probe="):
             probe = a.split("=", 1)[1]
+    # --mission= 은 --probe= 와 독립된 별도 플래그다("B" 값이 겹치는 건 우연 —
+    # probe=B 는 휠 오도 드리프트 측정, mission=B 는 Mission Phase B 스켈레톤).
+    mission = None
+    for a in sys.argv[1:]:
+        if a.startswith("--mission="):
+            mission = a.split("=", 1)[1]
     if probe == "B":
         keep = sm.ROBOTS[0]
         hidden = []
@@ -485,6 +491,113 @@ def main():
         fwd_x = 1.0 - 2.0 * (y * y + z * z)
         fwd_z = 2.0 * (x * z - w * y)
         return float(pos[0]), float(pos[2]), math.atan2(fwd_x, fwd_z)
+
+    # ---- Task 2: 폐루프 주행 원시요소 (drive_to_pose / rotate_in_place) ----
+    # --probe=FUSE(위 참조)가 인라인으로 하던 예측(휠오도)+보정(마커) 상보필터
+    # 패턴을 일반화한다. FUSE 는 전진(+X_body)만 명령했지만, 여기서는
+    # body_twist_toward 가 내는 전체 메카넘 (vx,vy,wz) 를 그대로 slew 해
+    # 목표 자세(x,z,yaw)까지 몬다. 제어 입력은 항상 filt.pose()(융합 자세)만
+    # 쓴다 — GT(gt_pose_xz_yaw)는 반환값의 err_*_gt(리포팅 전용)에서만 쓴다.
+    # FUSE 자체는 건드리지 않는다(기존 probe 회귀 방지) — 이 두 함수는 신규다.
+    from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist
+    from parkbot_aruco.marker_localizer import PoseFilter
+    from mission_control import body_twist_toward
+
+    def drive_to_pose(ctx, art, idx, filt, T_base_cam, target_xzyaw, *,
+                       max_steps=2000, pos_gain=0.8, yaw_gain=1.2,
+                       max_lin=0.25, max_ang=0.6, pos_tol=0.03, yaw_tol=0.5):
+        """목표 (x,z,yaw_deg) 까지 오도+마커 융합 폐루프로 주행.
+
+        매 스텝: 예측(휠 관절 각속도 -> cmd_vel_from_wheel_velocities ->
+        filt.predict_body) -> 보정(detect_current -> localize_pose ->
+        filt.update, 첫 fix 는 filt.set_pose 로 초기화) -> 제어
+        (body_twist_toward(filt.pose(), target_xzyaw) -> slew_twist ->
+        wheel_velocities_from_cmd_vel -> set_joint_velocity_targets).
+        tol 이내(done)로 판정되면 그 뒤로는 0 twist 를 명령해 정지를 기다리고
+        (slew_twist 가 실제로 (0,0,0) 에 도달하면) 종료한다. max_steps 는
+        안전 상한.
+
+        반환 err_pos_gt/err_yaw_gt 는 종단(정지 후) 자세를 GT 와 비교한 값으로
+        **리포팅 전용**이다 — 이 함수의 제어 로직은 filt.pose() 만 쓰고 GT 를
+        전혀 참조하지 않는다.
+        """
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+        cur_tw = (0.0, 0.0, 0.0)
+        prev = timeline.get_current_time()
+        steps = 0
+        reached = False
+        stopping = False        # done 판정 이후 래치: 이후 잔차가 tol 밖으로 흔들려도 계속 정지시킨다.
+        for _ in range(max_steps):
+            app.update()
+            steps += 1
+            now = timeline.get_current_time()
+            dt = min(0.1, max(0.0, now - prev)); prev = now
+
+            # ---- 예측: 휠 오도(관절 각속도) -> 바디 twist -> predict_body ----
+            vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+            wv = {w: float(vel[i]) for w, i in idx.items()}
+            pvx, pvy, pwz = cmd_vel_from_wheel_velocities(wv)
+            filt.predict_body(pvx, pvy, pwz, dt)
+
+            # ---- 보정: 마커 검출 시 fix ----
+            pose = detect_current(ctx)
+            if pose is not None:
+                fix = localize_pose(ctx, pose, T_base_cam)
+                if fix is not None:
+                    if filt.x is None:
+                        filt.set_pose(fix.x, fix.z, fix.yaw_deg)   # 첫 fix 로 초기화(GT 아님)
+                    else:
+                        filt.update(fix)
+
+            # ---- 제어: 융합 자세 -> 목표까지 body twist(body_twist_toward) ----
+            fp = filt.pose()
+            if fp is None:
+                # 아직 융합 자세가 없다(시딩도, fix 도 없었음) — 안전하게 정지 유지.
+                tvx, tvy, twz = 0.0, 0.0, 0.0
+            elif not stopping:
+                tvx, tvy, twz, done = body_twist_toward(
+                    fp, target_xzyaw, pos_gain=pos_gain, yaw_gain=yaw_gain,
+                    max_lin=max_lin, max_ang=max_ang, pos_tol=pos_tol, yaw_tol=yaw_tol)
+                if done:
+                    stopping = True
+                    tvx, tvy, twz = 0.0, 0.0, 0.0
+            else:
+                tvx, tvy, twz = 0.0, 0.0, 0.0
+            cur_tw = slew_twist(cur_tw, (tvx, tvy, twz), dt, linear_accel=LINEAR_ACCEL,
+                                linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+            omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+            vel_buf[...] = 0.0
+            for w, om in omegas.items():
+                vel_buf[idx[w]] = om
+            art.set_joint_velocity_targets(vel_buf)
+
+            if stopping and cur_tw == (0.0, 0.0, 0.0):
+                reached = True
+                # 정지 후 몇 프레임 더 보정(FUSE 종단 처리와 동일 관례).
+                for _ in range(30):
+                    app.update()
+                    pose = detect_current(ctx)
+                    if pose is not None:
+                        fix = localize_pose(ctx, pose, T_base_cam)
+                        if fix is not None and filt.x is not None:
+                            filt.update(fix)
+                break
+
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        fp = filt.pose()
+        if fp is not None:
+            err_pos_gt = math.hypot(fp[0] - gx, fp[1] - gz)
+            err_yaw_gt = abs((fp[2] - math.degrees(gyaw) + 180.0) % 360.0 - 180.0)
+        else:
+            err_pos_gt, err_yaw_gt = float("nan"), float("nan")
+        return {"reached": reached, "steps": steps, "err_pos_gt": err_pos_gt,
+                "err_yaw_gt": err_yaw_gt, "final_filt": fp}
+
+    def rotate_in_place(ctx, art, idx, filt, T_base_cam, target_yaw_deg, **kwargs):
+        """제자리 회전: 위치는 현재 융합 x,z 그대로 두고 yaw 만 target_yaw_deg 로."""
+        cx, cz, _ = filt.pose()
+        return drive_to_pose(ctx, art, idx, filt, T_base_cam, (cx, cz, target_yaw_deg), **kwargs)
 
     odom_mode = "wheel"
     for a in sys.argv[1:]:
@@ -993,6 +1106,66 @@ def main():
               f"fused_traj_p95={p95(fpos)*100:.2f}cm "
               f"single_traj_p95={(p95(spos)*100 if spos else float('nan')):.2f}cm "
               f"n={len(traj)} cal={cal_name} report={path.name}", flush=True)
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe is None and mission == "B":
+        # Mission Phase B, Task 2 스켈레톤: drive_to_pose 를 1 로봇 짧은 주행으로
+        # 검증한다(안무 없음). 실제 후방 카메라 도크 검출 + 회전은 Task 3.
+        # 여기서는 도크 마커 좌표(측량된 인프라, GT 아님)로 필터를 시딩하고
+        # entry_lead 를 도크에서 +Z 로 1.0m 만 이동시켜 원시요소가 실제 바퀴로
+        # 동작하는지만 확인한다.
+        target = "entry_lead"
+        art = arts[target]
+        idx = wheel_idx[target]
+        cam_h = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--cam-height="):
+                cam_h = float(a.split("=", 1)[1])
+
+        # ---- 카메라 셋업 + T_base_cam 보정 (FUSE 와 동일한 모듈 함수 재사용) ----
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h)
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+        T_base_cam, cal_name, cal_err = calibrate_tbasecam(
+            ctx, art, app, timeline, gt_pose_xz_yaw, spawn_orn)
+        print(f"MISSIONB_TBASECAM_CAL best={cal_name} verify_pos_err={cal_err:.4f}m",
+              flush=True)
+
+        # ---- 도크 마커 좌표로 로봇을 도크에 두고 필터를 시딩(측량 좌표, GT 아님) ----
+        # aruco:position 속성(read_markers) = 도크/스폰 좌표(build_stage 가 로봇을
+        # 놓는 바로 그 좌표). marker_visual_center 의 데칼 좌표는 차선쪽으로 ~0.7m
+        # 밀려 있어(위 fuse_camera_setup 주석 참조) 시딩에는 쓰면 안 된다.
+        dock_serves = sm.ROBOT_DOCK_MARKER[target]
+        dock = read_markers(stage)[dock_serves]
+        dock_x, dock_z = dock["x"], dock["z"]
+        # 스폰 자세는 로봇 루트에 고정 AddRotateXOp(-90) 만 적용된다(build_stage).
+        # 이 회전은 로컬 +X 축을 그대로 두므로(회전축이 X 라 X 성분 불변) 로컬
+        # +X(전방)가 그대로 월드 +X 로 나온다 -> yaw=atan2(fwd_x=1,fwd_z=0)=90도
+        # (yaw=0 -> 월드 +Z 규약). 모든 로봇/도크에 공통인 상수라 GT 조회 없이 안다.
+        spawn_yaw_deg = 90.0
+
+        art.set_world_poses(np.array([[dock_x, ROBOT_SPAWN_Y, dock_z]]),
+                            np.array([spawn_orn]))
+        for _ in range(30):
+            app.update()
+
+        filt = PoseFilter()
+        filt.set_pose(dock_x, dock_z, spawn_yaw_deg)   # 도크 마커 시딩(측량 좌표, GT 아님)
+
+        result = drive_to_pose(ctx, art, idx, filt, T_base_cam,
+                               (dock_x, dock_z + 1.0, spawn_yaw_deg))
+        print(f"MISSIONB_DRIVE robot={target} reached={result['reached']} "
+              f"err_pos={result['err_pos_gt']:.4f} err_yaw={result['err_yaw_gt']:.2f} "
+              f"steps={result['steps']}", flush=True)
+        # 진단 전용(요구 토큰 아님): 주행 중 마커 보정이 실제로 몇 번 들어갔는지.
+        # +Z 도크 이탈은 전방 카메라가 마커를 옆으로 보내는 기하라 0 이어도
+        # 정상(오도만으로 도달) — 정직성 게이트 리포팅용.
+        print(f"MISSIONB_FIX_COUNT n_fix={filt.n_fix} n_pred={filt.n_pred}", flush=True)
+
         if headless:
             app.close(); return
         while app.is_running():
