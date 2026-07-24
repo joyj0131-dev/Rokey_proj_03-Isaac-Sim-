@@ -102,8 +102,9 @@ def test_target_ahead_gives_forward():
     assert vx > 0.1 and abs(vy) < 1e-6 and abs(wz) < 1e-6 and not done
 
 def test_target_left_gives_left_strafe():
-    # +Z 를 보는 로봇의 목표가 월드 -X(좌측)면 body +y(좌) 성분이 양(mecanum 횡이동).
-    vx, vy, wz, done = body_twist_toward((0.0, 0.0, 0.0), (-1.0, 0.0, 0.0))
+    # 자세규약 좌=(cosψ,-sinψ): ψ=0(+Z 향함)일 때 로봇의 좌측은 월드 +X.
+    # 목표가 월드 +X 면 body +y(좌) 성분이 양(mecanum 횡이동).
+    vx, vy, wz, done = body_twist_toward((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
     assert vy > 0.1
 
 def test_yaw_error_sign():
