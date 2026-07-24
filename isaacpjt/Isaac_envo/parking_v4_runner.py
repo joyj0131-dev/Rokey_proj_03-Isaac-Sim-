@@ -13,6 +13,8 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 WORK_DIR = Path(__file__).resolve().parent
 REPO_ROOT = WORK_DIR.parent.parent
 PARKING_USD = WORK_DIR / "parking" / "parking_environment_v4.usd"
@@ -230,6 +232,153 @@ def attach_camera_graph(robot_id, cam_path, width=640, height=480):
             ],
         },
     )
+
+
+# ---- M5/FUSE 공용 헬퍼 (카메라 셋업·보정·검출·측위) ----
+# M5 분기가 인라인으로 갖고 있던 로직을 모듈 함수로 추출한 것이다. --probe=FUSE 가
+# 주행 중에 같은 셋업/보정/검출/측위를 재사용한다. 계산·값·순서는 M5 인라인과 동일.
+def fuse_camera_setup(stage, timeline, app, target, cam_h):
+    """카메라 높이 오버라이드 + rgb annotator + K/detector/marker_map 컨텍스트."""
+    import json
+    from pxr import Gf, UsdGeom
+    import omni.replicator.core as rep
+    sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
+    from parkbot_aruco import aruco_pose
+    from parkbot_aruco import marker_localizer as ML
+
+    ref_serves = sm.ROBOT_DOCK_MARKER[target]
+    markers = read_markers(stage)
+    ref_id = markers[ref_serves]["id"]
+    mx, mz = marker_visual_center(stage, ref_serves)
+
+    map_path = REPO_ROOT / "src" / "parkbot_aruco" / "data" / "marker_map_v4.json"
+    mm_json = json.loads(map_path.read_text(encoding="utf-8"))
+    marker_map = ML.MarkerMap.from_json(mm_json, align_yaw_deg=0.0)
+    code_size_m = float(mm_json["code_size_m"])
+    detector = aruco_pose.make_detector(mm_json["dictionary"])
+
+    art_path = robot_prim_path(target)
+    cam_path = find_front_camera(stage, target)
+    cam_prim = stage.GetPrimAtPath(cam_path)
+    cam_xf = UsdGeom.Xformable(cam_prim)
+    dy_world = cam_h - 0.09
+    if abs(dy_world) > 1e-9:
+        mb = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
+        local_delta = mb.GetInverse().TransformDir(Gf.Vec3d(0.0, dy_world, 0.0))
+        cam_xf.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble, "camHeightFuse").Set(local_delta)
+        for _ in range(3):
+            app.update()
+
+    rp = rep.create.render_product(cam_path, (640, 480))
+    rgb_annot = rep.AnnotatorRegistry.get_annotator("rgb")
+    rgb_annot.attach([rp])
+    ucam = UsdGeom.Camera(cam_prim)
+    focal = ucam.GetFocalLengthAttr().Get()
+    haper = ucam.GetHorizontalApertureAttr().Get()
+    vaper = ucam.GetVerticalApertureAttr().Get()
+    K = np.array([[640.0 * focal / haper, 0.0, 320.0],
+                  [0.0, 480.0 * focal / vaper, 240.0],
+                  [0.0, 0.0, 1.0]], dtype=np.float64)
+    return {"aruco_pose": aruco_pose, "ML": ML, "ref_id": ref_id,
+            "mx": mx, "mz": mz, "marker_map": marker_map,
+            "code_size_m": code_size_m, "detector": detector, "K": K,
+            "dist": np.zeros((5, 1), dtype=np.float64), "cam_xf": cam_xf,
+            "rgb_annot": rgb_annot}
+
+
+def _quat_mul(q0, q1):
+    w0, x0, y0, z0 = q0
+    w1, x1, y1, z1 = q1
+    return np.array([
+        w1*w0 - x1*x0 - y1*y0 - z1*z0,
+        w1*x0 + x1*w0 + y1*z0 - z1*y0,
+        w1*y0 - x1*z0 + y1*w0 + z1*x0,
+        w1*z0 + x1*y0 - y1*x0 + z1*w0])
+
+
+def detect_at_pose(ctx, art, app, d, lat, yaw_deg, spawn_orn, settle=20):
+    """로봇을 마커 앞 (d,lat,yaw) 에 놓고 렌더→검출, 대상 마커 pose|None."""
+    import cv2
+    mx, mz = ctx["mx"], ctx["mz"]
+    base = np.array([[mx - d, ROBOT_SPAWN_Y, mz + lat]])
+    if abs(yaw_deg) < 1e-9:
+        orn = np.array([spawn_orn])
+    else:
+        half = math.radians(yaw_deg) * 0.5
+        qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])
+        orn = np.array([_quat_mul(spawn_orn, qy)])
+    art.set_world_poses(base, orn)
+    for _ in range(settle):
+        app.update()
+    frame = ctx["rgb_annot"].get_data()
+    img = (np.asarray(frame)[:, :, :3] if frame is not None and len(frame) else None)
+    if img is None:
+        return None
+    gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+    det = ctx["aruco_pose"].detect_and_estimate(
+        gray, ctx["detector"], ctx["code_size_m"], ctx["K"], ctx["dist"])
+    hit = [p for p in det if int(p.marker_id) == ctx["ref_id"]]
+    return hit[0] if hit else None
+
+
+def detect_current(ctx):
+    """현재 렌더 프레임에서 대상 마커 pose|None (로봇을 옮기지 않는다, 주행 중용)."""
+    import cv2
+    frame = ctx["rgb_annot"].get_data()
+    img = (np.asarray(frame)[:, :, :3] if frame is not None and len(frame) else None)
+    if img is None:
+        return None
+    gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+    det = ctx["aruco_pose"].detect_and_estimate(
+        gray, ctx["detector"], ctx["code_size_m"], ctx["K"], ctx["dist"])
+    hit = [p for p in det if int(p.marker_id) == ctx["ref_id"]]
+    return hit[0] if hit else None
+
+
+def localize_pose(ctx, pose, T_base_cam):
+    T_cm = ctx["ML"].rvec_tvec_to_T(pose.rvec, pose.tvec)
+    return ctx["ML"].robot_pose_from_marker(ctx["ref_id"], T_cm, T_base_cam, ctx["marker_map"])
+
+
+def calibrate_tbasecam(ctx, art, app, timeline, gt_fn, spawn_orn):
+    """GT 로 광학 규약 후보를 스윕해 T_base_cam 확정. (T_base_cam, name, err)."""
+    def usd_to_np(gf_m):
+        m = np.array([[gf_m[i][j] for j in range(4)] for i in range(4)], dtype=np.float64)
+        return m.T
+    pose0 = detect_at_pose(ctx, art, app, 1.5, 0.0, 0.0, spawn_orn)
+    if pose0 is None:
+        raise RuntimeError("FUSE T_base_cam 보정 자세에서 마커 미검출")
+    bpos, born = art.get_world_poses()
+    bp = np.asarray(bpos).reshape(-1)[:3]
+    bw, bx, by, bz = (float(v) for v in np.asarray(born).reshape(-1)[:4])
+
+    def quat_to_R(w, x, y, z):
+        return np.array([
+            [1-2*(y*y+z*z), 2*(x*y-w*z),   2*(x*z+w*y)],
+            [2*(x*y+w*z),   1-2*(x*x+z*z), 2*(y*z-w*x)],
+            [2*(x*z-w*y),   2*(y*z+w*x),   1-2*(x*x+y*y)]], dtype=np.float64)
+    T_world_base = np.eye(4)
+    T_world_base[:3, :3] = quat_to_R(bw, bx, by, bz)
+    T_world_base[:3, 3] = bp
+    T_world_camusd = usd_to_np(ctx["cam_xf"].ComputeLocalToWorldTransform(
+        timeline.get_current_time()))
+    candidates = {"I": np.diag([1.0, 1.0, 1.0, 1.0]),
+                  "X180": np.diag([1.0, -1.0, -1.0, 1.0]),
+                  "Y180": np.diag([-1.0, 1.0, -1.0, 1.0]),
+                  "Z180": np.diag([-1.0, -1.0, 1.0, 1.0])}
+    gx, gz, gyaw = gt_fn(art)
+    best_name, best_T, best_err = None, None, 1e9
+    for name, C in candidates.items():
+        T_base_cam = np.linalg.inv(T_world_base) @ T_world_camusd @ C
+        fix = localize_pose(ctx, pose0, T_base_cam)
+        if fix is None:
+            continue
+        e = math.hypot(fix.x - gx, fix.z - gz)
+        if e < best_err:
+            best_name, best_T, best_err = name, T_base_cam, e
+    if best_T is None or best_err > 0.05:
+        raise RuntimeError(f"FUSE T_base_cam 보정 실패(best_err={best_err:.4f})")
+    return best_T, best_name, best_err
 
 
 def main():
@@ -483,12 +632,6 @@ def main():
         # 마커 측위 정확도 관문. Isaac 안에서 렌더→검출→robot_pose_from_marker 로
         # 월드 자세를 복원해 GT 와 비교한다. T_base_cam(카메라 마운트)은 카메라를
         # 0.15m 로 올렸으므로 v1 기본값을 쓰면 틀린다 → GT 로 자동 보정한다.
-        import json
-        import cv2
-        from pxr import Gf, UsdGeom
-        sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
-        from parkbot_aruco import aruco_pose
-        from parkbot_aruco import marker_localizer as ML
 
         cam_h = 0.15
         for a in sys.argv[1:]:
@@ -509,82 +652,15 @@ def main():
 
         target = "entry_lead"
         art = arts[target]
-        ref_serves = sm.ROBOT_DOCK_MARKER[target]           # "D_OUT_1"
-        markers = read_markers(stage)
-        ref_id = markers[ref_serves]["id"]                  # 21
-        mx, mz = marker_visual_center(stage, ref_serves)    # 데칼 실좌표
 
-        # 지도 로드(측위가 쓰는 v4 지도)
-        map_path = REPO_ROOT / "src" / "parkbot_aruco" / "data" / "marker_map_v4.json"
-        mm_json = json.loads(map_path.read_text(encoding="utf-8"))
-        marker_map = ML.MarkerMap.from_json(mm_json, align_yaw_deg=0.0)
-        code_size_m = float(mm_json["code_size_m"])
-        detector = aruco_pose.make_detector(mm_json["dictionary"])
-
-        # 카메라 준비 + 높이 오버라이드(probe A 와 동일: 월드 Y dy 를 로컬로 역변환)
-        cam_path = find_front_camera(stage, target)
-        cam_prim = stage.GetPrimAtPath(cam_path)
-        cam_xf = UsdGeom.Xformable(cam_prim)
+        # yaw 회전 기준이 되는 스폰 자세. 카메라 높이 오버라이드의 app.update 전에
+        # 잡아 리팩터 전 M5 와 동일한 값을 쓴다.
         _, spawn_orn = art.get_world_poses()
         spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
-        dy_world = cam_h - 0.09
-        if abs(dy_world) > 1e-9:
-            mb = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
-            local_delta = mb.GetInverse().TransformDir(Gf.Vec3d(0.0, dy_world, 0.0))
-            cam_xf.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble, "camHeightM5").Set(local_delta)
-            for _ in range(3):
-                app.update()
 
-        import omni.replicator.core as rep
-        rp = rep.create.render_product(cam_path, (640, 480))
-        rgb_annot = rep.AnnotatorRegistry.get_annotator("rgb")
-        rgb_annot.attach([rp])
-
-        ucam = UsdGeom.Camera(cam_prim)
-        focal = ucam.GetFocalLengthAttr().Get()
-        haper = ucam.GetHorizontalApertureAttr().Get()
-        vaper = ucam.GetVerticalApertureAttr().Get()
-        K = np.array([[640.0 * focal / haper, 0.0, 320.0],
-                      [0.0, 480.0 * focal / vaper, 240.0],
-                      [0.0, 0.0, 1.0]], dtype=np.float64)
-        dist = np.zeros((5, 1), dtype=np.float64)
-
-        def usd_to_np(gf_m):
-            """Gf.Matrix4d(행벡터 v*M 규약) → 표준 열벡터 4x4(M*v)."""
-            m = np.array([[gf_m[i][j] for j in range(4)] for i in range(4)], dtype=np.float64)
-            return m.T
-
-        def place_and_capture(d, lat, yaw_deg):
-            """로봇을 마커 앞 (d,lat,yaw) 자세에 놓고 렌더 이미지+검출을 돌려준다.
-
-            카메라 정면(-Z)이 월드 +X 를 보므로 마커 앞 d 는 x 축(로봇 중심 mx-d),
-            횡오프셋 lat 은 z 축. yaw 는 스폰 자세에 RotateY 를 곱해 준다.
-            """
-            base = np.array([[mx - d, ROBOT_SPAWN_Y, mz + lat]])
-            if abs(yaw_deg) < 1e-9:
-                orn = np.array([spawn_orn])
-            else:
-                half = math.radians(yaw_deg) * 0.5
-                qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])  # (w,x,y,z) about Y
-                w0, x0, y0, z0 = spawn_orn
-                w1, x1, y1, z1 = qy
-                orn = np.array([[
-                    w1*w0 - x1*x0 - y1*y0 - z1*z0,
-                    w1*x0 + x1*w0 + y1*z0 - z1*y0,
-                    w1*y0 - x1*z0 + y1*w0 + z1*x0,
-                    w1*z0 + x1*y0 - y1*x0 + z1*w0]])
-            art.set_world_poses(base, orn)
-            for _ in range(20):
-                app.update()
-            frame = rgb_annot.get_data()
-            img = (np.asarray(frame)[:, :, :3]
-                   if frame is not None and len(frame) else None)
-            det = []
-            if img is not None:
-                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
-                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
-            hit = [p for p in det if int(p.marker_id) == ref_id]
-            return (hit[0] if hit else None)
+        # 카메라 셋업·검출 컨텍스트(높이 오버라이드 + rgb annotator + K + 지도/검출기/마커).
+        # FUSE 와 공유하려고 모듈 함수로 추출했다.
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h)
 
         def capture_frames(d, lat, yaw_deg, k):
             """같은 자세에서 k 프레임을 잡아 각 프레임의 측위를 리스트로 돌려준다.
@@ -594,28 +670,21 @@ def main():
             single 과 fused 가 비슷하게 나오며, 그것이 정직한 결과다.
             """
             poses = []
-            first = place_and_capture(d, lat, yaw_deg)   # 첫 프레임(자세 세팅 포함)
+            first = detect_at_pose(ctx, art, app, d, lat, yaw_deg, spawn_orn)  # 첫 프레임(자세 세팅 포함)
             gxx, gzz, gyy = gt_pose_xz_yaw(art)           # 이 자세의 GT
             if first is not None:
                 poses.append(first)
             for _ in range(k - 1):
                 for _ in range(2):
                     app.update()
-                frame = rgb_annot.get_data()
-                img = (np.asarray(frame)[:, :, :3]
-                       if frame is not None and len(frame) else None)
-                if img is None:
-                    continue
-                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
-                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
-                hit = [p for p in det if int(p.marker_id) == ref_id]
-                if hit:
-                    poses.append(hit[0])
+                hit = detect_current(ctx)
+                if hit is not None:
+                    poses.append(hit)
             return poses, (gxx, gzz, gyy)
 
         def fuse_localize(poses, T_base_cam):
             """여러 프레임의 측위(RobotFix)를 융합: x,z 평균 + yaw 원형평균."""
-            fixes = [localize(p, T_base_cam) for p in poses]
+            fixes = [localize_pose(ctx, p, T_base_cam) for p in poses]
             fixes = [f for f in fixes if f is not None]
             if not fixes:
                 return None
@@ -626,59 +695,22 @@ def main():
             yaw = math.degrees(math.atan2(sy, cy))
             return xs, zs, yaw, fixes[0]      # 융합값 + 첫 프레임(단일 비교용)
 
-        def localize(pose, T_base_cam):
-            T_cm = ML.rvec_tvec_to_T(pose.rvec, pose.tvec)
-            return ML.robot_pose_from_marker(ref_id, T_cm, T_base_cam, marker_map)
-
-        # ---- T_base_cam 자동 보정 ----
-        # T_base_cam = inv(T_world_base) @ T_world_camusd @ C, C 는 USD 카메라→OpenCV 광학
-        # 규약 회전. 규약을 손으로 추론하면 틀리기 쉬우므로(프로젝트가 align_yaw 를 스윕해
-        # 정한 전례), 후보 C 를 GT 로 스윕해 오차 최소를 고른다.
-        pose0 = place_and_capture(1.5, 0.0, 0.0)   # 검증용 기준 자세
-        if pose0 is None:
-            print("M5_TBASECAM_CAL FAIL: 검증 자세에서 마커 미검출 — 기하 재검토", flush=True)
+        # ---- T_base_cam 자동 보정(모듈 함수: GT 로 광학 규약 후보 스윕) ----
+        # 보정·검출·측위는 FUSE 와 공유하는 모듈 함수가 담당한다. 보정 실패 시에도
+        # 리팩터 전과 같은 M5_TBASECAM_CAL FAIL 토큰·헤드리스 종료 동작을 유지한다.
+        try:
+            T_base_cam, best_name, best_err = calibrate_tbasecam(
+                ctx, art, app, timeline, gt_pose_xz_yaw, spawn_orn)
+        except RuntimeError as e:
+            if "미검출" in str(e):
+                print("M5_TBASECAM_CAL FAIL: 검증 자세에서 마커 미검출 — 기하 재검토", flush=True)
+            else:
+                print("M5_TBASECAM_CAL FAIL: 어떤 광학 규약도 5cm 안에 못 맞춤 — "
+                      "usd_to_np 전치/규약 재검토 필요", flush=True)
             if headless:
                 app.close()
-            raise RuntimeError("M5 T_base_cam 보정 자세에서 마커 미검출")
-        # base_link 월드행렬을 Articulation world pose 로 구성
-        bpos, born = art.get_world_poses()
-        bp = np.asarray(bpos).reshape(-1)[:3]
-        bw, bx, by, bz = (float(v) for v in np.asarray(born).reshape(-1)[:4])
-        # quat(w,x,y,z) → 회전행렬
-        def quat_to_R(w, x, y, z):
-            return np.array([
-                [1-2*(y*y+z*z), 2*(x*y-w*z),   2*(x*z+w*y)],
-                [2*(x*y+w*z),   1-2*(x*x+z*z), 2*(y*z-w*x)],
-                [2*(x*z-w*y),   2*(y*z+w*x),   1-2*(x*x+y*y)]], dtype=np.float64)
-        T_world_base = np.eye(4)
-        T_world_base[:3, :3] = quat_to_R(bw, bx, by, bz)
-        T_world_base[:3, 3] = bp
-        T_world_camusd = usd_to_np(cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time()))
-
-        candidates = {
-            "I":     np.diag([1.0, 1.0, 1.0, 1.0]),
-            "X180":  np.diag([1.0, -1.0, -1.0, 1.0]),
-            "Y180":  np.diag([-1.0, 1.0, -1.0, 1.0]),
-            "Z180":  np.diag([-1.0, -1.0, 1.0, 1.0]),
-        }
-        gx, gz, gyaw = gt_pose_xz_yaw(art)
-        best_name, best_T, best_err = None, None, 1e9
-        for name, C in candidates.items():
-            T_base_cam = np.linalg.inv(T_world_base) @ T_world_camusd @ C
-            fix = localize(pose0, T_base_cam)
-            if fix is None:
-                continue
-            e = math.hypot(fix.x - gx, fix.z - gz)
-            if e < best_err:
-                best_name, best_T, best_err = name, T_base_cam, e
+            raise
         print(f"M5_TBASECAM_CAL best={best_name} verify_pos_err={best_err:.4f}m", flush=True)
-        if best_T is None or best_err > 0.05:
-            print("M5_TBASECAM_CAL FAIL: 어떤 광학 규약도 5cm 안에 못 맞춤 — "
-                  "usd_to_np 전치/규약 재검토 필요", flush=True)
-            if headless:
-                app.close()
-            raise RuntimeError(f"M5 T_base_cam 보정 실패(best_err={best_err:.4f})")
-        T_base_cam = best_T
 
         # ---- 정확도 스윕(단일+융합 동시 측정) ----
         def err_of(fx, fz, fyaw_deg, gt):
