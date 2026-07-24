@@ -23,6 +23,7 @@ import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
@@ -52,6 +53,7 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("t_base_cam", _DEFAULT_T_BASE_CAM)
         self.declare_parameter("max_reproj_px", 3.0)
         self.declare_parameter("fuse", False)              # 오도메트리 융합(구독 필요)
+        self.declare_parameter("odom_topic", "/robot_entry_lead/odom")  # fuse=True 일 때 구독
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
         self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
 
@@ -59,6 +61,7 @@ class MarkerLocalizerNode(Node):
         info_topic = self.get_parameter("camera_info_topic").value
         map_param = self.get_parameter("marker_map").value
         self.max_reproj = float(self.get_parameter("max_reproj_px").value)
+        self.fuse = bool(self.get_parameter("fuse").value)
         self.log_every = max(1, int(self.get_parameter("log_every").value))
         self.frame = self.get_parameter("frame").value
         self.T_base_cam = np.array(
@@ -83,6 +86,16 @@ class MarkerLocalizerNode(Node):
             Image, image_topic, self._on_image, qos_profile_sensor_data)
         self.pub_pose = self.create_publisher(PoseStamped, "/robot_pose", 10)
 
+        # fuse=True 면 상보 필터를 만들고 오도메트리를 구독해 예측에 쓴다.
+        # fuse=False 면 self.filt 가 None 으로 남아 기존 마커 단독 경로를 그대로 탄다.
+        self.filt = None
+        self._last_odom = None
+        if self.fuse:
+            from parkbot_aruco.marker_localizer import PoseFilter
+            self.filt = PoseFilter()
+            self.create_subscription(Odometry, self.get_parameter("odom_topic").value,
+                                     self._on_odom, qos_profile_sensor_data)
+
         self.get_logger().info(
             f"marker_localizer_node 시작 | image={image_topic} info={info_topic} "
             f"| 지도 {len(self.marker_map.by_id)}개 마커 | 카메라 마운트 파라미터 로드")
@@ -91,6 +104,17 @@ class MarkerLocalizerNode(Node):
         self.K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
         self.dist = (np.array(msg.d, dtype=np.float64).reshape(-1, 1)
                      if len(msg.d) else np.zeros((5, 1)))
+
+    def _on_odom(self, msg):
+        # 러너 odom 은 위치를 (x, ·, z), yaw 를 z/w 쿼터니언으로 담는다(XZ 평면).
+        x = msg.pose.pose.position.x
+        z = msg.pose.pose.position.z
+        qz, qw = msg.pose.pose.orientation.z, msg.pose.pose.orientation.w
+        yaw = math.degrees(2.0 * math.atan2(qz, qw))
+        if self.filt is not None and self._last_odom is not None and self.filt.x is not None:
+            lx, lz, lyaw = self._last_odom
+            self.filt.predict(x - lx, z - lz, _wrap := ((yaw - lyaw + 180.0) % 360.0 - 180.0))
+        self._last_odom = (x, z, yaw)
 
     def _on_image(self, msg: Image):
         if self.K is None:
@@ -117,11 +141,23 @@ class MarkerLocalizerNode(Node):
             self._seen_count[p.marker_id] = n
             if n % self.log_every == 0:
                 m = self.marker_map.by_id[p.marker_id]
+                # v4 지도는 "label" 대신 role/serves 스키마라 키가 없다 — 기존
+                # MarkerMap.label() 폴백(없으면 id 문자열)을 그대로 재사용한다.
                 self.get_logger().info(
-                    f"[측위] 마커 ID {p.marker_id} ({m['label']})  "
+                    f"[측위] 마커 ID {p.marker_id} ({self.marker_map.label(p.marker_id)})  "
                     f"월드좌표=({m['x']:+.2f}, {m['z']:+.2f})  →  "
                     f"로봇 위치 x={fix.x:+.3f} z={fix.z:+.3f} yaw={fix.yaw_deg:+.1f}°  "
                     f"(재투영 {p.reproj_err_px:.2f}px)")
+
+            if self.fuse and self.filt is not None:
+                if self.filt.x is None:
+                    self.filt.set_pose(fix.x, fix.z, fix.yaw_deg)
+                else:
+                    self.filt.update(fix)
+                px, pz, pyaw = self.filt.pose()
+            else:
+                px, pz, pyaw = fix.x, fix.z, fix.yaw_deg
+            # 이후 px,pz,pyaw 로 PoseStamped 발행(기존 x,z,yaw 자리 대체)
 
             ps = PoseStamped()
             ps.header = msg.header
@@ -129,15 +165,15 @@ class MarkerLocalizerNode(Node):
                 # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2.
                 # psi=atan2(fwd_x,fwd_z), 부호는 Isaac GT 대조 실측으로 확정했다.
                 ps.header.frame_id = "map"
-                ps.pose.position.x = fix.x
-                ps.pose.position.y = -fix.z
-                ros_yaw = math.radians(fix.yaw_deg) - math.pi / 2.0
+                ps.pose.position.x = px
+                ps.pose.position.y = -pz
+                ros_yaw = math.radians(pyaw) - math.pi / 2.0
                 ps.pose.orientation.z = math.sin(ros_yaw / 2.0)
                 ps.pose.orientation.w = math.cos(ros_yaw / 2.0)
             else:
-                ps.pose.position.x = fix.x
+                ps.pose.position.x = px
                 ps.pose.position.y = 0.0
-                ps.pose.position.z = fix.z
+                ps.pose.position.z = pz
             self.pub_pose.publish(ps)
 
 
