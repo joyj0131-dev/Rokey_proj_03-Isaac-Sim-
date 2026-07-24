@@ -11,6 +11,7 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>cv_bridge</depend>
   <exec_depend>python3-opencv</exec_depend>
   <!-- 정식 검출 메시지. 없으면 노드가 PoseArray 로 폴백하지만 설치 권장. -->

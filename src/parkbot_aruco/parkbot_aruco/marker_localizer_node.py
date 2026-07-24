@@ -43,6 +43,17 @@ _DEFAULT_T_BASE_CAM = [
 ]
 
 
+def odom_world_delta(prev, cur):
+    """직전/현재 odom (x, z, yaw_deg) 로부터 월드 증분 (dx, dz, dyaw_deg) 를 낸다.
+    yaw 증분은 (-180, 180] 로 접는다. prev 가 None 이면 None(첫 표본)."""
+    if prev is None:
+        return None
+    lx, lz, lyaw = prev
+    x, z, yaw = cur
+    dyaw = (yaw - lyaw + 180.0) % 360.0 - 180.0
+    return (x - lx, z - lz, dyaw)
+
+
 class MarkerLocalizerNode(Node):
     def __init__(self):
         super().__init__("marker_localizer_node")
@@ -110,11 +121,11 @@ class MarkerLocalizerNode(Node):
         x = msg.pose.pose.position.x
         z = msg.pose.pose.position.z
         qz, qw = msg.pose.pose.orientation.z, msg.pose.pose.orientation.w
-        yaw = math.degrees(2.0 * math.atan2(qz, qw))
-        if self.filt is not None and self._last_odom is not None and self.filt.x is not None:
-            lx, lz, lyaw = self._last_odom
-            self.filt.predict(x - lx, z - lz, _wrap := ((yaw - lyaw + 180.0) % 360.0 - 180.0))
-        self._last_odom = (x, z, yaw)
+        cur = (x, z, math.degrees(2.0 * math.atan2(qz, qw)))
+        delta = odom_world_delta(self._last_odom, cur)
+        if delta is not None and self.filt is not None and self.filt.x is not None:
+            self.filt.predict(*delta)
+        self._last_odom = cur
 
     def _on_image(self, msg: Image):
         if self.K is None:
