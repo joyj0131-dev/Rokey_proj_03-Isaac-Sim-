@@ -212,18 +212,21 @@ def find_rear_camera(stage, robot_id):
     raise RuntimeError(f"{robot_id}: 후방 카메라 prim 을 찾지 못했습니다")
 
 
-def attach_camera_graph(robot_id, cam_path, width=640, height=480):
+def attach_camera_graph(robot_id, cam_path, role="front", width=640, height=480):
     """C++ OmniGraph 로 image_raw + camera_info 를 발행한다.
 
     Python rclpy 로 이미지를 퍼블리시하면 Isaac 루프가 죽는다(ARUCO_PLAN 전제).
     camera_info 는 ROS2CameraHelper 의 type 이 아니라 별도 ROS2CameraInfoHelper 노드다
     (DEBUG_LOG 2026-07-21). 노드 타입·속성명은 설치된 Isaac Sim 5.1
     (isaacsim.core.nodes / isaacsim.ros2.bridge 의 .ogn 문서)로 확인했다.
+
+    role 로 네임스페이스/그래프 경로를 분리해 같은 로봇의 전방·후방 카메라를
+    동시에(별개 토픽/그래프로) 발행할 수 있다(기본 "front").
     """
     import omni.graph.core as og
-    ns = f"/robot_{robot_id}"
+    ns = f"/robot_{robot_id}/{role}"
     og.Controller.edit(
-        {"graph_path": f"/Graphs/cam_{robot_id}", "evaluator_name": "push"},
+        {"graph_path": f"/Graphs/cam_{robot_id}_{role}", "evaluator_name": "push"},
         {
             og.Controller.Keys.CREATE_NODES: [
                 ("tick", "omni.graph.action.OnPlaybackTick"),
@@ -244,9 +247,9 @@ def attach_camera_graph(robot_id, cam_path, width=640, height=480):
                 ("render.inputs:height", height),
                 ("rgb.inputs:type", "rgb"),
                 ("rgb.inputs:topicName", f"{ns}/image_raw"),
-                ("rgb.inputs:frameId", f"robot_{robot_id}/cam"),
+                ("rgb.inputs:frameId", f"robot_{robot_id}/{role}_cam"),
                 ("info.inputs:topicName", f"{ns}/camera_info"),
-                ("info.inputs:frameId", f"robot_{robot_id}/cam"),
+                ("info.inputs:frameId", f"robot_{robot_id}/{role}_cam"),
             ],
         },
     )
@@ -506,7 +509,7 @@ def main():
     # 2대일 때는 팀당 리드에만 단다.
     cam_robots = {0: (), 2: ("entry_lead", "exit_lead"), 4: sm.ROBOTS}[n_cams]
     for r in cam_robots:
-        attach_camera_graph(r, find_front_camera(stage, r))
+        attach_camera_graph(r, find_front_camera(stage, r), role="front")
     for _ in range(30):
         app.update()
     print(f"V4_CAMERAS n={n_cams} robots={list(cam_robots)}", flush=True)
@@ -598,11 +601,11 @@ def main():
                   f"actual_world_dy={actual_dy:.4f}", flush=True)
 
         # 카메라 영상을 C++ OmniGraph 로 발행(image_raw + camera_info). 검출은 외부.
-        attach_camera_graph(target, cam_path)
+        attach_camera_graph(target, cam_path, role="front")
         for _ in range(30):
             app.update()
-        print(f"PROBE_A_PUBLISHING image=/robot_{target}/image_raw "
-              f"info=/robot_{target}/camera_info state=/probe_a/state "
+        print(f"PROBE_A_PUBLISHING image=/robot_{target}/front/image_raw "
+              f"info=/robot_{target}/front/camera_info state=/probe_a/state "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')} "
               f"target_marker_id={ref['id']}", flush=True)
 
@@ -667,11 +670,11 @@ def main():
             rclpy.init()
         pa = rclpy.create_node("rear_probe_bringup")
         state_pub = pa.create_publisher(RosString, "/probe_a/state", 10)
-        attach_camera_graph(target, cam_path)   # /robot_entry_lead/image_raw 로 후방 발행
+        attach_camera_graph(target, cam_path, role="rear")   # /robot_entry_lead/rear/image_raw 로 후방 발행
         for _ in range(30):
             app.update()
         ref_id = read_markers(stage)[ref_serves]["id"]
-        print(f"REAR_PUBLISHING image=/robot_{target}/image_raw target_marker_id={ref_id} "
+        print(f"REAR_PUBLISHING image=/robot_{target}/rear/image_raw target_marker_id={ref_id} "
               f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
         loop = 0
         while app.is_running():
