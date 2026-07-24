@@ -149,6 +149,64 @@ def build_stage(app):
     return stage
 
 
+def find_front_camera(stage, robot_id):
+    """로봇 서브트리에서 전방 카메라 prim 경로를 찾는다.
+
+    에셋에 카메라가 4대 있으므로 이름으로 전방을 고른다. 후보가 없으면
+    조용히 넘어가지 않고 실패한다.
+    """
+    from pxr import Usd
+    root = stage.GetPrimAtPath(robot_prim_path(robot_id))
+    cams = [p for p in Usd.PrimRange(root)
+            if p.GetTypeName() == "Camera"]
+    if not cams:
+        raise RuntimeError(f"{robot_id}: 카메라 prim 을 찾지 못했습니다")
+    for p in cams:
+        if "front" in p.GetName().lower():
+            return str(p.GetPath())
+    return str(cams[0].GetPath())
+
+
+def attach_camera_graph(robot_id, cam_path, width=640, height=480):
+    """C++ OmniGraph 로 image_raw + camera_info 를 발행한다.
+
+    Python rclpy 로 이미지를 퍼블리시하면 Isaac 루프가 죽는다(ARUCO_PLAN 전제).
+    camera_info 는 ROS2CameraHelper 의 type 이 아니라 별도 ROS2CameraInfoHelper 노드다
+    (DEBUG_LOG 2026-07-21). 노드 타입·속성명은 설치된 Isaac Sim 5.1
+    (isaacsim.core.nodes / isaacsim.ros2.bridge 의 .ogn 문서)로 확인했다.
+    """
+    import omni.graph.core as og
+    ns = f"/robot_{robot_id}"
+    og.Controller.edit(
+        {"graph_path": f"/Graphs/cam_{robot_id}", "evaluator_name": "push"},
+        {
+            og.Controller.Keys.CREATE_NODES: [
+                ("tick", "omni.graph.action.OnPlaybackTick"),
+                ("render", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+                ("rgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+                ("info", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
+            ],
+            og.Controller.Keys.CONNECT: [
+                ("tick.outputs:tick", "render.inputs:execIn"),
+                ("render.outputs:execOut", "rgb.inputs:execIn"),
+                ("render.outputs:execOut", "info.inputs:execIn"),
+                ("render.outputs:renderProductPath", "rgb.inputs:renderProductPath"),
+                ("render.outputs:renderProductPath", "info.inputs:renderProductPath"),
+            ],
+            og.Controller.Keys.SET_VALUES: [
+                ("render.inputs:cameraPrim", [cam_path]),
+                ("render.inputs:width", width),
+                ("render.inputs:height", height),
+                ("rgb.inputs:type", "rgb"),
+                ("rgb.inputs:topicName", f"{ns}/image_raw"),
+                ("rgb.inputs:frameId", f"robot_{robot_id}/cam"),
+                ("info.inputs:topicName", f"{ns}/camera_info"),
+                ("info.inputs:frameId", f"robot_{robot_id}/cam"),
+            ],
+        },
+    )
+
+
 def main():
     _restart_with_isaac_python()
     from isaacsim import SimulationApp
@@ -221,6 +279,45 @@ def main():
         odom[r] = WheelOdometry(x=gx, z=gz, yaw=gyaw)   # 초기 자세만 GT 로 정렬
     print(f"V4_ODOM_MODE={odom_mode}", flush=True)
 
+    n_cams = 0
+    for a in sys.argv[1:]:
+        if a.startswith("--cameras="):
+            n_cams = int(a.split("=", 1)[1])
+    if n_cams not in (0, 2, 4):
+        raise SystemExit(f"--cameras 는 0, 2, 4 중 하나여야 합니다: {n_cams}")
+
+    # 2대일 때는 팀당 리드에만 단다.
+    cam_robots = {0: (), 2: ("entry_lead", "exit_lead"), 4: sm.ROBOTS}[n_cams]
+    for r in cam_robots:
+        attach_camera_graph(r, find_front_camera(stage, r))
+    for _ in range(30):
+        app.update()
+    print(f"V4_CAMERAS n={n_cams} robots={list(cam_robots)}", flush=True)
+
+    probe = None
+    for a in sys.argv[1:]:
+        if a.startswith("--probe="):
+            probe = a.split("=", 1)[1]
+
+    if probe == "C":
+        import time as _time
+        import v4_probes as vp
+        for _ in range(120):                 # 워밍업
+            app.update()
+        t_wall = _time.monotonic()
+        t_sim = timeline.get_current_time()
+        for _ in range(600):
+            app.update()
+        rtf = ((timeline.get_current_time() - t_sim)
+               / max(_time.monotonic() - t_wall, 1e-6))
+        path = vp.write_report(f"probe_c_rtf_{n_cams}cam", {
+            "cameras": n_cams, "robots": list(cam_robots), "rtf": rtf})
+        print(f"PROBE_C_RESULT cameras={n_cams} rtf={rtf:.3f} report={path.name}",
+              flush=True)
+        if headless:
+            app.close()
+            return
+
     BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
                         "/exts/isaacsim.ros2.bridge/humble/rclpy")
     if str(BRIDGE_RCLPY) not in sys.path:
@@ -269,11 +366,6 @@ def main():
               f"robot_disp={ {k: round(v, 4) for k, v in disp.items()} }", flush=True)
         app.close()
         return
-
-    probe = None
-    for a in sys.argv[1:]:
-        if a.startswith("--probe="):
-            probe = a.split("=", 1)[1]
 
     if probe == "B":
         import v4_probes as vp
@@ -324,7 +416,7 @@ def main():
         rate = (err / gt_len * 100.0) if gt_len > 1e-6 else 0.0
 
         vp.draw_trail(stage, "/World/ProbeB/GT", gt_all, vp.WHITE)
-        vp.draw_trail(stage, "/World/ProbeB/Odom", od_all, vp.YELLOW)
+        vp.draw_trail(stage, "/World/ProbeB/Odom", od_all, vp.YELLOW, y=0.03)
         path = vp.write_report("probe_b_odom_drift", {
             "robot": target, "gt_path_len_m": gt_len,
             "final_error_m": err, "drift_rate_pct": rate,
