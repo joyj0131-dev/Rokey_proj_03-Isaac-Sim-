@@ -251,20 +251,45 @@ def main():
     from isaacsim.core.prims import Articulation
 
     stage = build_stage(app)
+
+    # probe B 는 측정 대상 외 로봇을 화면·물리에서 뺀다(사용자 요청 + 개루프 주행 중
+    # 옆 도크 로봇과의 충돌 제거). 반드시 timeline.play()/Articulation.initialize() '전에'
+    # 비활성화한다 — 초기화(=PhysX 텐서 뷰 등록) 후에 SetActive(False)로 프림을 지우면
+    # 텐서 뷰가 깨져 세그폴트가 난다(관측된 크래시). play 전에 지우면 PhysX 가 아예
+    # 로드하지 않으므로 안전하다.
+    probe = None
+    for a in sys.argv[1:]:
+        if a.startswith("--probe="):
+            probe = a.split("=", 1)[1]
+    if probe == "B":
+        keep = sm.ROBOTS[0]
+        hidden = []
+        for r in sm.ROBOTS:
+            if r == keep:
+                continue
+            p = stage.GetPrimAtPath(robot_prim_path(r))
+            if p and p.IsValid():
+                p.SetActive(False)
+                hidden.append(r)
+        print(f"PROBE_B_HIDDEN kept={keep} hidden={hidden}", flush=True)
+
     timeline = omni.timeline.get_timeline_interface()
     timeline.play()
     for _ in range(30):
         app.update()
 
+    # 비활성화된 로봇은 아티큘레이션을 만들지 않는다(프림이 없으니 초기화도 불가).
     arts = {}
     for robot_id in sm.ROBOTS:
+        if not stage.GetPrimAtPath(robot_prim_path(robot_id)).IsActive():
+            continue
         art = Articulation(f"{robot_prim_path(robot_id)}/base_link")
         art.initialize()
         arts[robot_id] = art
 
     sys.path.insert(0, str(WORK_DIR))
     from mecanum_drive import configure_hub_drives
-    for robot_id in sm.ROBOTS:
+    for robot_id in arts:
         configure_hub_drives(stage, f"{robot_prim_path(robot_id)}/joints")
 
     from mecanum_drive import WHEEL_JOINTS, cmd_vel_from_wheel_velocities
@@ -299,7 +324,7 @@ def main():
         raise SystemExit(f"--odom 은 gt 또는 wheel 이어야 합니다: {odom_mode!r}")
 
     odom = {}
-    for r in sm.ROBOTS:
+    for r in arts:
         gx, gz, gyaw = gt_pose_xz_yaw(arts[r])
         odom[r] = WheelOdometry(x=gx, z=gz, yaw=gyaw)   # 초기 자세만 GT 로 정렬
     print(f"V4_ODOM_MODE={odom_mode}", flush=True)
@@ -319,10 +344,7 @@ def main():
         app.update()
     print(f"V4_CAMERAS n={n_cams} robots={list(cam_robots)}", flush=True)
 
-    probe = None
-    for a in sys.argv[1:]:
-        if a.startswith("--probe="):
-            probe = a.split("=", 1)[1]
+    # probe 는 이미 build_stage 직후에 파싱했다(probe B 조기 비활성화 때문).
 
     if probe == "C":
         import time as _time
@@ -517,25 +539,10 @@ def main():
         from mecanum_drive import slew_twist, wheel_velocities_from_cmd_vel
 
         target = sm.ROBOTS[0]                      # entry_lead 한 대로 측정
-        art = arts[target]
-        idx = wheel_idx[target]
+        art = arts[target]                         # 나머지 3대는 build_stage 직후
+        idx = wheel_idx[target]                    # 이미 비활성화됨(PROBE_B_HIDDEN)
         vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
                            dtype=np.float32)
-
-        # 사용자 요청: 실험하는 로봇만 보이게. 나머지 3대를 씬에서 비활성화하면
-        # 렌더와 물리에서 함께 빠지므로, 개루프 주행 중 옆 도크 로봇과 부딪히던
-        # 현상도 사라진다(측정 대상은 어차피 entry_lead 하나뿐이다).
-        hidden = []
-        for r in sm.ROBOTS:
-            if r == target:
-                continue
-            p = stage.GetPrimAtPath(robot_prim_path(r))
-            if p and p.IsValid():
-                p.SetActive(False)
-                hidden.append(r)
-        for _ in range(5):
-            app.update()
-        print(f"PROBE_B_HIDDEN robots={hidden}", flush=True)
 
         def drive(tw, steps):
             cur = (0.0, 0.0, 0.0)
