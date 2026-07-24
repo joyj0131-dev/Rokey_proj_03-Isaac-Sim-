@@ -184,6 +184,78 @@ def main():
     for robot_id in sm.ROBOTS:
         configure_hub_drives(stage, f"{robot_prim_path(robot_id)}/joints")
 
+    from mecanum_drive import WHEEL_JOINTS, cmd_vel_from_wheel_velocities
+    from wheel_odometry import WheelOdometry
+
+    wheel_idx = {r: {w: arts[r].dof_names.index(j) for w, j in WHEEL_JOINTS.items()}
+                 for r in arts}
+
+    def read_wheel_twist(art, idx):
+        """휠 관절 '각속도'로부터 로봇 로컬 twist 를 복원한다.
+
+        각도 차분을 쓰면 연속 회전에서 wrap 되어 폭주한다(DEBUG_LOG 2026-07-21).
+        """
+        vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+        omegas = {w: float(vel[i]) for w, i in idx.items()}
+        return cmd_vel_from_wheel_velocities(omegas)
+
+    def gt_pose_xz_yaw(art):
+        """계측(채점) 전용 GT. 제어 입력으로 쓰지 않는다."""
+        pos, orn = art.get_world_poses()
+        pos = np.asarray(pos).reshape(-1)[:3]
+        w, x, y, z = (float(v) for v in np.asarray(orn).reshape(-1)[:4])
+        fwd_x = 1.0 - 2.0 * (y * y + z * z)
+        fwd_z = 2.0 * (x * z - w * y)
+        return float(pos[0]), float(pos[2]), math.atan2(fwd_x, fwd_z)
+
+    odom_mode = "wheel"
+    for a in sys.argv[1:]:
+        if a.startswith("--odom="):
+            odom_mode = a.split("=", 1)[1]
+    if odom_mode not in ("gt", "wheel"):
+        raise SystemExit(f"--odom 은 gt 또는 wheel 이어야 합니다: {odom_mode!r}")
+
+    odom = {}
+    for r in sm.ROBOTS:
+        gx, gz, gyaw = gt_pose_xz_yaw(arts[r])
+        odom[r] = WheelOdometry(x=gx, z=gz, yaw=gyaw)   # 초기 자세만 GT 로 정렬
+    print(f"V4_ODOM_MODE={odom_mode}", flush=True)
+
+    BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
+                        "/exts/isaacsim.ros2.bridge/humble/rclpy")
+    if str(BRIDGE_RCLPY) not in sys.path:
+        sys.path.insert(0, str(BRIDGE_RCLPY))
+    import rclpy
+    from nav_msgs.msg import Odometry
+    if not rclpy.ok():
+        rclpy.init()
+    ros_node = rclpy.create_node("parking_v4_runner")
+    odom_pub = {r: ros_node.create_publisher(Odometry, f"/robot_{r}/odom", 10)
+                for r in sm.ROBOTS}
+
+    def publish_odom():
+        """--odom 모드에 따라 휠 오도메트리 또는 GT 를 발행한다."""
+        for r in sm.ROBOTS:
+            if odom_mode == "wheel":
+                px, pz, pyaw = odom[r].x, odom[r].z, odom[r].yaw
+            else:
+                px, pz, pyaw = gt_pose_xz_yaw(arts[r])
+            msg = Odometry()
+            msg.header.stamp = ros_node.get_clock().now().to_msg()
+            msg.header.frame_id = "map"
+            msg.child_frame_id = f"robot_{r}/base_link"
+            msg.pose.pose.position.x = float(px)
+            msg.pose.pose.position.z = float(pz)
+            msg.pose.pose.orientation.z = math.sin(pyaw * 0.5)
+            msg.pose.pose.orientation.w = math.cos(pyaw * 0.5)
+            odom_pub[r].publish(msg)
+
+    def step_odometry(dt):
+        """휠 각속도를 읽어 각 로봇 오도메트리를 적분한다."""
+        for r in sm.ROBOTS:
+            vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])
+            odom[r].update(vx, vy, wz, dt)
+
     if "--headless-test" in sys.argv[1:]:
         def _p(a):
             return np.asarray(a.get_world_poses()[0]).reshape(-1)[:3]
@@ -198,8 +270,15 @@ def main():
         app.close()
         return
 
+    prev_sim = timeline.get_current_time()
     while app.is_running():
         app.update()
+        now_sim = timeline.get_current_time()
+        dt = min(0.1, max(0.0, now_sim - prev_sim))
+        prev_sim = now_sim
+        rclpy.spin_once(ros_node, timeout_sec=0.0)
+        step_odometry(dt)
+        publish_odom()
     app.close()
 
 
