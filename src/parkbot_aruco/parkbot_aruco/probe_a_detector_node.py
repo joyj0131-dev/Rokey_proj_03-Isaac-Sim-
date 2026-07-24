@@ -55,14 +55,32 @@ class ProbeADetector(Node):
         self.state = None
         self.results = {}          # distance_m -> {"detected", "reproj", "ids"}
         self._last_logged_d = None
+        self._img_count = 0
 
         self.create_subscription(CameraInfo, info_t, self._on_info, 10)
         self.create_subscription(String, state_t, self._on_state, 10)
         self.create_subscription(Image, img_t, self._on_image, 10)
+        # DDS 디스커버리는 ~15초 걸릴 수 있다. 조용히 멈춰 보이지 않게, 5초마다
+        # 무엇이 도착했는지 알려 자가 진단이 되게 한다.
+        self.create_timer(5.0, self._heartbeat)
         self.get_logger().info(
             f"probe_a_detector 시작: image={img_t} info={info_t} state={state_t}. "
             f"사전={self.dict_name} code_size={self.code_size:.4f}m. "
-            f"camera_info 와 /probe_a/state 를 기다립니다…")
+            f"러너(터미널 A)의 카메라 토픽을 기다립니다… (디스커버리 ~15초)")
+
+    def _heartbeat(self):
+        if self.results:                       # 이미 검출 중이면 조용히
+            return
+        info = "O" if self.K is not None else "X"
+        state = "O" if self.state is not None else "X"
+        phase = self.state.get("phase") if self.state else "-"
+        self.get_logger().info(
+            f"대기중… 이미지 {self._img_count}장, camera_info={info}, "
+            f"/probe_a/state={state}(phase={phase}). "
+            + ("이미지 0장이면 → 터미널 A 러너가 --probe=A 로 떠 있고 "
+               "'PROBE_A_PUBLISHING' 을 찍었는지 확인."
+               if self._img_count == 0 else
+               "모두 O 인데 인식이 없으면 러너가 sweep 구간을 도는 중인지 확인."))
 
     def _on_info(self, msg: CameraInfo):
         if self.K is None:
@@ -76,6 +94,7 @@ class ProbeADetector(Node):
             self.state = None
 
     def _on_image(self, msg: Image):
+        self._img_count += 1
         if self.K is None or self.state is None:
             return
         if self.state.get("phase") != "sweep":
