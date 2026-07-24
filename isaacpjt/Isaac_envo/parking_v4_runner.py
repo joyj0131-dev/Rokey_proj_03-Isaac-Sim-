@@ -19,7 +19,7 @@ WORK_DIR = Path(__file__).resolve().parent
 REPO_ROOT = WORK_DIR.parent.parent
 PARKING_USD = WORK_DIR / "parking" / "parking_environment_v4.usd"
 ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
-             / "hwia_depth_cam_mecha_roller_lowered.usd")
+             / "hwia_4cam_mecha_roller_lowered.usd")
 ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh")
 
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
@@ -173,6 +173,13 @@ def build_stage(app):
     print(f"V4_STAGE_READY robots={placed} disabled_lidar={n_lidar} "
           f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
           f"physics={PHYSICS_HZ:.0f}Hz", flush=True)
+
+    from pxr import Usd
+    _r0 = sm.ROBOTS[0]
+    _cams = [p for p in Usd.PrimRange(stage.GetPrimAtPath(robot_prim_path(_r0)))
+             if p.GetTypeName() == "Camera"]
+    _has_qr = any("qr_down" in str(p.GetPath()).lower() for p in _cams)
+    print(f"V4_CAMERAS_COUNT robot={_r0} n={len(_cams)} qr_down={_has_qr}", flush=True)
     return stage
 
 
@@ -192,6 +199,17 @@ def find_front_camera(stage, robot_id):
         if "front" in p.GetName().lower():
             return str(p.GetPath())
     return str(cams[0].GetPath())
+
+
+def find_rear_camera(stage, robot_id):
+    """로봇 서브트리에서 후방 카메라 prim 경로를 찾는다(이름/경로에 'rear')."""
+    from pxr import Usd
+    root = stage.GetPrimAtPath(robot_prim_path(robot_id))
+    cams = [p for p in Usd.PrimRange(root) if p.GetTypeName() == "Camera"]
+    for p in cams:
+        if "rear" in str(p.GetPath()).lower():
+            return str(p.GetPath())
+    raise RuntimeError(f"{robot_id}: 후방 카메라 prim 을 찾지 못했습니다")
 
 
 def attach_camera_graph(robot_id, cam_path, width=640, height=480):
