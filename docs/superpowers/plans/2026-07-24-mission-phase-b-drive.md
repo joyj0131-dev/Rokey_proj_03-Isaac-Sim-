@@ -225,7 +225,58 @@ git commit -m "feat(mission): --mission=B 스켈레톤 + 폐루프 drive_to_pose
 
 ---
 
-## Task 3: 안무 통합 — 도크 체크·90° 회전·XN 주행·스태거 정렬 (두 로봇)
+## Task 3a: fuse_camera_setup 카메라 역할 일반화 + 후방 XN 검출
+
+**Files:**
+- Modify: `isaacpjt/Isaac_envo/parking_v4_runner.py`
+
+**Interfaces:**
+- Consumes: `find_front_camera`, `find_rear_camera`, 현행 `fuse_camera_setup`(front 하드코딩, 282줄).
+- Produces: `fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front")` — cam_role 로 카메라 선택(front→find_front_camera, rear→find_rear_camera). 하위호환(기본 front). `--probe=REARXN` 스모크.
+
+이유: 안무(3b)에서 로봇이 **여러 카메라**로 검출한다 — entry_follow 는 후방(도크)·전방(XN), entry_lead 는 후방(도크·XN). 현 `fuse_camera_setup` 은 front 하드코딩이라 후방 검출 컨텍스트를 만들 수 없다. 먼저 카메라 일반화를 격리해 FUSE 회귀 없이 검증한다.
+
+- [ ] **Step 1: cam_role 파라미터 추가**
+
+`fuse_camera_setup` 서명에 `cam_role="front"` 추가. 282줄 `cam_path = find_front_camera(stage, target)` 를
+`cam_path = find_front_camera(stage, target) if cam_role == "front" else find_rear_camera(stage, target)` 로.
+나머지(높이 오버라이드·annotator·K·리턴)는 그대로. (ctx["mx"],["mz"],["ref_id"] 는 도크 마커 그대로 둠 — 라이브 검출 `detect_current`/`localize_pose` 는 marker_map 으로 임의 마커를 측위하므로 ref 는 라이브 제어에 안 쓰인다. 필요하면 3b 에서 확장.)
+
+- [ ] **Step 2: 문법 검사**
+
+Run: `cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo && python3 -m py_compile parking_v4_runner.py && echo OK`
+
+- [ ] **Step 3: FUSE 회귀(기본 front 불변)**
+
+```bash
+cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo
+bash parking_v4_runner.sh --probe=FUSE 2>&1 | grep -E "FUSE_RESULT|Traceback" | head
+```
+Expected: `FUSE_RESULT=PASS`(cam_role 기본값이 기존 동작 보존).
+
+- [ ] **Step 4: `--probe=REARXN` — 후방캠 XN 검출**
+
+새 분기 `--probe=REARXN`: entry_lead 를 XN(-2.5,+6.875) **남쪽 ~1.3m 에 남향(yaw≈180°)** 으로 `set_world_poses`(후방캠이 XN 북쪽을 향함). `fuse_camera_setup(..., cam_role="rear")` 컨텍스트로 `detect_current→localize_pose`, XN 근처 fix 확인. 토큰:
+```
+REARXN_DETECT locked=<bool> fix=(x,z) marker_seen=<id|none>
+```
+Run(백그라운드+폴링, 좀비 확인):
+```bash
+bash parking_v4_runner.sh --probe=REARXN 2>&1 | grep -E "REARXN_DETECT|Traceback"
+```
+Expected: `REARXN_DETECT locked=True ...`(후방캠이 XN 을 검출). 근거리 사각<1.1m 에 걸리면 거리(1.3m)를 조정해 사각 밖에서 검출됨을 확인. 미검출이면 억지 통과 금지 — 자세/거리/카메라 방향 재점검 후 정직 보고.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+cd /home/rokey/p3/cobot_ws
+git add isaacpjt/Isaac_envo/parking_v4_runner.py
+git commit -m "feat(mission): fuse_camera_setup 카메라 역할 일반화 + --probe=REARXN 후방 XN 검출"
+```
+
+---
+
+## Task 3b: 안무 통합 — 도크 체크·90° 회전·XN 주행·스태거 정렬 (두 로봇)
 
 **Files:**
 - Modify: `isaacpjt/Isaac_envo/parking_v4_runner.py`
