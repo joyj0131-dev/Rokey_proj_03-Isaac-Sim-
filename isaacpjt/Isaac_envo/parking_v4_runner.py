@@ -1564,45 +1564,28 @@ def main():
         app.close(); return
 
     if probe is None and mission == "B":
-        # Mission Phase B, Task 3b-1: entry_follow(전축) 단독 완주 — Task2 스켈레톤의
-        # "+Z 1m 임시주행"을 대체한다. 안무: 컨텍스트 2개 준비+보정 -> 제자리 90도 회전
-        # (+X->+Z) -> 세그먼트1 도크체크(후방캠) -> 세그먼트2 XN 정렬(전방캠). 전 구간
-        # 제어는 filt.pose()(융합)만 쓴다 — GT(gt_pose_xz_yaw)는 보정(calibrate_tbasecam,
-        # 정적 1회)과 리포팅(err_*_gt)에만 쓴다. entry_lead·스태거·양로봇 RESULT 는
-        # Task 3b-2.
-        target = "entry_follow"
-        art = arts[target]
-        idx = wheel_idx[target]
-        cam_h = 0.15
-        for a in sys.argv[1:]:
-            if a.startswith("--cam-height="):
-                cam_h = float(a.split("=", 1)[1])
-        # 세그먼트1(도크체크) 종점 = "도크 마커 데칼 실측 위치" + standoff. 고정 도크
-        # 좌표에서 고정 오프셋을 더하지 않는 이유: aruco:position(속성/로봇 스폰 좌표)과
-        # 도크 마커 데칼은 z 로 0.7m 어긋난다 — parking_environment_v4.usd 직접 확인:
-        # D_OUT_2 는 aruco:position=(-1.2,0,2.2) 인데 데칼 xformOp:translate=(-1.2,0.0012,2.9)
-        # (marker_map_v4.json 의 note "도크 마커는 aruco:position 과 z 로 0.7m 다르다"와
-        # 일치, 도크 전체 공통 패턴 — D_OUT_1 도 attr z=2.2/decal z=2.9). 데칼 기준으로
-        # 사각(1.1m) 밖 창(1.1~1.7m) 중앙을 잡으면 오프셋 방향/크기와 무관하게 검출
-        # 창에 든다(아래 rear_ctx["mz"] 가 바로 이 데칼 z).
-        seg1_standoff = 1.4
-        for a in sys.argv[1:]:
-            if a.startswith("--seg1-standoff="):
-                seg1_standoff = float(a.split("=", 1)[1])
-        # XN(crossing_N) 은 크로싱 마커라 속성=데칼(둘 다 x=-2.5,z=6.875 — USD 직접
-        # 확인 + 아래 MISSIONB_GEOMETRY 로 실측 재확인) — 도크와 달리 오프셋 보정이
-        # 필요 없다. STANDOFF 는 브리프 nominal(사각 1.1m 밖).
-        standoff = 1.3
-        for a in sys.argv[1:]:
-            if a.startswith("--xn-standoff="):
-                standoff = float(a.split("=", 1)[1])
-
-        _, spawn_orn = art.get_world_poses()
-        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
-        # 스폰 자세는 로봇 루트에 고정 AddRotateXOp(-90) 만 적용된다(build_stage, Task2
-        # 스켈레톤과 동일 근거) -> 로컬 +X(전방)가 그대로 월드 +X 로 나온다 ->
-        # yaw=atan2(fwd_x=1,fwd_z=0)=90도(yaw=0 -> 월드 +Z 규약).
-        spawn_yaw_deg = 90.0
+        # Mission Phase B, Task 3b-2: 입차팀 두 대(entry_lead=후축, entry_follow=전축)
+        # 완주 + 스태거 + 합산 결과. Task 3b-1(entry_follow 단독: 도크체크(후방캠)->
+        # 90도 회전->XN정렬(전방캠))의 인라인 로직을 Part 1 에서 재사용 가능한 헬퍼
+        # (_mission_setup/_run_entry_follow_b)로 추출했다 — 동작 자체는 바꾸지 않았고,
+        # 리팩터 직후 entry_follow 단독 재검증으로 xn_locked=True/ok=True 재현을 확인했다
+        # (report 참조, 이 파일 diff 로는 확인 불가 — 검증 로그가 근거다).
+        #
+        # entry_lead(후축)는 도크체크·XN정렬 모두 REAR 카메라 하나로 한다(전방캠
+        # 불필요 — Task 3b-2 브리프 지시). ctx["ref_id"] 를 21(도크)->31(XN)로 전환하는
+        # 시점만 다르다(REAR 카메라 하나가 두 마커를 순서대로 본다). 안무: 스폰(yaw90)
+        # -> 제자리 90도 회전(북향, 후방캠은 남향=도크 쪽) -> 도크체크 북진(REAR, ref_id=21)
+        # -> XN 부근까지 서향 접근(순수 오도 — 이 구간은 후방캠이 XN 반대쪽인 남쪽을
+        # 보므로 fix 없음이 정상) -> 제자리 180도 회전(남향, 후방캠은 이제 북향=XN 쪽 —
+        # YAW_ODOM_SCALE 은 --probe=ROTCHK180 로 180도 회전에서도 검증됨, err 2.2°) ->
+        # XN 정렬(REAR, ref_id=31) -> 충돌회피용 x 오프셋으로 최종 대기자세(아래 HARD
+        # REQUIREMENT 절 및 _run_entry_lead_b 참조).
+        #
+        # 순서(사용자 스펙): entry_lead(늦게 입차하지만 먼저 자리를 잡아야 하는 쪽)가
+        # 먼저 완주하고, 그 다음 entry_follow 가 시작한다(스태거). _mission_setup 은
+        # 호출 시점의 sibling 자세를 캡처했다가 그대로 복원하므로(도크 고정좌표가
+        # 아니라 "지금" 자세), entry_follow 차례가 됐을 때 entry_lead 는 이미 도크가
+        # 아니라 자신의 최종 대기자세에 있고 그 자세로 정확히 복원된다.
 
         def _yaw_quat(base_orn, extra_yaw_deg):
             """base_orn 을 월드 수직축 기준 extra_yaw_deg 만큼 더 돌린 쿼터니언
@@ -1616,7 +1599,7 @@ def main():
                                            cam_label):
             """calibrate_tbasecam(공용 함수, 370줄대, 미변경)의 로컬 사본 + yaw 검증.
 
-            실측(이 태스크에서 발견): 원본은 후보(I/X180/Y180/Z180) 중 **위치오차만**으로
+            실측(Task 3b-1 에서 발견): 원본은 후보(I/X180/Y180/Z180) 중 **위치오차만**으로
             고른다(e=hypot(fix.x-gx,fix.z-gz)) — yaw 는 전혀 비교하지 않는다. 후방캠에서
             이 때문에 위치는 정확(X180, err 0.0062m, Task3a REARXN 과 동일)한데 yaw 는
             GT 와 107° 어긋난 후보가 선택됐다(MISSIONB_DOCKCHECK err_yaw_gt=107.27 로
@@ -1625,6 +1608,8 @@ def main():
             방지를 위해 건드리지 않고, 이 로컬 사본만 후보마다 위치·yaw 오차를 함께 계산해
             **둘 다** 허용치 안인 후보를 우선 선택한다(없으면 원본과 동일하게 위치 최우선
             폴백 + 경고 로그). GT 는 여기서도 정적 1회 보정 검증에만 쓴다(제어 아님).
+            Task 3b-2: entry_lead 도 재사용하도록 공용 스코프(미션 블록 최상단)로
+            옮겼다 — 함수 본문은 미변경.
             """
             def usd_to_np(gf_m):
                 m = np.array([[gf_m[i][j] for j in range(4)] for i in range(4)], dtype=np.float64)
@@ -1680,238 +1665,403 @@ def main():
                   flush=True)
             return T_base_cam, name, e_pos
 
-        # ---- Step 1: 컨텍스트 2개(후방=도크검출, 전방=XN검출) 준비 + 보정 ----
-        dock_serves = sm.ROBOT_DOCK_MARKER[target]           # "D_OUT_2"
-        dock = read_markers(stage)[dock_serves]               # 도크/스폰 실좌표(속성, GT 아님)
-        dock_x, dock_z, dock_id = dock["x"], dock["z"], dock["id"]
-        xn = read_markers(stage)["XN"]
-        xn_x, xn_z, xn_id = xn["x"], xn["z"], xn["id"]
+        def _mission_setup(target, sibling_id, *, need_front, need_rear, cam_h):
+            """Task 3b-2 Part 1: entry_follow/entry_lead 공용 세팅 헬퍼.
 
-        # calibrate_tbasecam 은 대상 도크에서 x 로 1.5m 떨어진 고정 자세를 테스트한다
-        # (detect_at_pose(...,1.5,0,0,...), 함수 내부 하드코딩, 수정 대상 아님). entry_follow
-        # 도크(D_OUT_2, x=-1.2)에서 이 자세는 x=-2.7 인데, entry_lead 도크(D_OUT_1,
-        # x=-3.2,z=2.2)와 겨우 0.86m 거리다(entry_lead 자신의 Task3a REARXN 보정 자세는
-        # 다른 도크와 3.57m 로 충분히 떨어져 있었다). 실측: 이 근접 때문에 첫 시도에서
-        # 보정이 5cm 밖으로 실패했다(best_err=0.5439m, MISSIONB_TBASECAM_CAL FAIL 로그).
-        # Articulation.initialize() 이후 SetActive(False) 는 세그폴트 위험이 있어(probe=B
-        # 주석 참조) 쓸 수 없다 — 대신 entry_lead 를 보정 두 번(후방+전방) 동안만 원래
-        # 자세를 저장해두고 멀리 텔레포트했다가 정확히 복원한다(entry_lead 는 이
-        # 태스크에서 다루지 않으므로 최종 상태는 원래 도크 스폰과 동일해야 한다).
-        _park_id = "entry_lead"
-        _park_art = arts.get(_park_id)
-        if _park_art is not None:
-            _park_pos0, _park_orn0 = _park_art.get_world_poses()
-            _park_pos0 = np.asarray(_park_pos0).reshape(1, 3).copy()
-            _park_orn0 = np.asarray(_park_orn0).reshape(1, 4).copy()
-            _away = _park_pos0.copy()
-            _away[0, 2] += 50.0                # z 로 멀리(사이트 밖) 대피
-            _park_art.set_world_poses(_away, _park_orn0)
-            for _ in range(5):
+            Task 3b-1 이 entry_follow 하나만을 위해 인라인으로 했던 일 — ① sibling 을
+            임시 대피(멀리 텔레포트)시킨 채 필요한 카메라(전방/후방)를
+            _calibrate_tbasecam_yawchecked 로 보정, ② (후방캠이 있으면) 도크 스윕(반복
+            텔레포트+정착 — Task 3b-harden Item2 실측: "반복 텔레포트 자체"가 다음
+            회전의 오도 안정성에 필요하다는 게 근본원인으로 좁혀졌다), ③ sibling 을
+            호출 시점 자세로 복원, ④ target 을 자기 도크 스폰 자세로 되돌리고 filt 를
+            도크 좌표로 시딩 — 을 target/sibling/need_front/need_rear 로 매개변수화한
+            것이다. 두 로봇이 같은 도크 열(z 는 거의 동일, x 만 다름)에 있어 한쪽의
+            보정 테스트자세(대상 도크에서 x 로 1.5m)가 다른쪽 도크와 지나치게 가까워질
+            수 있다(Task 3b-1 §3.1 실측: entry_follow 보정자세는 entry_lead 도크와
+            0.86m — 그래서 sibling 대피가 필요했다. 반대로 entry_lead 자신의 보정자세는
+            entry_follow 도크와 3.57m 로 원래 충분히 멀지만, 헬퍼는 두 호출 모두 같은
+            패턴을 획일 적용한다 — 단순하고 안전한 쪽을 택함, 매 호출 비용은 텔레포트
+            수 프레임뿐).
+
+            반환 dict: art, idx, filt(도크로 시딩 완료), rear_ctx/T_rear(need_rear 이면
+            둘 다 값, 아니면 둘 다 None), front_ctx/T_front(need_front 대칭),
+            dock_x/z/id, dock_decal(x,z), xn_x/z/id, xn_decal(x,z), spawn_orn,
+            spawn_yaw_deg.
+            """
+            target_art = arts[target]
+            idx = wheel_idx[target]
+
+            dock_serves = sm.ROBOT_DOCK_MARKER[target]
+            dock = read_markers(stage)[dock_serves]
+            dock_x, dock_z, dock_id = dock["x"], dock["z"], dock["id"]
+            xn = read_markers(stage)["XN"]
+            xn_x, xn_z, xn_id = xn["x"], xn["z"], xn["id"]
+            # 도크는 aruco:position(속성=스폰좌표) 과 데칼(실제 렌더 위치)이 z 로
+            # 0.7m 어긋난다(Task 3b-1 실측, USD 직접 확인) — 카메라가 "보는" 건
+            # 데칼이므로 검출거리 산정엔 데칼을 쓴다. XN 은 크로싱 마커라 오프셋이
+            # 없다(속성=데칼, Task 3b-1 MISSIONB_GEOMETRY 로 재확인).
+            dock_decal = marker_visual_center(stage, dock_serves)
+            xn_decal = marker_visual_center(stage, "XN")
+
+            _, spawn_orn = target_art.get_world_poses()
+            spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+            # 스폰 자세는 모든 로봇에 build_stage 가 동일하게 고정 AddRotateXOp(-90)
+            # 만 적용한다(Task2 스켈레톤 근거, YAWCAL/ROTCHK 도 entry_lead 로 동일 값
+            # 재확인) -> 로컬 +X(전방)가 그대로 월드 +X 로 나옴 -> yaw=atan2(1,0)=90도.
+            spawn_yaw_deg = 90.0
+
+            # ---- ① sibling 대피(근접-도크 보정 회귀 회피, Task 3b-1 §3.1) ----
+            # Articulation.initialize() 이후 SetActive(False) 는 세그폴트 위험이 있어
+            # (probe=B 주석 참조) 쓸 수 없다 — 대신 멀리 텔레포트했다가 정확히
+            # 복원한다. 호출 시점의 "현재" 자세를 캡처하므로(도크 고정좌표가 아니라),
+            # 스태거로 sibling 이 이미 자기 미션을 끝내고 다른 자세에 있어도 옳게
+            # 복원된다.
+            sib_art = arts.get(sibling_id)
+            sib_pos0 = sib_orn0 = None
+            if sib_art is not None:
+                sib_pos0, sib_orn0 = sib_art.get_world_poses()
+                sib_pos0 = np.asarray(sib_pos0).reshape(1, 3).copy()
+                sib_orn0 = np.asarray(sib_orn0).reshape(1, 4).copy()
+                away = sib_pos0.copy()
+                away[0, 2] += 50.0                # z 로 멀리(사이트 밖) 대피
+                sib_art.set_world_poses(away, sib_orn0)
+                for _ in range(5):
+                    app.update()
+                print(f"MISSIONB_PARK_CLEAR robot={sibling_id} away_z={float(away[0, 2]):.2f}",
+                      flush=True)
+
+            # ---- ② 카메라 보정(요청된 것만) ----
+            rear_ctx = T_rear = front_ctx = T_front = None
+            if need_rear:
+                rear_ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="rear")
+                # 후방캠은 calibrate 내부 detect_at_pose 의 "마커가 로봇 정면" 전제와
+                # 반대를 보므로 180도 반전한 자세를 넘긴다(Task3a REARXN 확립).
+                calib_orn = _yaw_quat(spawn_orn, 180.0)
+                try:
+                    T_rear, rear_cal_name, rear_cal_err = _calibrate_tbasecam_yawchecked(
+                        rear_ctx, target_art, app, timeline, gt_pose_xz_yaw, calib_orn, "rear")
+                except RuntimeError as e:
+                    if "미검출" in str(e):
+                        print(f"MISSIONB_TBASECAM_CAL FAIL robot={target} cam=rear: "
+                              "보정 자세(도크, 180°반전)에서 마커 미검출", flush=True)
+                    else:
+                        print(f"MISSIONB_TBASECAM_CAL FAIL robot={target} cam=rear: "
+                              f"어떤 광학 규약도 5cm 안에 못 맞춤 ({e})", flush=True)
+                    if headless:
+                        app.close()
+                    raise
+                rear_ctx["ref_id"] = dock_id                  # 도크 검출(기본값과 동일, 명시)
+                print(f"MISSIONB_TBASECAM_CAL robot={target} cam=rear best={rear_cal_name} "
+                      f"verify_pos_err={rear_cal_err:.4f}m", flush=True)
+
+            if need_front:
+                front_ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front")
+                try:
+                    T_front, front_cal_name, front_cal_err = _calibrate_tbasecam_yawchecked(
+                        front_ctx, target_art, app, timeline, gt_pose_xz_yaw, spawn_orn, "front")
+                except RuntimeError as e:
+                    if "미검출" in str(e):
+                        print(f"MISSIONB_TBASECAM_CAL FAIL robot={target} cam=front: "
+                              "보정 자세에서 마커 미검출", flush=True)
+                    else:
+                        print(f"MISSIONB_TBASECAM_CAL FAIL robot={target} cam=front: "
+                              f"어떤 광학 규약도 5cm 안에 못 맞춤 ({e})", flush=True)
+                    if headless:
+                        app.close()
+                    raise
+                front_ctx["ref_id"] = xn_id                    # 보정 후에만 XN 검출로 전환
+                print(f"MISSIONB_TBASECAM_CAL robot={target} cam=front best={front_cal_name} "
+                      f"verify_pos_err={front_cal_err:.4f}m", flush=True)
+
+            # ---- ③ 도크 스윕(Task 3b-harden Item2 — "반복 텔레포트+정착 자체"가 다음
+            # 회전의 오도 안정성에 필요하다는 게 실측으로 좁혀진 근본원인; 12회 유지,
+            # report 근거는 taskBharden-report.md). 후방캠이 있을 때만(현재 두 호출
+            # 모두 need_rear=True 라 항상 실행된다) — REAR 가 없는 가상의 전방-전용
+            # 호출자는 이 스윕의 북향/후방-확인 기하가 맞지 않아 지원하지 않는다(현재
+            # 호출자 없음, 필요해지면 별도로 설계).
+            if rear_ctx is not None:
+                north_orn = _yaw_quat(spawn_orn, -90.0)   # yaw=90(스폰)-90=0(북향)
+                for _d in (1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.2):
+                    target_art.set_world_poses(
+                        np.array([[dock_x, ROBOT_SPAWN_Y, dock_decal[1] + _d]]),
+                        np.array([north_orn]))
+                    for _ in range(20):
+                        app.update()
+                    _hit = detect_current(rear_ctx)
+                    print(f"MISSIONB_DOCKSWEEP robot={target} d={_d:.2f} hit={_hit is not None}",
+                          flush=True)
+
+            # ---- ④ sibling 복원(대피시켰던 경우만) ----
+            if sib_art is not None:
+                sib_art.set_world_poses(sib_pos0, sib_orn0)
+                for _ in range(5):
+                    app.update()
+                print(f"MISSIONB_PARK_RESTORE robot={sibling_id}", flush=True)
+
+            print(f"MISSIONB_GEOMETRY robot={target} dock_attr=({dock_x:.3f},{dock_z:.3f}) "
+                  f"dock_decal=({dock_decal[0]:.3f},{dock_decal[1]:.3f}) "
+                  f"xn_attr=({xn_x:.3f},{xn_z:.3f}) "
+                  f"xn_decal=({xn_decal[0]:.3f},{xn_decal[1]:.3f})", flush=True)
+
+            # ---- ⑤ 도크 스폰 자세로 복귀 + filt 시딩 ----
+            # 보정/스윕이 로봇을 텔레포트했으므로 도크 스폰 자세(aruco:position 속성 —
+            # build_stage 가 실제로 이 좌표에 스폰했다, GT 아님)로 되돌린 뒤 필터를
+            # 시딩한다. yaw_gain 을 기본값(0.5)보다 훨씬 높게 둔다 — 제자리 회전 직후
+            # (마커 fix 전혀 없음, 순수 오도)만으로 GT 와 최대 ~31° 어긋난 실측
+            # (MISSIONB_ROT, mecanum_drive.py "in-place yaw is roller-slip dominated")
+            # 때문에 yaw 는 오도를 신뢰할 근거가 없다 — fix 가 잡히면 오도 예측을 거의
+            # 덮어쓰도록 올려, 후속 세그먼트가 회전 오차를 오래 끌고 가지 않게 한다.
+            target_art.set_world_poses(np.array([[dock_x, ROBOT_SPAWN_Y, dock_z]]),
+                                       np.array([spawn_orn]))
+            for _ in range(30):
                 app.update()
-            print(f"MISSIONB_PARK_CLEAR robot={_park_id} away_z={float(_away[0, 2]):.2f}",
+            filt = PoseFilter(pos_gain=0.5, yaw_gain=0.9)
+            filt.set_pose(dock_x, dock_z, spawn_yaw_deg)
+
+            return {
+                "art": target_art, "idx": idx, "filt": filt,
+                "rear_ctx": rear_ctx, "T_rear": T_rear,
+                "front_ctx": front_ctx, "T_front": T_front,
+                "dock_x": dock_x, "dock_z": dock_z, "dock_id": dock_id,
+                "dock_decal": dock_decal,
+                "xn_x": xn_x, "xn_z": xn_z, "xn_id": xn_id, "xn_decal": xn_decal,
+                "spawn_orn": spawn_orn, "spawn_yaw_deg": spawn_yaw_deg,
+            }
+
+        def _run_entry_follow_b(setup, *, seg1_standoff, xn_standoff, align_pos_tol):
+            """Task 3b-1 entry_follow(전축) 안무 — 리팩터(Part 1): 로직은 미변경, setup
+            dict 에서 값을 읽도록 배선만 바꿨다(도크체크=REAR, XN정렬=FRONT 2단계)."""
+            target = "entry_follow"
+            art, idx, filt = setup["art"], setup["idx"], setup["filt"]
+            rear_ctx, T_rear = setup["rear_ctx"], setup["T_rear"]
+            front_ctx, T_front = setup["front_ctx"], setup["T_front"]
+            dock_x, dock_decal = setup["dock_x"], setup["dock_decal"]
+            xn_x, xn_z = setup["xn_x"], setup["xn_z"]
+
+            # ---- Step 2: 제자리 90도 회전(+X -> +Z, yaw 90 -> 0, 북향) ----
+            # front_ctx(ref_id=XN)로 돌지만 이 시점엔 XN 이 멀어(도크 근방) 보정은
+            # 기대하지 않는다 — filt 는 시드+오도로 충분(브리프 지시). 마커 fix 가
+            # 전혀 없는 순수 오도(회전) 구간이라 GT 와 비교하면 상당한 오차가 실측됐다
+            # (err_yaw_gt≈31°, mecanum_drive.YAW_SCALE 자체의 상수 보정 오차로 보임 —
+            # mecanum_drive.py/drive_to_pose 는 공용 파일이라 이 태스크에서는 수정하지
+            # 않는다).
+            rot_res = rotate_in_place(front_ctx, art, idx, filt, T_front, 0.0)
+            fp = filt.pose()
+            print(f"MISSIONB_ROT robot={target} yaw={fp[2]:.2f} reached={rot_res['reached']} "
+                  f"steps={rot_res['steps']} err_pos_gt={rot_res['err_pos_gt']:.4f} "
+                  f"err_yaw_gt={rot_res['err_yaw_gt']:.2f}", flush=True)
+
+            # ---- Step 3: 세그먼트1 — 도크체크 주행(후방 ctx). x 는 도크와 동일하게
+            # 유지해 후방캠이 뒤의 도크 데칼을 프레임 중앙 부근에 유지한다.
+            # correct_yaw=False: 후방캠은 도크를 비스듬히/원거리에서 보기 때문에 yaw
+            # 관측 노이즈가 크다 — yaw 는 Step2 의 오도값을 그대로 믿고, 마커 fix 는
+            # 위치(x,z)만 반영한다.
+            seg1_target = (dock_x, dock_decal[1] + seg1_standoff, 0.0)
+            seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target,
+                                 correct_yaw=False, pos_tol=align_pos_tol)
+            dock_seen = seg1["n_fix"] > 0
+            fp = filt.pose()
+            print(f"MISSIONB_DOCKCHECK robot={target} dock_seen={dock_seen} "
+                  f"filt=({fp[0]:.3f},{fp[1]:.3f},{fp[2]:.2f}) n_fix={seg1['n_fix']} "
+                  f"reached={seg1['reached']} steps={seg1['steps']} "
+                  f"target=({seg1_target[0]:.3f},{seg1_target[1]:.3f},{seg1_target[2]:.1f}) "
+                  f"err_pos_gt={seg1['err_pos_gt']:.4f} err_yaw_gt={seg1['err_yaw_gt']:.2f}",
                   flush=True)
 
-        rear_ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="rear")
-        # 후방캠 보정: calibrate_tbasecam 내부 detect_at_pose 는 "마커가 로봇 정면"을
-        # 전제한다(front 전제). 후방캠에 도크가 잡히려면 180도 반전한 자세를 넘겨야
-        # 한다(Task3a REARXN 확립, X180 err 0.0062 — 단, 위치만; 아래 참조).
-        # 공용 calibrate_tbasecam 대신 로컬 _calibrate_tbasecam_yawchecked 를 쓴다:
-        # 원본은 후보를 위치오차만으로 고르는데, 후방캠에서 위치는 맞아도(X180,
-        # err 0.0062) yaw 가 GT 와 107° 틀린 후보가 선택되는 사례를 실측했다(아래
-        # 함수 docstring 참조). 원본 calibrate_tbasecam 자체는 미변경.
-        calib_orn = _yaw_quat(spawn_orn, 180.0)
-        try:
-            T_rear, rear_cal_name, rear_cal_err = _calibrate_tbasecam_yawchecked(
-                rear_ctx, art, app, timeline, gt_pose_xz_yaw, calib_orn, "rear")
-        except RuntimeError as e:
-            if "미검출" in str(e):
-                print("MISSIONB_TBASECAM_CAL FAIL robot=entry_follow cam=rear: "
-                      "보정 자세(도크, 180°반전)에서 마커 미검출", flush=True)
-            else:
-                print("MISSIONB_TBASECAM_CAL FAIL robot=entry_follow cam=rear: "
-                      f"어떤 광학 규약도 5cm 안에 못 맞춤 ({e})", flush=True)
-            if headless:
-                app.close()
-            raise
-        rear_ctx["ref_id"] = dock_id                           # 도크 검출(기본값과 동일, 명시)
-        print(f"MISSIONB_TBASECAM_CAL robot={target} cam=rear best={rear_cal_name} "
-              f"verify_pos_err={rear_cal_err:.4f}m", flush=True)
+            # ---- Step 4: 세그먼트2 — XN 정렬 주행(전방 ctx). XN 남쪽 standoff, 북향
+            # (사각 밖). 2단계로 나눈다: 4a 먼저 x 만 XN 에 맞추고(이 시점 z 는 아직
+            # 검출창 밖이라 문제 없음), 4b 에서 x=xn_x 고정한 채 순수 북진해 검출창을
+            # 통과시킨다(대각선 주행은 검출창 진입 시 횡오차가 남아 n_fix=0 이 났던
+            # 실측 때문에 피한다). correct_yaw=False: 회전은 Step2 하나뿐이고 그 오도
+            # yaw 는 이미 정확하다 — 4a/4b 모두 마커 fix 는 위치만 반영.
+            fp1 = filt.pose()
+            seg2a_target = (xn_x, fp1[1], 0.0)
+            seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target,
+                                  correct_yaw=False, pos_tol=align_pos_tol)
+            seg2_target = (xn_x, xn_z - xn_standoff, 0.0)
+            seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target,
+                                  correct_yaw=False, pos_tol=align_pos_tol)
+            n_fix2 = seg2a["n_fix"] + seg2b["n_fix"]
+            xn_locked = n_fix2 > 0
+            fp = filt.pose()
+            print(f"MISSIONB_XNALIGN robot={target} n_fix_a={seg2a['n_fix']} "
+                  f"n_fix_b={seg2b['n_fix']} reached_a={seg2a['reached']} "
+                  f"reached_b={seg2b['reached']} filt_a=({seg2a['final_filt'][0]:.3f},"
+                  f"{seg2a['final_filt'][1]:.3f},{seg2a['final_filt'][2]:.2f}) "
+                  f"target_a=({seg2a_target[0]:.3f},{seg2a_target[1]:.3f},{seg2a_target[2]:.1f}) "
+                  f"err_pos_gt_a={seg2a['err_pos_gt']:.4f} err_pos_gt_b={seg2b['err_pos_gt']:.4f}",
+                  flush=True)
 
-        front_ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front")
-        # 전방도 동일 로컬 함수를 쓴다(원본 calibrate_tbasecam 이 아니라) — FUSE/M5 와
-        # 같은 spawn_orn·front 기하라 yaw 도 정상일 것으로 예상되지만(후방과 달리
-        # 새 회전을 합성하지 않음), 이번 태스크에서 후방의 yaw 사각지대를 발견한 만큼
-        # 전방도 실측으로 함께 확인한다(both_ok 없으면 원본과 동일하게 위치 우선 폴백).
-        try:
-            T_front, front_cal_name, front_cal_err = _calibrate_tbasecam_yawchecked(
-                front_ctx, art, app, timeline, gt_pose_xz_yaw, spawn_orn, "front")
-        except RuntimeError as e:
-            if "미검출" in str(e):
-                print("MISSIONB_TBASECAM_CAL FAIL robot=entry_follow cam=front: "
-                      "보정 자세에서 마커 미검출", flush=True)
-            else:
-                print("MISSIONB_TBASECAM_CAL FAIL robot=entry_follow cam=front: "
-                      f"어떤 광학 규약도 5cm 안에 못 맞춤 ({e})", flush=True)
-            if headless:
-                app.close()
-            raise
-        front_ctx["ref_id"] = xn_id                            # 보정 후에만 XN 검출로 전환
-        print(f"MISSIONB_TBASECAM_CAL robot={target} cam=front best={front_cal_name} "
-              f"verify_pos_err={front_cal_err:.4f}m", flush=True)
+            # ---- Step 5: 완료 토큰 ----
+            print(f"MISSIONB_DONE robot={target} role=front_axle xn_locked={xn_locked} "
+                  f"reached={seg2b['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) yaw={fp[2]:.2f} "
+                  f"err_pos_gt={seg2b['err_pos_gt']:.4f} n_fix={n_fix2} "
+                  f"target=({seg2_target[0]:.3f},{seg2_target[1]:.3f},{seg2_target[2]:.1f})",
+                  flush=True)
+            return {"xn_locked": xn_locked, "reached": seg2b["reached"]}
 
-        # ---- 도크/XN 실측 검출거리 스윕 + 로봇 재정착(Task 3b-harden Item2 로 근본원인
-        # 재조사, taskBharden-report.md) ----
-        # 예전엔 "TEMP DIAGNOSTIC(조사용 — 스윕 확인 후 제거)"라는 라벨이었고 실제로
-        # 제거되지 않은 채 매 미션 12사이클을 돌고 있었다(정직하지 않은 라벨이라 교체).
-        # 이번 하드닝에서 원인을 다시 파봤다 — 결론: **카메라/애노테이터 워밍업이 아니다**
-        # (이전 보고의 "unconfirmed render/annotator warm-up" 가설은 틀렸다). 실측 3건:
-        #   1) 스윕을 텔레포트 0회 + app.update() 20회로 축소 -> MISSIONB_ROT
-        #      err_yaw_gt=80.04°(Step2 는 마커 fix 가 아예 없는 순수오도 구간이라 카메라와
-        #      무관 — 그런데도 완전히 깨짐), dock_seen=False.
-        #   2) 텔레포트 0회 + app.update() 250회(스윕과 비슷한 총 프레임수, 순수 대기만)
-        #      -> err_yaw_gt=30.85°(YAW_ODOM_SCALE 보정 전 원래 버그 크기 ~31°와 거의
-        #      동일 — 마치 보정이 무력화된 것처럼 물리 GT 만 어긋난다), dock_seen=False.
-        #      즉 "프레임 수(대기시간)" 자체는 핵심이 아니다.
-        #   3) 텔레포트를 원본의 1/3 인 4회(사이클당 20프레임 정착, 총 80프레임)로 축소
-        #      -> dock_seen=True(n_fix=210), MISSIONB_RESULT ok=True 는 났지만 Step2
-        #      회전 자체가 err_yaw_gt=6.13°(12사이클 원본은 3/3 재현 err_yaw_gt=1.17°로
-        #      훨씬 조용하다) — 훨씬 싸지만 더 불안정해, Step2 오차를 그대로 물려받는
-        #      이후 세그먼트(정확히 이 하드닝의 Item3 가 안정화하려는 지점)에 잡음을
-        #      더 얹는다.
-        # 즉 근본원인은 "반복 텔레포트(+그 직후 정착) 자체"로 좁혀졌다 — 아마 다관절
-        # articulation 을 set_world_poses 로 순간이동시킬 때 PhysX 솔버가 관절/접촉
-        # 상태를 새 루트 자세에 맞게 재수렴시키는 데 몇 사이클이 걸리고, 그 사이 휠
-        # 관절속도(오도메트리 입력)가 진짜 회전이 아닌 과도응답을 담는 것으로 보인다
-        # (정확한 PhysX 내부 메커니즘까지는 미확인 — report 에 정직하게 남긴다). 12회는
-        # 검증된 대로 유지한다: 4회는 비용을 줄이지만 이후 세그먼트에 잡음을 물려줘
-        # Item3 가 잡으려는 불안정성과 상쇄되므로 채택하지 않았다.
-        north_orn = _yaw_quat(spawn_orn, -90.0)   # yaw=90(스폰)-90=0(북향)
-        for _d in (1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.2):
-            art.set_world_poses(
-                np.array([[dock_x, ROBOT_SPAWN_Y, rear_ctx["mz"] + _d]]),
-                np.array([north_orn]))
-            for _ in range(20):
-                app.update()
-            _hit = detect_current(rear_ctx)
-            print(f"MISSIONB_DOCKSWEEP d={_d:.2f} hit={_hit is not None}", flush=True)
+        def _run_entry_lead_b(setup, *, dockcheck_standoff, xn_standoff,
+                              final_x_offset, align_pos_tol):
+            """Task 3b-2 Part 2: entry_lead(후축) 안무 — REAR 카메라 하나로 도크체크
+            (ref_id=21)와 XN정렬(ref_id=31)을 순서대로 본다. entry_follow 와 달리
+            180도 재정렬이 하나 더 들어간다(후방캠으로 XN 을 보려면 로봇이 XN 남쪽에서
+            "남향"이어야 하고, 도크체크 때는 "북향"이어야 하기 때문 — 후방캠은 항상
+            heading 의 반대를 본다).
+            """
+            target = "entry_lead"
+            art, idx, filt = setup["art"], setup["idx"], setup["filt"]
+            rear_ctx, T_rear = setup["rear_ctx"], setup["T_rear"]
+            dock_x, dock_decal = setup["dock_x"], setup["dock_decal"]
+            xn_x, xn_z, xn_id = setup["xn_x"], setup["xn_z"], setup["xn_id"]
 
-        # 대피시킨 entry_lead 를 정확히 원위치로 복원(보정 2회 모두 끝난 뒤).
-        if _park_art is not None:
-            _park_art.set_world_poses(_park_pos0, _park_orn0)
-            for _ in range(5):
-                app.update()
-            print(f"MISSIONB_PARK_RESTORE robot={_park_id}", flush=True)
+            # ---- Step 2: 제자리 90도 회전(+X -> +Z, yaw 90 -> 0, 북향). 후방캠은
+            # heading 반대인 남향(도크 쪽)이 된다. ----
+            rot_res = rotate_in_place(rear_ctx, art, idx, filt, T_rear, 0.0)
+            fp = filt.pose()
+            print(f"MISSIONB_ROT robot={target} yaw={fp[2]:.2f} reached={rot_res['reached']} "
+                  f"steps={rot_res['steps']} err_pos_gt={rot_res['err_pos_gt']:.4f} "
+                  f"err_yaw_gt={rot_res['err_yaw_gt']:.2f}", flush=True)
 
-        # 진단(요구 토큰 아님): 도크/XN 의 속성좌표 vs 실제 데칼좌표(측량 정보, GT 아님) —
-        # 세그먼트1 목표 산정 근거 + "XN 은 오프셋 없음" 가정의 실측 재확인.
-        print(f"MISSIONB_GEOMETRY dock_attr=({dock_x:.3f},{dock_z:.3f}) "
-              f"dock_decal=({rear_ctx['mx']:.3f},{rear_ctx['mz']:.3f}) "
-              f"xn_attr=({xn_x:.3f},{xn_z:.3f}) "
-              f"xn_decal=({front_ctx['mx']:.3f},{front_ctx['mz']:.3f})", flush=True)
+            # ---- Step 3: 도크체크 — 북진(+Z, x 는 도크와 동일 유지), 후방캠이 남쪽의
+            # 도크 데칼을 본다(ref_id=21, entry_follow Step3 와 동일 패턴).
+            # correct_yaw=False(위치전용) — Step2 오도 yaw 를 그대로 믿는다.
+            seg1_target = (dock_x, dock_decal[1] + dockcheck_standoff, 0.0)
+            seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target,
+                                 correct_yaw=False, pos_tol=align_pos_tol)
+            dock_seen = seg1["n_fix"] > 0
+            fp = filt.pose()
+            print(f"MISSIONB_DOCKCHECK robot={target} dock_seen={dock_seen} "
+                  f"filt=({fp[0]:.3f},{fp[1]:.3f},{fp[2]:.2f}) n_fix={seg1['n_fix']} "
+                  f"reached={seg1['reached']} steps={seg1['steps']} "
+                  f"target=({seg1_target[0]:.3f},{seg1_target[1]:.3f},{seg1_target[2]:.1f}) "
+                  f"err_pos_gt={seg1['err_pos_gt']:.4f} err_yaw_gt={seg1['err_yaw_gt']:.2f}",
+                  flush=True)
 
-        # 보정이 로봇을 텔레포트했으므로(스윕) 도크 스폰 자세로 되돌린 뒤 필터를 시딩한다
-        # (도크 실좌표=aruco:position 속성, GT 아님 — Task2 스켈레톤과 동일 근거·문구:
-        # marker_visual_center 의 데칼 좌표는 시딩에 쓰면 안 된다. 로봇은 build_stage 가
-        # 이 속성좌표에 스폰했으므로 이것이 로봇의 실제 위치와 일치하는 유일한 좌표다).
-        art.set_world_poses(np.array([[dock_x, ROBOT_SPAWN_Y, dock_z]]),
-                            np.array([spawn_orn]))
-        for _ in range(30):
-            app.update()
-        # yaw_gain 을 기본값(0.5)보다 훨씬 높게 둔다(pos_gain 은 기본 유지). PoseFilter
-        # 기본값은 "선형 오도 드리프트가 3.4m 에 2cm 로 낮아 오도를 신뢰"하는 근거인데
-        # (클래스 docstring), 이 근거는 위치(x,z)에만 해당한다. 실측(이 태스크): 제자리
-        # 90도 회전 직후(마커 fix 전혀 없음, 순수 오도)만으로 GT 와 31° 어긋났다
-        # (MISSIONB_ROT err_yaw_gt=31.39 — mecanum_drive.py 자체 주석 "in-place yaw is
-        # roller-slip dominated"·"YAW_SCALE 은 wz~0.5 한 지점에서만 실측 보정"과 일치).
-        # yaw 는 오도를 신뢰할 근거가 없으므로, fix 가 잡히면 오도 예측을 거의 덮어쓰도록
-        # yaw_gain 을 올려 후속 세그먼트가 회전 오차를 오래 끌고 가지 않게 한다.
-        filt = PoseFilter(pos_gain=0.5, yaw_gain=0.9)
-        filt.set_pose(dock_x, dock_z, spawn_yaw_deg)
+            # ---- Step 4: XN 부근까지 x 만 옮긴다(z 는 그대로, 여전히 북향) — 이
+            # 구간은 후방캠이 XN 반대쪽(남쪽)을 보므로 fix 없음이 정상이다(odometry로
+            # 만 이동). ref_id 는 아직 21 그대로 둔다(다음 스텝의 180도 회전 전에
+            # 바꿀 이유가 없다 — 회전 중 오검출 방지는 스텝6 직전 전환으로 충분).
+            fp1 = filt.pose()
+            seg_app_target = (xn_x, fp1[1], 0.0)
+            seg_app = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg_app_target,
+                                    correct_yaw=False, pos_tol=align_pos_tol)
+            print(f"MISSIONB_APPROACH robot={target} n_fix={seg_app['n_fix']} "
+                  f"reached={seg_app['reached']} filt=({seg_app['final_filt'][0]:.3f},"
+                  f"{seg_app['final_filt'][1]:.3f},{seg_app['final_filt'][2]:.2f}) "
+                  f"target=({seg_app_target[0]:.3f},{seg_app_target[1]:.3f},"
+                  f"{seg_app_target[2]:.1f}) err_pos_gt={seg_app['err_pos_gt']:.4f}",
+                  flush=True)
 
-        # ---- Step 2: 제자리 90도 회전(+X -> +Z, yaw 90 -> 0, 북향) ----
-        # front_ctx(ref_id=XN)로 돌지만 이 시점엔 XN 이 멀어(도크 근방) 보정은 기대하지
-        # 않는다 — filt 는 시드+오도로 충분(브리프 지시).
-        # 주의(정직 보고 — report 참조): 이 회전은 마커 fix 가 전혀 없는 순수 오도(회전)
-        # 구간이라, GT 와 비교하면 여기서 이미 상당한 오차가 실측됐다(err_yaw_gt≈31°,
-        # 재현됨. 회전 속도를 낮춰도(max_ang 0.6->0.2) 오차 크기는 그대로였다 — 즉
-        # 속도 의존 슬립이 아니라 mecanum_drive.YAW_SCALE 자체의 상수 보정 오차로 보인다.
-        # mecanum_drive.py/drive_to_pose 는 공용 파일이라 이 태스크(미션 안무)에서는
-        # 수정하지 않는다 — 원인 규명과 재현 조건을 report 에 기록한다).
-        rot_res = rotate_in_place(front_ctx, art, idx, filt, T_front, 0.0)
-        fp = filt.pose()
-        print(f"MISSIONB_ROT robot={target} yaw={fp[2]:.2f} reached={rot_res['reached']} "
-              f"steps={rot_res['steps']} err_pos_gt={rot_res['err_pos_gt']:.4f} "
-              f"err_yaw_gt={rot_res['err_yaw_gt']:.2f}", flush=True)
+            # ---- Step 5: 제자리 180도 회전(북향 -> 남향, yaw 0 -> 180). 후방캠이
+            # 이제 북향(XN 쪽)이 된다. YAW_ODOM_SCALE=1.12 는 --probe=ROTCHK180 로
+            # 180도 회전에서도 검증됨(gt_err_deg=2.23, 위 YAW_ODOM_SCALE 정의부 주석
+            # 참조) — entry_lead 가 두 번째 로봇의 180도 재정렬 검증 대상이었다.
+            rot180_res = rotate_in_place(rear_ctx, art, idx, filt, T_rear, 180.0)
+            fp = filt.pose()
+            print(f"MISSIONB_ROT180 robot={target} yaw={fp[2]:.2f} reached={rot180_res['reached']} "
+                  f"steps={rot180_res['steps']} err_pos_gt={rot180_res['err_pos_gt']:.4f} "
+                  f"err_yaw_gt={rot180_res['err_yaw_gt']:.2f}", flush=True)
 
-        # ---- Step 3: 세그먼트1 — 도크체크 주행(후방 ctx). x 는 도크와 동일하게 유지해
-        # 후방캠이 뒤의 도크 데칼을 프레임 중앙 부근에 유지한다(브리프 지시).
-        # correct_yaw=False(Task 3b-1 수정 — 진단된 결함): 후방캠은 도크를 비스듬히/
-        # 원거리(seg1_standoff 창 안쪽)에서 보기 때문에 yaw 관측 노이즈가 크다(수정 전
-        # 실측: filt 가 이 노이즈에 40회 fix 로 수렴해 err_yaw_gt 가 ~45° 까지 오염 —
-        # 이후 전방캠이 XN 을 아예 못 잡는 연쇄 실패로 이어졌다). yaw 는 Step2 에서 이미
-        # 정확한(오도, YAW_ODOM_SCALE 보정 후 ~1°) 값을 갖고 있으므로 마커로 다시
-        # 덮지 않고 오도값을 그대로 믿는다 — 마커 fix 는 위치(x,z)만 반영한다.
-        #
-        # align_pos_tol(Task 3b-harden Item3, taskBharden-report.md): drive_to_pose 의
-        # 기본 pos_tol(3cm)은 이 미션엔 너무 빡빡하다 — settle 중앙값 안정화(위
-        # drive_to_pose 의 settle_poses 처리)를 적용한 뒤에도 filt-target 거리를 3회
-        # 실측하니 2.6/2.92/4.6cm 로 3cm 문턱을 가운데 두고 걸쳐 있었다(순수 tolerance
-        # 완화만으론 5.5cm 짜리 미스를 못 가린다는 원 우려와 달리, 안정화 후 최악치는
-        # 4.6cm 로 줄었다 — 그래도 3cm 는 못 넘는다). GT 로 잰 물리 오차(err_pos_gt)는
-        # 세 번 모두 0.16~2.72cm 로 이미 작다 — 즉 로봇은 실제로 잘 서 있는데, filt 의
-        # 잔여 잡음(마커 관측 노이즈, 물리적 재드라이브로는 못 없앤다)이 3cm 문턱을
-        # 넘나든다. 그래서 안정화(물리적 수렴을 확인한 뒤)와 결합해 6cm 로 여유를 둔다
-        # (관측 최악치 4.6cm 위로 1.4cm 마진) — err_pos_gt 는 계속 그대로 로그해 물리
-        # 진실을 감추지 않는다.
+            # ---- Step 6: XN 정렬(REAR, ref_id 를 여기서 21->31 로 전환 — 회전 이후에만
+            # 바꿔 회전 도중 오검출 가능성을 원천 차단한다). REARXN probe(Task3a)가
+            # 정확히 이 자세(xn_x, xn_z-standoff, yaw180)에서 0.56cm 로 검증한 지점과
+            # 동일하다 — proven 지오메트리 재사용.
+            rear_ctx["ref_id"] = xn_id
+            seg_xn_target = (xn_x, xn_z - xn_standoff, 180.0)
+            seg_xn = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg_xn_target,
+                                   correct_yaw=False, pos_tol=align_pos_tol)
+            xn_locked = seg_xn["n_fix"] > 0
+            fp = filt.pose()
+            print(f"MISSIONB_XNALIGN robot={target} n_fix={seg_xn['n_fix']} "
+                  f"reached={seg_xn['reached']} filt=({seg_xn['final_filt'][0]:.3f},"
+                  f"{seg_xn['final_filt'][1]:.3f},{seg_xn['final_filt'][2]:.2f}) "
+                  f"target=({seg_xn_target[0]:.3f},{seg_xn_target[1]:.3f},"
+                  f"{seg_xn_target[2]:.1f}) err_pos_gt={seg_xn['err_pos_gt']:.4f}",
+                  flush=True)
+
+            # ---- Step 7: 충돌회피 x 오프셋 -> 최종 후축 대기자세. entry_follow 의
+            # XN 정렬 종점(xn_x, xn_z-standoff)과 이 스텝6 종점이 사실상 같은 지점이라
+            # (둘 다 REARXN/entry_follow 가 검증한 (-2.5,5.575) 부근), 그대로 두면
+            # 겹친다 — HARD REQUIREMENT: 최종 두 로봇 위치가 >=1.5m 떨어져야 한다.
+            # final_x_offset(기본 -1.7m, 서쪽=entry_lead 자기 도크 쪽)만큼 x 로 이동해
+            # 분리한다 — 이 시점 yaw=180 에서는 body 기준 "좌(+y)" 스트레이프 이동이라
+            # mecanum 홀로노믹으로 자연스럽다(회전 불필요). 정확한 오프셋 부호/크기는
+            # 이 태스크의 판단이다(브리프: "Exact offsets are nominal/tunable") — 아래
+            # HARD REQUIREMENT 주석 및 report 에 충돌 계산 근거를 남긴다. Phase C 에서
+            # 실제 차량 배치로 다시 다듬는다.
+            final_target = (xn_x + final_x_offset, xn_z - xn_standoff, 180.0)
+            seg_final = drive_to_pose(rear_ctx, art, idx, filt, T_rear, final_target,
+                                      correct_yaw=False, pos_tol=align_pos_tol)
+            fp = filt.pose()
+            print(f"MISSIONB_DONE robot={target} role=rear_axle xn_locked={xn_locked} "
+                  f"reached={seg_final['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) "
+                  f"yaw={fp[2]:.2f} err_pos_gt={seg_final['err_pos_gt']:.4f} "
+                  f"n_fix={seg_xn['n_fix']} "
+                  f"target=({final_target[0]:.3f},{final_target[1]:.3f},{final_target[2]:.1f})",
+                  flush=True)
+            return {"xn_locked": xn_locked, "reached": seg_final["reached"]}
+
+        # ==== HARD REQUIREMENT: 충돌 없는 최종 지오메트리 ====
+        # 도크(entry_lead x=-3.2, entry_follow x=-1.2)와 XN(x=-2.5)이 가까워 naive 하게
+        # 두 로봇을 XN 남쪽 같은 지점에 세우면 겹친다(로봇 풋프린트 반경 ~0.68m, REARXN
+        # probe 가 검증한 entry_lead 의 자연스러운 XN 정렬 종점이 entry_follow 의 최종
+        # 정지 좌표 (-2.5, 5.575) 와 사실상 같은 지점이라는 게 실측으로 확인됨).
+        # 선택한 좌표(모두 world x,z):
+        #   entry_lead  최종: (xn_x + LEAD_FINAL_X_OFFSET, xn_z - XN_STANDOFF, yaw=180)
+        #               기본값 대입 시 (-4.20, 5.575, 180)
+        #   entry_follow 최종: (xn_x, xn_z - XN_STANDOFF, yaw=0) = (-2.50, 5.575, 0)  [미변경]
+        # 분리 거리 = |LEAD_FINAL_X_OFFSET| = 1.70m > 1.5m 요구치(0.34m 여유 — 로봇 몸체
+        # 사이 간극 0.34m, 반경합 1.36m 기준). 서쪽(오프셋 음수)을 택한 이유: entry_lead
+        # 자신의 도크(x=-3.2)와 같은 편이라 entry_follow 의 L자 경로(도크체크: x=-1.2,
+        # z 2.2~4.3 / XN 접근 가로구간: z=4.3, x -1.2~-2.5 / XN 접근 세로구간: x=-2.5,
+        # z 4.3~5.575) 세 구간 전부에서 벌어진다(코너까지 최단거리 계산: 1.7m/2.13m/
+        # 3.26m, 모두 >=1.5m). 반대로 +x(동쪽, entry_follow 쪽)로 옮기면 entry_follow
+        # 도크(-1.2)에 더 가까워지고 세로구간 코너까지 최단거리가 1.5m 미만으로
+        # 좁혀져(계산: offset=+1.5 일 때 가로구간 코너까지 1.29m) 요구치를 못 만족했다
+        # — 그래서 서쪽을 택했다(브리프 문구는 "+x offset"이라 방향을 일반적으로
+        # 표현했을 뿐, 부호/크기 선택은 이 태스크에 위임돼 있다: "Exact offsets are
+        # nominal/tunable"). entry_lead 자신의 이동 경로(도크체크 북진 x=-3.2, XN 부근
+        # 접근 가로구간 z~4.3 x -3.2~-2.5)도 entry_follow 도크(-1.2,2.2)와 항상 x 로
+        # >=2.0m 떨어져 스태거 중(entry_follow 는 아직 도크에 대기) 충돌하지 않는다.
+        # standoff(XN 남쪽 1.3m, 도크체크 1.4m)는 Task3a/3b-1 이 검증한 사각(<1.1m)
+        # 밖 창을 그대로 재사용한다. 이 좌표는 모두 nominal — Phase C 가 실제 차량
+        # 배치로 다시 다듬는다.
+        LEAD_FINAL_X_OFFSET = -1.7
+
+        cam_h = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--cam-height="):
+                cam_h = float(a.split("=", 1)[1])
+        seg1_standoff = 1.4
+        for a in sys.argv[1:]:
+            if a.startswith("--seg1-standoff="):
+                seg1_standoff = float(a.split("=", 1)[1])
+        standoff = 1.3
+        for a in sys.argv[1:]:
+            if a.startswith("--xn-standoff="):
+                standoff = float(a.split("=", 1)[1])
         align_pos_tol = 0.06
-        seg1_target = (dock_x, rear_ctx["mz"] + seg1_standoff, 0.0)
-        seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target,
-                             correct_yaw=False, pos_tol=align_pos_tol)
-        dock_seen = seg1["n_fix"] > 0
-        fp = filt.pose()
-        print(f"MISSIONB_DOCKCHECK robot={target} dock_seen={dock_seen} "
-              f"filt=({fp[0]:.3f},{fp[1]:.3f},{fp[2]:.2f}) n_fix={seg1['n_fix']} "
-              f"reached={seg1['reached']} steps={seg1['steps']} "
-              f"target=({seg1_target[0]:.3f},{seg1_target[1]:.3f},{seg1_target[2]:.1f}) "
-              f"err_pos_gt={seg1['err_pos_gt']:.4f} err_yaw_gt={seg1['err_yaw_gt']:.2f}",
-              flush=True)
+        lead_final_x_offset = LEAD_FINAL_X_OFFSET
+        for a in sys.argv[1:]:
+            if a.startswith("--lead-final-xoffset="):
+                lead_final_x_offset = float(a.split("=", 1)[1])
 
-        # ---- Step 4: 세그먼트2 — XN 정렬 주행(전방 ctx). XN 남쪽 standoff, 북향(사각 밖).
-        # 2단계로 나눈다(브리프의 "x 경로는 튜닝 대상" 조항). 이유(실측): 세그먼트1 종점
-        # (x=-1.2)에서 XN(x=-2.5)까지 한 번에 대각선으로 몰면, 검출창(XN 실측 1.2~1.9m)에
-        # 진입하는 시점에도 횡오차가 아직 커(선형보간 추정 ~0.5m) 마커가 FOV 밖으로 밀려
-        # n_fix=0 이 나왔다(1차 시도 로그로 확인). 세그먼트1 은 반대로 x 를 도크와 동일하게
-        # "고정"한 순수 직진이라 검출이 잘 됐다(n_fix=41) — 같은 패턴을 세그먼트2 에도
-        # 적용: 4a 에서 먼저 x 만 XN 에 맞추고(이 시점 z 는 아직 검출창 밖이라 문제 없음),
-        # 4b 에서 x=xn_x 고정한 채 순수 북진해 검출창을 통과시킨다.
-        # correct_yaw=False(Task 3b-1, Step3 과 동일 이유): 안무 전체에서 회전은 Step2
-        # 하나뿐이고 그 오도 yaw 는 이미 정확하다 — 4a/4b 모두 마커 fix 는 위치만 반영.
-        fp1 = filt.pose()
-        seg2a_target = (xn_x, fp1[1], 0.0)
-        seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target,
-                              correct_yaw=False, pos_tol=align_pos_tol)
-        seg2_target = (xn_x, xn_z - standoff, 0.0)
-        seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target,
-                              correct_yaw=False, pos_tol=align_pos_tol)
-        seg2 = seg2b                      # reached/err_pos_gt 는 최종 도달 구간(4b) 기준
-        n_fix2 = seg2a["n_fix"] + seg2b["n_fix"]
-        xn_locked = n_fix2 > 0
-        fp = filt.pose()
-        print(f"MISSIONB_XNALIGN robot={target} n_fix_a={seg2a['n_fix']} "
-              f"n_fix_b={seg2b['n_fix']} reached_a={seg2a['reached']} "
-              f"reached_b={seg2b['reached']} filt_a=({seg2a['final_filt'][0]:.3f},"
-              f"{seg2a['final_filt'][1]:.3f},{seg2a['final_filt'][2]:.2f}) "
-              f"target_a=({seg2a_target[0]:.3f},{seg2a_target[1]:.3f},{seg2a_target[2]:.1f}) "
-              f"err_pos_gt_a={seg2a['err_pos_gt']:.4f} err_pos_gt_b={seg2b['err_pos_gt']:.4f}",
-              flush=True)
+        # ---- Part 3: 스태거 — entry_lead 먼저 완주 -> entry_follow 시작(사용자 스펙) ----
+        lead_setup = _mission_setup("entry_lead", "entry_follow",
+                                    need_front=False, need_rear=True, cam_h=cam_h)
+        lead_result = _run_entry_lead_b(lead_setup, dockcheck_standoff=seg1_standoff,
+                                        xn_standoff=standoff,
+                                        final_x_offset=lead_final_x_offset,
+                                        align_pos_tol=align_pos_tol)
 
-        # ---- Step 5: 완료 토큰 ----
-        print(f"MISSIONB_DONE robot={target} role=front_axle xn_locked={xn_locked} "
-              f"reached={seg2['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) yaw={fp[2]:.2f} "
-              f"err_pos_gt={seg2['err_pos_gt']:.4f} n_fix={n_fix2} "
-              f"target=({seg2_target[0]:.3f},{seg2_target[1]:.3f},{seg2_target[2]:.1f})",
-              flush=True)
-        ok = bool(xn_locked and seg2["reached"])
+        follow_setup = _mission_setup("entry_follow", "entry_lead",
+                                      need_front=True, need_rear=True, cam_h=cam_h)
+        follow_result = _run_entry_follow_b(follow_setup, seg1_standoff=seg1_standoff,
+                                            xn_standoff=standoff,
+                                            align_pos_tol=align_pos_tol)
+
+        ok = bool(lead_result["xn_locked"] and lead_result["reached"]
+                  and follow_result["xn_locked"] and follow_result["reached"])
         print(f"MISSIONB_RESULT ok={ok}", flush=True)
 
         if headless:
