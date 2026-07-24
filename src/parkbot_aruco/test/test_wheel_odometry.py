@@ -17,12 +17,37 @@ def test_forward_integrates_along_plus_z_when_yaw_zero():
     assert math.isclose(od.x, 0.0, abs_tol=1e-9)
 
 
-def test_left_strafe_integrates_along_minus_x_when_yaw_zero():
-    """+Z 를 볼 때 로봇 좌측(+vy)은 월드 -X 다."""
+def test_left_strafe_integrates_along_plus_x_when_yaw_zero():
+    """+Z 를 볼 때 로봇 좌측(+vy)은 월드 +X 다.
+
+    marker_localizer.PoseFilter.predict_body 의 캘리브된 규약과 동일:
+    바디 프레임은 X-전방, Y-좌, Z-업 우수 좌표계이고 월드는 Y-업 우수
+    좌표계이므로, 바디-좌 = up × forward = (+Y_world) × (+Z_world) = +X_world.
+    """
     od = WheelOdometry()
     od.update(0.0, 1.0, 0.0, 1.0)
-    assert math.isclose(od.x, -1.0, abs_tol=1e-9)
+    assert math.isclose(od.x, 1.0, abs_tol=1e-9)
     assert math.isclose(od.z, 0.0, abs_tol=1e-9)
+
+
+def test_matches_calibrated_predict_body():
+    """이미 GT 로 캘리브된 marker_localizer.PoseFilter.predict_body 와 일치해야 한다.
+
+    독립적인 오라클로 검증한다 — 구현이 스스로를 정당화하지 못하게 한다.
+    """
+    sys.path.insert(0, str(REPO / "src" / "parkbot_aruco"))
+    from parkbot_aruco.marker_localizer import PoseFilter
+
+    for vx, vy, wz, yaw0 in [(1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0),
+                             (0.7, -0.4, 0.0, math.radians(35.0)),
+                             (-0.3, 0.9, 0.0, math.radians(-110.0))]:
+        od = WheelOdometry(yaw=yaw0)
+        od.update(vx, vy, wz, 0.5)
+        pf = PoseFilter()
+        pf.x, pf.z, pf.yaw = 0.0, 0.0, math.degrees(yaw0)
+        pf.predict_body(vx, vy, wz, 0.5)
+        assert math.isclose(od.x, pf.x, abs_tol=1e-9), (vx, vy, yaw0)
+        assert math.isclose(od.z, pf.z, abs_tol=1e-9), (vx, vy, yaw0)
 
 
 def test_yaw_accumulates_and_wraps():
