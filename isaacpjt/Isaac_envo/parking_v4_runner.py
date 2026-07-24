@@ -479,6 +479,214 @@ def main():
         app.close()
         return
 
+    if probe == "M5":
+        # 마커 측위 정확도 관문. Isaac 안에서 렌더→검출→robot_pose_from_marker 로
+        # 월드 자세를 복원해 GT 와 비교한다. T_base_cam(카메라 마운트)은 카메라를
+        # 0.15m 로 올렸으므로 v1 기본값을 쓰면 틀린다 → GT 로 자동 보정한다.
+        import json
+        import cv2
+        from pxr import Gf, UsdGeom
+        sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
+        from parkbot_aruco import aruco_pose
+        from parkbot_aruco import marker_localizer as ML
+
+        cam_h = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--cam-height="):
+                cam_h = float(a.split("=", 1)[1])
+
+        target = "entry_lead"
+        art = arts[target]
+        ref_serves = sm.ROBOT_DOCK_MARKER[target]           # "D_OUT_1"
+        markers = read_markers(stage)
+        ref_id = markers[ref_serves]["id"]                  # 21
+        mx, mz = marker_visual_center(stage, ref_serves)    # 데칼 실좌표
+
+        # 지도 로드(측위가 쓰는 v4 지도)
+        map_path = REPO_ROOT / "src" / "parkbot_aruco" / "data" / "marker_map_v4.json"
+        mm_json = json.loads(map_path.read_text(encoding="utf-8"))
+        marker_map = ML.MarkerMap.from_json(mm_json, align_yaw_deg=0.0)
+        code_size_m = float(mm_json["code_size_m"])
+        detector = aruco_pose.make_detector(mm_json["dictionary"])
+
+        # 카메라 준비 + 높이 오버라이드(probe A 와 동일: 월드 Y dy 를 로컬로 역변환)
+        cam_path = find_front_camera(stage, target)
+        cam_prim = stage.GetPrimAtPath(cam_path)
+        cam_xf = UsdGeom.Xformable(cam_prim)
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+        dy_world = cam_h - 0.09
+        if abs(dy_world) > 1e-9:
+            mb = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
+            local_delta = mb.GetInverse().TransformDir(Gf.Vec3d(0.0, dy_world, 0.0))
+            cam_xf.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble, "camHeightM5").Set(local_delta)
+            for _ in range(3):
+                app.update()
+
+        import omni.replicator.core as rep
+        rp = rep.create.render_product(cam_path, (640, 480))
+        rgb_annot = rep.AnnotatorRegistry.get_annotator("rgb")
+        rgb_annot.attach([rp])
+
+        ucam = UsdGeom.Camera(cam_prim)
+        focal = ucam.GetFocalLengthAttr().Get()
+        haper = ucam.GetHorizontalApertureAttr().Get()
+        vaper = ucam.GetVerticalApertureAttr().Get()
+        K = np.array([[640.0 * focal / haper, 0.0, 320.0],
+                      [0.0, 480.0 * focal / vaper, 240.0],
+                      [0.0, 0.0, 1.0]], dtype=np.float64)
+        dist = np.zeros((5, 1), dtype=np.float64)
+
+        def usd_to_np(gf_m):
+            """Gf.Matrix4d(행벡터 v*M 규약) → 표준 열벡터 4x4(M*v)."""
+            m = np.array([[gf_m[i][j] for j in range(4)] for i in range(4)], dtype=np.float64)
+            return m.T
+
+        def place_and_capture(d, lat, yaw_deg):
+            """로봇을 마커 앞 (d,lat,yaw) 자세에 놓고 렌더 이미지+검출을 돌려준다.
+
+            카메라 정면(-Z)이 월드 +X 를 보므로 마커 앞 d 는 x 축(로봇 중심 mx-d),
+            횡오프셋 lat 은 z 축. yaw 는 스폰 자세에 RotateY 를 곱해 준다.
+            """
+            base = np.array([[mx - d, ROBOT_SPAWN_Y, mz + lat]])
+            if abs(yaw_deg) < 1e-9:
+                orn = np.array([spawn_orn])
+            else:
+                half = math.radians(yaw_deg) * 0.5
+                qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])  # (w,x,y,z) about Y
+                w0, x0, y0, z0 = spawn_orn
+                w1, x1, y1, z1 = qy
+                orn = np.array([[
+                    w1*w0 - x1*x0 - y1*y0 - z1*z0,
+                    w1*x0 + x1*w0 + y1*z0 - z1*y0,
+                    w1*y0 - x1*z0 + y1*w0 + z1*x0,
+                    w1*z0 + x1*y0 - y1*x0 + z1*w0]])
+            art.set_world_poses(base, orn)
+            for _ in range(20):
+                app.update()
+            frame = rgb_annot.get_data()
+            img = (np.asarray(frame)[:, :, :3]
+                   if frame is not None and len(frame) else None)
+            det = []
+            if img is not None:
+                gray = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_RGB2GRAY)
+                det = aruco_pose.detect_and_estimate(gray, detector, code_size_m, K, dist)
+            hit = [p for p in det if int(p.marker_id) == ref_id]
+            return (hit[0] if hit else None)
+
+        def localize(pose, T_base_cam):
+            T_cm = ML.rvec_tvec_to_T(pose.rvec, pose.tvec)
+            return ML.robot_pose_from_marker(ref_id, T_cm, T_base_cam, marker_map)
+
+        # ---- T_base_cam 자동 보정 ----
+        # T_base_cam = inv(T_world_base) @ T_world_camusd @ C, C 는 USD 카메라→OpenCV 광학
+        # 규약 회전. 규약을 손으로 추론하면 틀리기 쉬우므로(프로젝트가 align_yaw 를 스윕해
+        # 정한 전례), 후보 C 를 GT 로 스윕해 오차 최소를 고른다.
+        pose0 = place_and_capture(1.5, 0.0, 0.0)   # 검증용 기준 자세
+        if pose0 is None:
+            print("M5_TBASECAM_CAL FAIL: 검증 자세에서 마커 미검출 — 기하 재검토", flush=True)
+            if headless:
+                app.close()
+            raise RuntimeError("M5 T_base_cam 보정 자세에서 마커 미검출")
+        # base_link 월드행렬을 Articulation world pose 로 구성
+        bpos, born = art.get_world_poses()
+        bp = np.asarray(bpos).reshape(-1)[:3]
+        bw, bx, by, bz = (float(v) for v in np.asarray(born).reshape(-1)[:4])
+        # quat(w,x,y,z) → 회전행렬
+        def quat_to_R(w, x, y, z):
+            return np.array([
+                [1-2*(y*y+z*z), 2*(x*y-w*z),   2*(x*z+w*y)],
+                [2*(x*y+w*z),   1-2*(x*x+z*z), 2*(y*z-w*x)],
+                [2*(x*z-w*y),   2*(y*z+w*x),   1-2*(x*x+y*y)]], dtype=np.float64)
+        T_world_base = np.eye(4)
+        T_world_base[:3, :3] = quat_to_R(bw, bx, by, bz)
+        T_world_base[:3, 3] = bp
+        T_world_camusd = usd_to_np(cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time()))
+
+        candidates = {
+            "I":     np.diag([1.0, 1.0, 1.0, 1.0]),
+            "X180":  np.diag([1.0, -1.0, -1.0, 1.0]),
+            "Y180":  np.diag([-1.0, 1.0, -1.0, 1.0]),
+            "Z180":  np.diag([-1.0, -1.0, 1.0, 1.0]),
+        }
+        gx, gz, gyaw = gt_pose_xz_yaw(art)
+        best_name, best_T, best_err = None, None, 1e9
+        for name, C in candidates.items():
+            T_base_cam = np.linalg.inv(T_world_base) @ T_world_camusd @ C
+            fix = localize(pose0, T_base_cam)
+            if fix is None:
+                continue
+            e = math.hypot(fix.x - gx, fix.z - gz)
+            if e < best_err:
+                best_name, best_T, best_err = name, T_base_cam, e
+        print(f"M5_TBASECAM_CAL best={best_name} verify_pos_err={best_err:.4f}m", flush=True)
+        if best_T is None or best_err > 0.05:
+            print("M5_TBASECAM_CAL FAIL: 어떤 광학 규약도 5cm 안에 못 맞춤 — "
+                  "usd_to_np 전치/규약 재검토 필요", flush=True)
+            if headless:
+                app.close()
+            raise RuntimeError(f"M5 T_base_cam 보정 실패(best_err={best_err:.4f})")
+        T_base_cam = best_T
+
+        # ---- 정확도 스윕 ----
+        results = []
+        for d in (1.3, 1.5, 1.7, 1.9):
+            for lat in (-0.15, 0.0, 0.15):
+                for yaw_deg in (-8.0, 0.0, 8.0):
+                    pose = place_and_capture(d, lat, yaw_deg)
+                    if pose is None:
+                        results.append({"d": d, "lat": lat, "yaw": yaw_deg,
+                                        "detected": False})
+                        continue
+                    fix = localize(pose, T_base_cam)
+                    gxx, gzz, gyy = gt_pose_xz_yaw(art)
+                    ex, ez = fix.x - gxx, fix.z - gzz
+                    dyaw = (fix.yaw_deg - math.degrees(gyy) + 180.0) % 360.0 - 180.0
+                    results.append({
+                        "d": d, "lat": lat, "yaw": yaw_deg, "detected": True,
+                        "pos_err_m": math.hypot(ex, ez), "yaw_err_deg": abs(dyaw),
+                        "ex": ex, "ez": ez, "eyaw": dyaw,
+                        "reproj_px": float(pose.reproj_err_px)})
+
+        det = [r for r in results if r["detected"]]
+        if not det:
+            print("M5_RESULT FAIL: 검출 표본 0개", flush=True)
+            if headless:
+                app.close()
+            raise RuntimeError("M5 검출 표본 0")
+        pos_errs = sorted(r["pos_err_m"] for r in det)
+        yaw_errs = sorted(r["yaw_err_deg"] for r in det)
+
+        def p95(a):
+            return a[min(len(a) - 1, int(math.ceil(0.95 * len(a)) - 1))]
+        cov = np.cov(np.array([[r["ex"], r["ez"], r["eyaw"]] for r in det]).T).tolist()
+        pos_p95, yaw_p95 = p95(pos_errs), p95(yaw_errs)
+        ok = (pos_p95 <= 0.02) and (yaw_p95 <= 1.0)
+        report = {
+            "camera_height_m": cam_h, "tbasecam_convention": best_name,
+            "tbasecam_verify_err_m": best_err,
+            "n_samples": len(det), "n_total": len(results),
+            "pos_err_m": {"mean": sum(pos_errs) / len(pos_errs),
+                          "median": pos_errs[len(pos_errs) // 2],
+                          "p95": pos_p95, "max": pos_errs[-1]},
+            "yaw_err_deg": {"mean": sum(yaw_errs) / len(yaw_errs),
+                            "median": yaw_errs[len(yaw_errs) // 2],
+                            "p95": yaw_p95, "max": yaw_errs[-1]},
+            "cov_ex_ez_eyaw": cov, "samples": results,
+        }
+        import v4_probes as vp
+        path = vp.write_report("m5_accuracy", report)
+        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} "
+              f"pos_p95={pos_p95*100:.2f}cm yaw_p95={yaw_p95:.2f}deg "
+              f"n={len(det)}/{len(results)} conv={best_name} report={path.name}", flush=True)
+        if headless:
+            app.close()
+            return
+        while app.is_running():
+            app.update()
+        app.close()
+        return
+
     BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
                         "/exts/isaacsim.ros2.bridge/humble/rclpy")
     if str(BRIDGE_RCLPY) not in sys.path:
