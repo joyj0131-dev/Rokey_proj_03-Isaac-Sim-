@@ -646,6 +646,57 @@ def main():
         app.close()
         return
 
+    if probe == "REAR":
+        # 후방 카메라 실동작: 로봇 뒤(−X 방향)에 마커가 오도록 배치하고 후방 카메라 발행.
+        target = "entry_lead"
+        cam_path = find_rear_camera(stage, target)
+        ref_serves = sm.ROBOT_DOCK_MARKER[target]
+        mx, mz = marker_visual_center(stage, ref_serves)
+        # 후방 카메라는 −X 를 보므로, 마커가 뒤에 오도록 로봇 중심을 mx + d 에 둔다.
+        art = arts[target]
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+        import json as _json
+        BRIDGE = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
+                      "/exts/isaacsim.ros2.bridge/humble/rclpy")
+        if str(BRIDGE) not in sys.path:
+            sys.path.insert(0, str(BRIDGE))
+        import rclpy
+        from std_msgs.msg import String as RosString
+        if not rclpy.ok():
+            rclpy.init()
+        pa = rclpy.create_node("rear_probe_bringup")
+        state_pub = pa.create_publisher(RosString, "/probe_a/state", 10)
+        attach_camera_graph(target, cam_path)   # /robot_entry_lead/image_raw 로 후방 발행
+        for _ in range(30):
+            app.update()
+        ref_id = read_markers(stage)[ref_serves]["id"]
+        print(f"REAR_PUBLISHING image=/robot_{target}/image_raw target_marker_id={ref_id} "
+              f"domain={os.environ.get('ROS_DOMAIN_ID','0')}", flush=True)
+        loop = 0
+        while app.is_running():
+            for i in range(12):
+                d = 0.6 + 0.1 * i
+                art.set_world_poses(np.array([[mx + d, ROBOT_SPAWN_Y, mz]]),
+                                    np.array([spawn_orn]))
+                for _ in range(int(3.0 * (60.0 if headless else RENDER_HZ))):
+                    app.update()
+                    msg = RosString()
+                    msg.data = _json.dumps({"distance_m": round(d, 3),
+                                            "marker_id": int(ref_id), "phase": "sweep"})
+                    state_pub.publish(msg)
+                    rclpy.spin_once(pa, timeout_sec=0.0)
+            loop += 1
+            if headless and loop >= 1:
+                break
+        if headless:
+            app.close()
+            return
+        while app.is_running():
+            app.update()
+        app.close()
+        return
+
     if probe == "M5":
         # 마커 측위 정확도 관문. Isaac 안에서 렌더→검출→robot_pose_from_marker 로
         # 월드 자세를 복원해 GT 와 비교한다. T_base_cam(카메라 마운트)은 카메라를
