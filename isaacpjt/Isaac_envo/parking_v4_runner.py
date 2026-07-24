@@ -538,7 +538,8 @@ def main():
 
     def drive_to_pose(ctx, art, idx, filt, T_base_cam, target_xzyaw, *,
                        max_steps=2000, pos_gain=0.8, yaw_gain=1.2,
-                       max_lin=0.25, max_ang=0.6, pos_tol=0.03, yaw_tol=0.5):
+                       max_lin=0.25, max_ang=0.6, pos_tol=0.03, yaw_tol=0.5,
+                       correct_yaw=True):
         """목표 (x,z,yaw_deg) 까지 오도+마커 융합 폐루프로 주행.
 
         매 스텝: 예측(휠 관절 각속도 -> cmd_vel_from_wheel_velocities ->
@@ -550,10 +551,39 @@ def main():
         (slew_twist 가 실제로 (0,0,0) 에 도달하면) 종료한다. max_steps 는
         안전 상한.
 
+        correct_yaw(Task 3b-1 추가, 기본 True=기존 동작 그대로 — ROTCHK/스켈레톤
+        등 기존 호출자 회귀 없음): False 면 마커 fix 를 _apply_fix 의 위치전용
+        분기로 반영한다 — x,z 만 filt.pos_gain 으로 마커 쪽으로 당기고 yaw 는
+        오도메트리 값을 그대로 둔다(filt.update 를 쓰지 않음). 실측 배경: 후방캠이
+        도크를 비스듬히/원거리에서 보면 yaw 관측 노이즈가 커서(최대 45° 오염 실측)
+        filt.update 의 yaw 블렌딩이 정확한 오도 헤딩을 되레 망가뜨렸다 — 마커는
+        위치엔 강하고 yaw 엔 약하다는 표준 센서융합 가정을 반영한 수정이다.
+
         반환 err_pos_gt/err_yaw_gt 는 종단(정지 후) 자세를 GT 와 비교한 값으로
         **리포팅 전용**이다 — 이 함수의 제어 로직은 filt.pose() 만 쓰고 GT 를
         전혀 참조하지 않는다.
         """
+        def _apply_fix(fix):
+            """마커 fix 한 건을 filt 에 반영(첫 fix 시딩 / 전체보정 / 위치전용보정).
+
+            미션 주행은 항상 filt.set_pose(dock...) 로 사전 시딩하므로 실전에서
+            filt.x 는 이 함수 안에서 None 이 아니다 — 아래 첫 분기는 시딩 없이
+            drive_to_pose 를 단독 호출하는 경우(예: 과거 probe)를 위한 방어적
+            폴백이며, 이때는 yaw 도 오도 예측이 없어 correct_yaw 값과 무관하게
+            그대로 시딩한다.
+            """
+            if filt.x is None:
+                filt.set_pose(fix.x, fix.z, fix.yaw_deg)   # 첫 fix 로 초기화(GT 아님)
+            elif correct_yaw:
+                filt.update(fix)
+            else:
+                # 위치전용 보정: yaw 는 오도메트리 값 유지, x/z 만 filt.pos_gain 으로
+                # 마커 관측 쪽으로 블렌딩(filt.update 의 위치 블렌딩과 동일 공식).
+                filt.set_pose(filt.x + filt.pos_gain * (fix.x - filt.x),
+                              filt.z + filt.pos_gain * (fix.z - filt.z),
+                              filt.yaw)
+                filt.n_fix += 1   # filt.update() 와 동일하게: fix 는 실제로 일어났다.
+
         vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
                            dtype=np.float32)
         cur_tw = (0.0, 0.0, 0.0)
@@ -582,10 +612,7 @@ def main():
             if pose is not None:
                 fix = localize_pose(ctx, pose, T_base_cam)
                 if fix is not None:
-                    if filt.x is None:
-                        filt.set_pose(fix.x, fix.z, fix.yaw_deg)   # 첫 fix 로 초기화(GT 아님)
-                    else:
-                        filt.update(fix)
+                    _apply_fix(fix)
                     n_fix += 1
 
             # ---- 제어: 융합 자세 -> 목표까지 body twist(body_twist_toward) ----
@@ -620,7 +647,7 @@ def main():
                     if pose is not None:
                         fix = localize_pose(ctx, pose, T_base_cam)
                         if fix is not None and filt.x is not None:
-                            filt.update(fix)
+                            _apply_fix(fix)
                             n_fix += 1
                 break
 
@@ -1734,8 +1761,14 @@ def main():
 
         # ---- Step 3: 세그먼트1 — 도크체크 주행(후방 ctx). x 는 도크와 동일하게 유지해
         # 후방캠이 뒤의 도크 데칼을 프레임 중앙 부근에 유지한다(브리프 지시).
+        # correct_yaw=False(Task 3b-1 수정 — 진단된 결함): 후방캠은 도크를 비스듬히/
+        # 원거리(seg1_standoff 창 안쪽)에서 보기 때문에 yaw 관측 노이즈가 크다(수정 전
+        # 실측: filt 가 이 노이즈에 40회 fix 로 수렴해 err_yaw_gt 가 ~45° 까지 오염 —
+        # 이후 전방캠이 XN 을 아예 못 잡는 연쇄 실패로 이어졌다). yaw 는 Step2 에서 이미
+        # 정확한(오도, YAW_ODOM_SCALE 보정 후 ~1°) 값을 갖고 있으므로 마커로 다시
+        # 덮지 않고 오도값을 그대로 믿는다 — 마커 fix 는 위치(x,z)만 반영한다.
         seg1_target = (dock_x, rear_ctx["mz"] + seg1_standoff, 0.0)
-        seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target)
+        seg1 = drive_to_pose(rear_ctx, art, idx, filt, T_rear, seg1_target, correct_yaw=False)
         dock_seen = seg1["n_fix"] > 0
         fp = filt.pose()
         print(f"MISSIONB_DOCKCHECK robot={target} dock_seen={dock_seen} "
@@ -1753,11 +1786,13 @@ def main():
         # "고정"한 순수 직진이라 검출이 잘 됐다(n_fix=41) — 같은 패턴을 세그먼트2 에도
         # 적용: 4a 에서 먼저 x 만 XN 에 맞추고(이 시점 z 는 아직 검출창 밖이라 문제 없음),
         # 4b 에서 x=xn_x 고정한 채 순수 북진해 검출창을 통과시킨다.
+        # correct_yaw=False(Task 3b-1, Step3 과 동일 이유): 안무 전체에서 회전은 Step2
+        # 하나뿐이고 그 오도 yaw 는 이미 정확하다 — 4a/4b 모두 마커 fix 는 위치만 반영.
         fp1 = filt.pose()
         seg2a_target = (xn_x, fp1[1], 0.0)
-        seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target)
+        seg2a = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2a_target, correct_yaw=False)
         seg2_target = (xn_x, xn_z - standoff, 0.0)
-        seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target)
+        seg2b = drive_to_pose(front_ctx, art, idx, filt, T_front, seg2_target, correct_yaw=False)
         seg2 = seg2b                      # reached/err_pos_gt 는 최종 도달 구간(4b) 기준
         n_fix2 = seg2a["n_fix"] + seg2b["n_fix"]
         xn_locked = n_fix2 > 0
