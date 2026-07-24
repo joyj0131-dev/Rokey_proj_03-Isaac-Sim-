@@ -796,3 +796,115 @@ ps -eo pid,args --no-headers | grep -E "/kit/kit|python\.sh|isaacsim" | grep -v 
 git add isaacpjt/Isaac_envo/parking_v4_runner.py
 git commit -m "feat(probe): M5 다중프레임 융합 — K프레임 평균으로 p95 꼬리 감소 측정"
 ```
+
+---
+
+### Task 5: M5 신뢰 운영구간(거리 기반) 판정
+
+다중프레임(Task 4)은 p95 꼬리(먼 거리·비스듬의 고정 편향)를 못 깎았다. 꼬리는 먼 거리에서
+발생하고 가까운 구간은 이미 좋다(1.5m 1.1cm). **로봇이 실제로 지킬 수 있는 거리 기반 신뢰
+운영구간**(예: 마커까지 [1.4, 1.8] m 일 때만 fix 를 신뢰)을 정하고, 그 구간에서 p95 를 판정한다.
+
+**정직성 규칙**: 통과하는 자세만 임의로 고르는 것이 아니다. **거리(로봇이 알고 행동에 쓸 수 있는
+양)로만** 구간을 정하고 그 구간 안 모든 lat·yaw 를 포함한다. yaw/lat 로 골라내지 않는다.
+전체 스윕 p95 와 구간 p95 를 **둘 다** 리포트해 꼬리가 어디서 오는지 투명하게 남긴다.
+
+**Files:**
+- Modify: `isaacpjt/Isaac_envo/parking_v4_runner.py` (`--probe=M5` 분기)
+
+**Interfaces:**
+- Consumes: Task 4 의 M5 스윕 구조(`capture_frames`/`fuse_localize`/`err_of`/`stats`/`p95`), 자동보정 `T_base_cam`.
+- Produces:
+  - 러너 인자 `--m5-dmin=`(기본 1.4) `--m5-dmax=`(기본 1.8) — 신뢰 거리구간.
+  - 콘솔 `M5_RESULT` 를 **구간 p95 로 판정**하고 `window_pos_p95`/`full_pos_p95` 둘 다 출력.
+  - `m5_accuracy.json` 에 `trusted_window`(dmin/dmax), `full`(전체), `window`(구간) 통계.
+
+- [ ] **Step 1: 거리 스윕 확장 + 구간 파라미터**
+
+Modify M5 분기 — 거리 스윕을 신뢰구간을 잘 특성화하도록 넓히고 구간 파라미터를 파싱한다.
+`--m5-frames` 파싱 부근에 추가:
+```python
+        dmin, dmax = 1.4, 1.8
+        for a in sys.argv[1:]:
+            if a.startswith("--m5-dmin="):
+                dmin = float(a.split("=", 1)[1])
+            if a.startswith("--m5-dmax="):
+                dmax = float(a.split("=", 1)[1])
+```
+스윕 거리 튜플을 넓힌다(기존 `for d in (1.3, 1.5, 1.7, 1.9):` → 아래로):
+```python
+        for d in (1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9):
+```
+
+- [ ] **Step 2: 표본에 거리 기록 + 전체/구간 분리 판정**
+
+스윕에서 각 표본에 `d` 를 함께 저장하도록 누적 리스트를 (err, d) 튜플로 바꾸고, 판정을
+전체와 구간으로 나눈다. Task 4 의 판정부(`s_pos, s_yaw = ...` 부터 `M5_RESULT` 출력까지)를
+아래로 교체:
+```python
+        # fused_pos/fused_yaw 는 각 표본의 오차, dists 는 같은 순서의 거리
+        def p95(a):
+            b = sorted(a)
+            return b[min(len(b) - 1, int(math.ceil(0.95 * len(b)) - 1))] if b else float("nan")
+
+        in_win = [i for i, dd in enumerate(dists) if dmin <= dd <= dmax]
+        win_pos = [fused_pos[i] for i in in_win]
+        win_yaw = [fused_yaw[i] for i in in_win]
+
+        full_pp, full_yp = p95(fused_pos), p95(fused_yaw)
+        win_pp, win_yp = p95(win_pos), p95(win_yaw)
+        ok = (len(win_pos) > 0 and win_pp <= 0.02 and win_yp <= 1.0)
+        report = {
+            "camera_height_m": cam_h, "frames": n_frames,
+            "trusted_window": {"dmin": dmin, "dmax": dmax},
+            "tbasecam_convention": best_name, "tbasecam_verify_err_m": best_err,
+            "n_full": len(fused_pos), "n_window": len(win_pos), "n_total": n_total,
+            "full": {"pos_err_m": stats(fused_pos), "yaw_err_deg": stats(fused_yaw)},
+            "window": {"pos_err_m": stats(win_pos) if win_pos else None,
+                       "yaw_err_deg": stats(win_yaw) if win_yaw else None},
+            "cov_ex_ez_eyaw": cov,
+        }
+        import v4_probes as vp
+        path = vp.write_report("m5_accuracy", report)
+        print(f"M5_RESULT={'PASS' if ok else 'FAIL'} window=[{dmin},{dmax}]m "
+              f"window_pos_p95={win_pp*100:.2f}cm window_yaw_p95={win_yp:.2f}deg "
+              f"full_pos_p95={full_pp*100:.2f}cm full_yaw_p95={full_yp:.2f}deg "
+              f"n_win={len(win_pos)}/{len(fused_pos)} report={path.name}", flush=True)
+        if headless:
+            app.close()
+            return
+        while app.is_running():
+            app.update()
+        app.close()
+        return
+```
+그리고 스윕 루프에서 `dists` 를 채우도록 한다. Task 4 의 스윕 루프 안 `fused_vec.append(...)`
+근처에 표본이 채택될 때마다 `dists.append(d)` 를 추가하고, 루프 앞에 `dists = []` 를 선언한다
+(single_pos/fused_pos 와 항상 같은 길이가 되도록 채택 지점에서만 append).
+
+- [ ] **Step 3: 문법 검사**
+
+Run: `cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo && python3 -m py_compile parking_v4_runner.py && echo OK`
+Expected: `OK`
+
+- [ ] **Step 4: 실행 — 전체 vs 신뢰구간 판정**
+
+```bash
+cd /home/rokey/p3/cobot_ws/isaacpjt/Isaac_envo
+ps -eo pid,args --no-headers | grep -E "/kit/kit|python\.sh|isaacsim" | grep -v grep || echo clean
+bash parking_v4_runner.sh --probe=M5 --m5-frames=1 2>&1 | grep -E "M5_TBASECAM_CAL|M5_RESULT|Traceback"
+```
+Expected: `M5_RESULT=... window=[1.4,1.8]m window_pos_p95=<값> ... full_pos_p95=<값> ...`
+- **window_pos_p95 ≤ 2cm 및 window_yaw_p95 ≤ 1° 이면 PASS** — 신뢰 운영구간에서 정확도 확보.
+- 만약 [1.4,1.8] 구간(모든 yaw/lat 포함)에서도 실패하면, 구간을 더 좁히지 말고 그대로 보고한다
+  (거리만으로 안 되면 yaw 도 봐야 하는데 그건 별도 결정). n_win 이 너무 작으면(예: <9) 구간이
+  비현실적으로 좁다는 신호이므로 함께 보고한다.
+
+- [ ] **Step 5: 좀비 확인 + 커밋**
+
+```bash
+cd /home/rokey/p3/cobot_ws
+ps -eo pid,args --no-headers | grep -E "/kit/kit|python\.sh|isaacsim" | grep -v grep || echo clean
+git add isaacpjt/Isaac_envo/parking_v4_runner.py
+git commit -m "feat(probe): M5 신뢰 거리구간 판정 — 운영구간 p95 로 관문, 전체도 함께 보고"
+```
