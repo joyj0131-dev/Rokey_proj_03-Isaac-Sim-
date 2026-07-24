@@ -270,6 +270,72 @@ def main():
         app.close()
         return
 
+    probe = None
+    for a in sys.argv[1:]:
+        if a.startswith("--probe="):
+            probe = a.split("=", 1)[1]
+
+    if probe == "B":
+        import v4_probes as vp
+        from mecanum_drive import slew_twist, wheel_velocities_from_cmd_vel
+
+        target = sm.ROBOTS[0]                      # entry_lead 한 대로 측정
+        art = arts[target]
+        idx = wheel_idx[target]
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+
+        def drive(tw, steps):
+            cur = (0.0, 0.0, 0.0)
+            prev = timeline.get_current_time()
+            gt_pts, od_pts = [], []
+            for _ in range(steps):
+                app.update()
+                now = timeline.get_current_time()
+                dt = min(0.1, max(0.0, now - prev))
+                prev = now
+                cur = slew_twist(cur, tw, dt, linear_accel=LINEAR_ACCEL,
+                                 linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+                omegas = wheel_velocities_from_cmd_vel(*cur)
+                vel_buf[...] = 0.0
+                for w, om in omegas.items():
+                    vel_buf[idx[w]] = om
+                art.set_joint_velocity_targets(vel_buf)
+                vx, vy, wz = read_wheel_twist(art, idx)
+                odom[target].update(vx, vy, wz, dt)
+                gx, gz, _ = gt_pose_xz_yaw(art)
+                gt_pts.append((gx, gz))
+                od_pts.append((odom[target].x, odom[target].z))
+            return gt_pts, od_pts
+
+        gt_all, od_all = [], []
+        for tw, steps in (((0.35, 0.0, 0.0), 420), ((0.0, 0.0, 0.0), 60),
+                          ((0.0, 0.35, 0.0), 420), ((0.0, 0.0, 0.0), 60)):
+            g, o = drive(tw, steps)
+            gt_all += g
+            od_all += o
+
+        gx, gz = gt_all[-1]
+        ox, oz = od_all[-1]
+        err = math.hypot(ox - gx, oz - gz)
+        gt_len = sum(math.hypot(gt_all[i + 1][0] - gt_all[i][0],
+                                gt_all[i + 1][1] - gt_all[i][1])
+                     for i in range(len(gt_all) - 1))
+        rate = (err / gt_len * 100.0) if gt_len > 1e-6 else 0.0
+
+        vp.draw_trail(stage, "/World/ProbeB/GT", gt_all, vp.WHITE)
+        vp.draw_trail(stage, "/World/ProbeB/Odom", od_all, vp.YELLOW)
+        path = vp.write_report("probe_b_odom_drift", {
+            "robot": target, "gt_path_len_m": gt_len,
+            "final_error_m": err, "drift_rate_pct": rate,
+            "gt_end": [gx, gz], "odom_end": [ox, oz],
+        })
+        print(f"PROBE_B_RESULT gt_len={gt_len:.3f}m final_err={err:.3f}m "
+              f"drift={rate:.2f}% report={path.name}", flush=True)
+        if headless:
+            app.close()
+            return
+
     prev_sim = timeline.get_current_time()
     while app.is_running():
         app.update()
