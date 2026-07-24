@@ -31,6 +31,11 @@ LINEAR_ACCEL = 0.5
 LINEAR_DECEL = 0.8
 ANGULAR_ACCEL = 0.8
 ROBOT_SPAWN_Y = 0.06
+# probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
+# 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
+# 않으면 측정과 무관한 다른 코드 변경(예: 카메라 부착 루프의 app.update()
+# 횟수)이 우연히 settle 정도를 바꿔 결과가 재현 불가능해진다.
+PROBE_SETTLE_FRAMES = 120
 
 
 def _restart_with_isaac_python():
@@ -400,12 +405,46 @@ def main():
                 od_pts.append((odom[target].x, odom[target].z))
             return gt_pts, od_pts
 
+        # 측정 시작 직전에 정착(settle) 프레임 수를 명시적으로 통제한다.
+        # 드리프트는 초기 settle 정도에 매우 민감하다: 예전에는 카메라 부착
+        # 루프(--cameras=0 이어도 무조건 30프레임 app.update() 를 도는 코드,
+        # 이 함수 앞부분)가 우연히 로봇을 더 정착시켜 drift 19.65% -> 2.69%
+        # 로 결과가 7.3배 달라진 적이 있다. 측정과 무관한 코드 변경이 결과를
+        # 바꾸면 안 되므로, probe B 는 여기서 자체적으로 PROBE_SETTLE_FRAMES
+        # 만큼 0 twist 로 정착시킨 뒤에만 측정을 시작한다(결과는 버린다).
+        drive((0.0, 0.0, 0.0), PROBE_SETTLE_FRAMES)
+
         gt_all, od_all = [], []
-        for tw, steps in (((0.35, 0.0, 0.0), 420), ((0.0, 0.0, 0.0), 60),
-                          ((0.0, 0.35, 0.0), 420), ((0.0, 0.0, 0.0), 60)):
+        legs = []
+        gx0, gz0, _ = gt_pose_xz_yaw(art)
+        prev_gt = (gx0, gz0)
+        prev_od = (odom[target].x, odom[target].z)
+        for name, tw, steps in (
+            ("forward", (0.35, 0.0, 0.0), 420),
+            (None, (0.0, 0.0, 0.0), 60),
+            ("strafe", (0.0, 0.35, 0.0), 420),
+            (None, (0.0, 0.0, 0.0), 60),
+        ):
             g, o = drive(tw, steps)
             gt_all += g
             od_all += o
+            if name is not None and g:
+                leg_gt_len = sum(math.hypot(g[i + 1][0] - g[i][0],
+                                            g[i + 1][1] - g[i][1])
+                                 for i in range(len(g) - 1))
+                # leg 오차는 절대 종점 오차가 아니라 이 leg 동안 (GT - odom)
+                # 괴리가 "얼마나 변했는지" 로 잰다. 그래야 각 leg 가 이전
+                # leg 의 누적 오차에 오염되지 않고 독립적으로 의미를 갖는다.
+                disc_start = (prev_gt[0] - prev_od[0], prev_gt[1] - prev_od[1])
+                disc_end = (g[-1][0] - o[-1][0], g[-1][1] - o[-1][1])
+                leg_err = math.hypot(disc_end[0] - disc_start[0],
+                                     disc_end[1] - disc_start[1])
+                leg_rate = (leg_err / leg_gt_len * 100.0) if leg_gt_len > 1e-6 else 0.0
+                legs.append({"name": name, "gt_len_m": leg_gt_len,
+                             "err_m": leg_err, "drift_pct": leg_rate})
+            if g:
+                prev_gt = g[-1]
+                prev_od = o[-1]
 
         gx, gz = gt_all[-1]
         ox, oz = od_all[-1]
@@ -421,9 +460,11 @@ def main():
             "robot": target, "gt_path_len_m": gt_len,
             "final_error_m": err, "drift_rate_pct": rate,
             "gt_end": [gx, gz], "odom_end": [ox, oz],
+            "legs": legs,
         })
+        legs_str = " ".join(f"{l['name']}={l['drift_pct']:.2f}%" for l in legs)
         print(f"PROBE_B_RESULT gt_len={gt_len:.3f}m final_err={err:.3f}m "
-              f"drift={rate:.2f}% report={path.name}", flush=True)
+              f"drift={rate:.2f}% legs=[{legs_str}] report={path.name}", flush=True)
         if headless:
             app.close()
             return
