@@ -697,45 +697,63 @@ def find_side_camera(stage, robot_id, side="left"):
     raise RuntimeError(f"{robot_id}: {side} 측면 카메라 prim 을 찾지 못했습니다")
 
 
-def attach_camera_graph(robot_id, cam_path, role="front", width=640, height=480):
-    """C++ OmniGraph 로 image_raw + camera_info 를 발행한다.
+def attach_camera_graph(robot_id, cam_path, role="front", width=640, height=480,
+                         image_type="rgb"):
+    """C++ OmniGraph 로 이미지(+옵션 camera_info) 를 발행한다.
 
     Python rclpy 로 이미지를 퍼블리시하면 Isaac 루프가 죽는다(ARUCO_PLAN 전제).
     camera_info 는 ROS2CameraHelper 의 type 이 아니라 별도 ROS2CameraInfoHelper 노드다
     (DEBUG_LOG 2026-07-21). 노드 타입·속성명은 설치된 Isaac Sim 5.1
     (isaacsim.core.nodes / isaacsim.ros2.bridge 의 .ogn 문서)로 확인했다.
 
-    role 로 네임스페이스/그래프 경로를 분리해 같은 로봇의 전방·후방 카메라를
-    동시에(별개 토픽/그래프로) 발행할 수 있다(기본 "front").
+    role 로 네임스페이스/그래프 경로를 분리해 같은 로봇의 전방·후방·좌우측면
+    카메라를 동시에(별개 토픽/그래프로) 발행할 수 있다(기본 "front").
+
+    image_type: ROS2CameraHelper 의 ``inputs:type`` 토큰(Task R4 실측,
+    ``OgnROS2CameraHelper.ogn`` allowedTokens: rgb/depth/depth_pcl/
+    instance_segmentation/semantic_segmentation/bbox_2d_*):
+      - "rgb"(기본, 하위호환): 토픽 ``{ns}/image_raw``, ``sensor_msgs/Image``
+        encoding "rgb8". camera_info 노드도 같이 붙는다(``{ns}/camera_info``).
+      - "depth": 토픽 ``{ns}/depth``, ``sensor_msgs/Image`` encoding
+        **"32FC1"**(픽셀당 미터, float32 1채널) — Isaac 내부적으로
+        ``DistanceToImagePlane`` rendervar 를 그대로 이미지로 실어보낸다
+        (``isaacsim.ros2.bridge`` extension.py 176~189행 확인: depth writer 가
+        명시적으로 ``encoding="32FC1"`` 로 등록됨). camera_info 노드는 붙이지
+        않는다(축 감지는 내재파라미터가 필요 없다 — ROI-min 만 씀).
     """
     import omni.graph.core as og
     ns = f"/robot_{robot_id}/{role}"
+    topic_name = f"{ns}/depth" if image_type == "depth" else f"{ns}/image_raw"
+    nodes = [
+        ("tick", "omni.graph.action.OnPlaybackTick"),
+        ("render", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+        ("rgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+    ]
+    connects = [
+        ("tick.outputs:tick", "render.inputs:execIn"),
+        ("render.outputs:execOut", "rgb.inputs:execIn"),
+        ("render.outputs:renderProductPath", "rgb.inputs:renderProductPath"),
+    ]
+    values = [
+        ("render.inputs:cameraPrim", [cam_path]),
+        ("render.inputs:width", width),
+        ("render.inputs:height", height),
+        ("rgb.inputs:type", image_type),
+        ("rgb.inputs:topicName", topic_name),
+        ("rgb.inputs:frameId", f"robot_{robot_id}/{role}_cam"),
+    ]
+    if image_type != "depth":
+        nodes.append(("info", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"))
+        connects.append(("render.outputs:execOut", "info.inputs:execIn"))
+        connects.append(("render.outputs:renderProductPath", "info.inputs:renderProductPath"))
+        values.append(("info.inputs:topicName", f"{ns}/camera_info"))
+        values.append(("info.inputs:frameId", f"robot_{robot_id}/{role}_cam"))
     og.Controller.edit(
         {"graph_path": f"/Graphs/cam_{robot_id}_{role}", "evaluator_name": "push"},
         {
-            og.Controller.Keys.CREATE_NODES: [
-                ("tick", "omni.graph.action.OnPlaybackTick"),
-                ("render", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-                ("rgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-                ("info", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
-            ],
-            og.Controller.Keys.CONNECT: [
-                ("tick.outputs:tick", "render.inputs:execIn"),
-                ("render.outputs:execOut", "rgb.inputs:execIn"),
-                ("render.outputs:execOut", "info.inputs:execIn"),
-                ("render.outputs:renderProductPath", "rgb.inputs:renderProductPath"),
-                ("render.outputs:renderProductPath", "info.inputs:renderProductPath"),
-            ],
-            og.Controller.Keys.SET_VALUES: [
-                ("render.inputs:cameraPrim", [cam_path]),
-                ("render.inputs:width", width),
-                ("render.inputs:height", height),
-                ("rgb.inputs:type", "rgb"),
-                ("rgb.inputs:topicName", f"{ns}/image_raw"),
-                ("rgb.inputs:frameId", f"robot_{robot_id}/{role}_cam"),
-                ("info.inputs:topicName", f"{ns}/camera_info"),
-                ("info.inputs:frameId", f"robot_{robot_id}/{role}_cam"),
-            ],
+            og.Controller.Keys.CREATE_NODES: nodes,
+            og.Controller.Keys.CONNECT: connects,
+            og.Controller.Keys.SET_VALUES: values,
         },
     )
 
@@ -830,38 +848,57 @@ DEPTH_CAM_RES = (640, 480)
 DEPTH_ROI_FRAC = (0.30, 0.70, 0.48, 0.58)
 
 
-def depth_setup(stage, timeline, app, robot_id, side="left", cam_res=DEPTH_CAM_RES):
-    """측면 뎁스캠 render_product + distance_to_image_plane annotator 컨텍스트.
+def hide_side_cam_occluder(stage, app, cam_path):
+    """side 카메라 자기 오클루전(자기 하우징) 은닉 — depth_setup() 과 브리지
+    측면 뎁스 발행(--bridge, Task R4) 양쪽이 공유하는 헬퍼로 추출했다.
 
-    fuse_camera_setup 의 카메라 배선 부분(render_product 생성 -> annotator attach)만
-    떼어낸 구조다 — 마커/보정 없이 뎁스 스트림만 필요한 --probe=DEPTH(C2)와
-    이후 이식될 정지판단(C3)이 공용으로 쓴다.
+    이 에셋의 cam_side_<side>_link 밑에는 front 카메라와 마찬가지로 RSD455
+    물리 모델이 통째로 붙어있고, 그 RSD455/Visual 서브트리(Case_front/Glass/
+    Front_mask/camera_mask 등)가 카메라 prim 바로 앞 0~0.04m 거리에 있다
+    (diag_side_cam2.py 오프라인 실측, taskC2fix-report.md 참고). 이걸 숨기지
+    않으면 x 위치·트럭 유무와 무관하게 ROI 최소뎁스가 항상 자기 하우징까지의
+    고정거리(~0.1725m)로 눌러붙는다(n_troughs=0, 트럭을 전혀 못 봄).
 
-    자기 오클루전 수정(taskC2fix 실측으로 발견): 이 에셋의 cam_side_<side>_link 밑에는
-    front 카메라와 마찬가지로 RSD455 물리 모델이 통째로 붙어있고, 그 RSD455/Visual
-    서브트리(Case_front/Glass/Front_mask/camera_mask 등)가 카메라 prim 바로 앞
-    0~0.04m 거리에 있다(diag_side_cam2.py 오프라인 실측, taskC2fix-report.md 참고).
-    p4_depth 의 depth_stop_lift_test_dual.py 가 front 카메라에 대해 이미 검증한 것과
-    똑같은 수정("cam_.../RSD455/Visual" 을 invisible)을 side 카메라에도 그대로
-    적용한다 — 수정 전에는 x 위치·트럭 유무와 무관하게 ROI 최소뎁스가 항상 자기
-    하우징까지의 고정거리(~0.1725m)로 눌러붙어(n_troughs=0) 트럭을 전혀 못 봤다.
+    카메라가 어느 파이프라인(omni.replicator annotator vs OmniGraph
+    ROS2CameraHelper)으로 읽히든 은닉 대상은 동일한 USD prim 가시성이라 한
+    번만 적용하면 양쪽 다 적용된다 — 같은 카메라에 두 파이프라인을 동시에
+    붙이지 않는 한(현재 어디서도 그렇게 하지 않음) 중복 호출은 안전(idempotent)
+    하다.
     """
-    import omni.replicator.core as rep
     from pxr import UsdGeom as _UsdGeom2
-    cam_path = find_side_camera(stage, robot_id, side)
     occluder_path = cam_path.rsplit("/", 1)[0] + "/RSD455/Visual"
     occluder = stage.GetPrimAtPath(occluder_path)
     if occluder.IsValid():
         _UsdGeom2.Imageable(occluder).CreateVisibilityAttr(_UsdGeom2.Tokens.invisible)
         for _ in range(3):
             app.update()
+    return bool(occluder.IsValid())
+
+
+def depth_setup(stage, timeline, app, robot_id, side="left", cam_res=DEPTH_CAM_RES):
+    """측면 뎁스캠 render_product + distance_to_image_plane annotator 컨텍스트.
+
+    fuse_camera_setup 의 카메라 배선 부분(render_product 생성 -> annotator attach)만
+    떼어낸 구조다 — 마커/보정 없이 뎁스 스트림만 필요한 --probe=DEPTH(C2)와
+    이후 이식된 정지판단(C3, 인프로세스)이 공용으로 쓴다. Task R4 의 ROS2
+    ``--bridge`` 측면 뎁스 발행은 이 함수를 쓰지 않는다(OmniGraph 경로가 자체
+    render_product 를 만든다 — 같은 카메라에 두 렌더프로덕트를 만드는 중복
+    비용을 피하려고 ``hide_side_cam_occluder()`` 만 재사용한다, 아래 --bridge
+    블록 참고).
+
+    자기 오클루전 수정은 ``hide_side_cam_occluder()`` 로 옮겼다(taskC2fix 실측
+    으로 발견, 위 docstring 참고) — 로직은 그대로다.
+    """
+    import omni.replicator.core as rep
+    cam_path = find_side_camera(stage, robot_id, side)
+    occluder_hidden = hide_side_cam_occluder(stage, app, cam_path)
     rp = rep.create.render_product(cam_path, cam_res)
     depth_annot = rep.AnnotatorRegistry.get_annotator("distance_to_image_plane")
     depth_annot.attach([rp])
     for _ in range(3):
         app.update()
     return {"cam_path": cam_path, "render_product": rp, "depth_annot": depth_annot,
-            "occluder_hidden": bool(occluder.IsValid())}
+            "occluder_hidden": occluder_hidden}
 
 
 def depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC):
@@ -3834,6 +3871,56 @@ def main():
                 print(f"BRIDGE_TELEPORT robot={_rid} d={_d} "
                       f"pose=({_gx:.3f},{_gz:.3f},{math.degrees(_gyaw):.1f})", flush=True)
 
+        # ---- Task R4 검증용(선택): 로봇을 트럭 진입선(--probe=DEPTH 와 동일
+        # 배치)으로 재배치 ----
+        # axle_detector_node 스모크는 로봇이 트럭 아래를 완주하며 두 축을
+        # 지나가야 한다 — --bridge-marker-pose(위)는 도크 마커 접근선 배치라
+        # 용도가 다르다. --probe=DEPTH(1898행 부근)가 쓰는 것과 **완전히 동일한
+        # 계산**(트럭 4바퀴 world z 평균으로 중심선 정렬 + spawn_orn 을 180°
+        # 반전해 -X 를 보게)을 재사용한다(짐작 없이 --probe=DEPTH 실측 로직
+        # 그대로) — 기본 x=-4.5(트럭 밖, 진입 여유), z=z_center_truck(실측
+        # 중심선). --bridge-depth-pose=<robot_id>[:<x>] 로 지정하면 그 로봇만
+        # 재배치한다(x 생략 시 -4.5 — 하위호환). x 를 명시하면 임의의 x 로 바로
+        # 배치할 수 있다 — Task R4 리프트 스모크가 이걸 재사용해 로봇을 실측
+        # 축 중심(예: 후축 -6.569)에 직접 놓고 ControlLift 를 시험한다(전체
+        # 안무(R5) 없이도 "그 자리에 있으면 리프트가 되는지"만 독립적으로
+        # 검증하기 위함).
+        for a in sys.argv[1:]:
+            if a.startswith("--bridge-depth-pose="):
+                _spec = a.split("=", 1)[1]
+                if ":" in _spec:
+                    _rid, _xstr = _spec.split(":", 1)
+                    _x_start = float(_xstr)
+                else:
+                    _rid, _x_start = _spec, -4.5
+                if _rid not in arts:
+                    raise SystemExit(f"--bridge-depth-pose: 알 수 없는 로봇 {_rid!r}")
+                _art = arts[_rid]
+                from pxr import UsdGeom as _UsdGeomDepth
+                _tc = timeline.get_current_time()
+
+                def _wheel_world_z(name):
+                    return float(_UsdGeomDepth.Xformable(stage.GetPrimAtPath(
+                        f"{HANDOFF_VEHICLE_ROOT}/{name}")).ComputeLocalToWorldTransform(_tc)
+                        .ExtractTranslation()[2])
+
+                _front_cz = 0.5 * (_wheel_world_z("FrontLeftWheel") + _wheel_world_z("FrontRightWheel"))
+                _rear_cz = 0.5 * (_wheel_world_z("RearLeftWheel") + _wheel_world_z("RearRightWheel"))
+                _z_center_truck = 0.5 * (_front_cz + _rear_cz)
+                _, _spawn_orn2 = _art.get_world_poses()
+                _spawn_orn2 = np.asarray(_spawn_orn2).reshape(-1)[:4].copy()
+                _half = math.radians(180.0) * 0.5
+                _qy = np.array([math.cos(_half), 0.0, math.sin(_half), 0.0])
+                _face_neg_x = _quat_mul(_spawn_orn2, _qy)
+                _art.set_world_poses(np.array([[_x_start, ROBOT_SPAWN_Y, _z_center_truck]]),
+                                     np.array([_face_neg_x]))
+                for _ in range(30):
+                    app.update()
+                _gx, _gz, _gyaw = gt_pose_xz_yaw(_art)
+                odom[_rid] = WheelOdometry(x=_gx, z=_gz, yaw=_gyaw)
+                print(f"BRIDGE_DEPTH_TELEPORT robot={_rid} z_center_truck={_z_center_truck:.4f} "
+                      f"pose=({_gx:.3f},{_gz:.3f},{math.degrees(_gyaw):.1f})", flush=True)
+
         # ---- R3c gap2-1: 전방카메라 발행(marker_localizer_node 용) ----
         # attach_camera_graph(700행)는 OmniGraph 로 image_raw+camera_info 를 낸다
         # (순수 rclpy 이미지 발행은 Isaac 루프를 죽인다, 그 함수 docstring 참고).
@@ -3889,6 +3976,39 @@ def main():
         cam_topics = [f"/robot_{r}/front/image_raw" for r in cam_robots_bridge]
         print(f"BRIDGE_CAMERAS robots={cam_robots_bridge} cam_h=0.15 "
               f"topics={cam_topics}", flush=True)
+
+        # ---- Task R4 Deliverable 1: 측면 뎁스캠 발행(axle_detector_node 용) ----
+        # attach_camera_graph(위, image_type 인자 추가됨)를 image_type="depth" 로
+        # 호출 — OmniGraph ROS2CameraHelper 의 depth 토큰이 DistanceToImagePlane
+        # rendervar 를 그대로 sensor_msgs/Image(encoding "32FC1", 픽셀당 미터)로
+        # 낸다(isaacsim.ros2.bridge extension.py 176-189행 실측 확인). 순수
+        # rclpy 발행 금지 원칙(위 attach_camera_graph docstring)은 depth 도 동일 —
+        # 그래서 OmniGraph 로 낸다(러너 코멘트가 명시한 대로: 파이썬에서 직접
+        # 발행하면 Isaac 루프가 죽는다).
+        #
+        # cam_robots_bridge(위, --bridge-cameras 로 조절되는 로봇 목록)를 그대로
+        # 재사용한다 — "브리지는 자신이 다루는 로봇(들)의 카메라를 낸다"는 기존
+        # 관례를 전방캠과 동일하게 측면 뎁스캠에도 적용(지시사항: "Add the two
+        # side cameras to what --bridge attaches" — 별도 플래그를 새로 만들지
+        # 않고 기존 선택 플래그에 얹었다).
+        #
+        # 카메라 지상고는 건드리지 않는다(원 마운트 0.16m 그대로 — taskC2fix
+        # 실측: depth_setup()/--probe=DEPTH 도 측면캠 높이를 보정한 적이 없다,
+        # 전방캠만 마커 로컬라이저 T_base_cam 정합을 위해 0.15m 로 올린다).
+        # 자기 오클루전(자기 하우징) 은닉은 hide_side_cam_occluder() 로 공유
+        # (depth_setup() 이 쓰던 것과 동일 로직, taskC2fix-report.md 근거).
+        for r in cam_robots_bridge:
+            for side in ("left", "right"):
+                side_cam_path = find_side_camera(stage, r, side=side)
+                hide_side_cam_occluder(stage, app, side_cam_path)
+                attach_camera_graph(r, side_cam_path, role=side, image_type="depth")
+        if cam_robots_bridge:
+            for _ in range(30):
+                app.update()
+        depth_topics = [f"/robot_{r}/{side}/depth"
+                         for r in cam_robots_bridge for side in ("left", "right")]
+        print(f"BRIDGE_DEPTH_CAMERAS robots={cam_robots_bridge} "
+              f"topics={depth_topics}", flush=True)
 
         joint_pub = {r: ros_node.create_publisher(JointState, f"/robot_{r}/joint_states", 10)
                      for r in arts}
@@ -3961,8 +4081,23 @@ def main():
                 return tgt
             return cur + math.copysign(max_delta, d)
 
+        # ---- Task R4 검증용: 트럭 리프트 GT(콘솔 전용, 제어 입력 아님) ----
+        # lift_action_server(ControlLift)가 실제로 트럭을 들어올리는지 사람이
+        # 육안으로(로그로) 확인할 방법이 브리지엔 없었다(로봇 GT 만 찍었음,
+        # 트럭 Y 는 어디에도 없음) — R3/미션 코드의 리프트 판정 로직(3556-3585행
+        # 부근, HANDOFF_VEHICLE_WHEELS 4휠 world y 평균)과 동일한 계산을 재사용해
+        # 콘솔에만 찍는다(제어 경로에는 절대 안 넣는다 — 기존 GT 원칙 그대로).
+        from pxr import UsdGeom as _UsdGeomLift
+
+        def _wheel_y(name):
+            return float(_UsdGeomLift.Xformable(stage.GetPrimAtPath(
+                f"{HANDOFF_VEHICLE_ROOT}/{name}")).ComputeLocalToWorldTransform(
+                timeline.get_current_time()).ExtractTranslation()[1])
+
+        _truck_y0 = sum(_wheel_y(wn) for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
+
         print(f"BRIDGE_READY robots={list(arts)} domain={os.environ.get('ROS_DOMAIN_ID', '0')} "
-              f"odom_mode={odom_mode}", flush=True)
+              f"odom_mode={odom_mode} truck_y0={_truck_y0:.4f}", flush=True)
         prev_sim = timeline.get_current_time()
         last_heartbeat = prev_sim
         while app.is_running():
@@ -3999,8 +4134,11 @@ def main():
                     for r, (x, z, yaw) in ((r, gt_pose_xz_yaw(arts[r])) for r in arts))
                 cmd_str = " ".join(f"{r}=({vx:.2f},{vy:.2f},{wz:.2f})"
                                    for r, (vx, vy, wz) in target_twist.items())
+                _truck_y = sum(_wheel_y(wn) for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
                 print(f"BRIDGE_ALIVE t={now_sim:.1f} robots={len(arts)} "
-                      f"cmd=[{cmd_str}] gt=[{gt_str}]", flush=True)
+                      f"cmd=[{cmd_str}] gt=[{gt_str}] "
+                      f"truck_y={_truck_y:.4f} truck_rise={_truck_y - _truck_y0:.4f}",
+                      flush=True)
         app.close()
         return
 

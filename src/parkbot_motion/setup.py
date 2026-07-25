@@ -15,7 +15,11 @@ setup(
     zip_safe=True,
     maintainer='rokey',
     maintainer_email='tmdwodl12@gmail.com',
-    description='주행 제어·기구학 순수 로직 라이브러리 (body_twist_toward, 메카넘 기구학, 휠오도, 축/뎁스 감지) — 아직 노드 없음, R1 이관',
+    description=(
+        '주행 제어·기구학 순수 로직 라이브러리 (body_twist_toward, 메카넘 기구학, 휠오도, '
+        '축/뎁스 감지) + pose_controller_node(R3, NavigateToPose) + '
+        'axle_detector_node(R4, 측면 뎁스->축중심) + lift_action_server(R4, ControlLift)'
+    ),
     license='Apache-2.0',
     extras_require={
         'test': [
@@ -25,6 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'pose_controller_node = parkbot_motion.pose_controller_node:main',
+            'axle_detector_node = parkbot_motion.axle_detector_node:main',
+            'lift_action_server = parkbot_motion.lift_action_server:main',
         ],
     },
 )

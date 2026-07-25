@@ -3,7 +3,7 @@
 <package format="3">
   <name>parkbot_motion</name>
   <version>0.1.0</version>
-  <description>주행 제어·기구학 순수 로직 라이브러리 (body_twist_toward, 메카넘 기구학, 휠오도, 축/뎁스 감지) + pose_controller_node(R3b: NavigateToPose 액션 서버)</description>
+  <description>주행 제어·기구학 순수 로직 라이브러리 (body_twist_toward, 메카넘 기구학, 휠오도, 축/뎁스 감지) + pose_controller_node(R3b: NavigateToPose 액션 서버) + axle_detector_node/lift_action_server(R4)</description>
   <maintainer email="tmdwodl12@gmail.com">rokey</maintainer>
   <license>Apache-2.0</license>
 
@@ -11,6 +11,9 @@
   <depend>nav2_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>parking_robot_interfaces</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
