@@ -77,7 +77,43 @@ ANGULAR_ACCEL = 0.8
 #    주의: 이 창은 매우 좁다 — 여전히 "물리 상수"가 아니라 90°·180° 둘을 함께 만족하는
 #    폐루프 경험값이며, 검증되지 않은 다른 각도(예: 45°/135°)로 그대로 확장된다는
 #    보장은 없다(그 경우 이 두 probe 로 재검증 없이 이 상수에 의존하지 말 것).
-YAW_ODOM_SCALE = 1.12
+# 5) taskBYAW(2026-07-25): 위 1.12 는 애초에 "결함이 있는 회전 기구학"을 폐루프
+#    안에서 억지로 상쇄하던 보정값이었다 — 근본 원인은 이 파일이 아니라
+#    mecanum_drive.py 의 SIGN_YAW/YAW_SCALE 이었다: cmd_vel_from_wheel_velocities 는
+#    IK 의 정확한 최소자승 역이라 오도가 "명령된" 회전율을 그대로 돌려주는데, 그
+#    IK(SIGN_YAW=+1.0, YAW_SCALE=1.12)가 명령하는 물리적 회전은 실측(--probe=YAWSTEP,
+#    고정 지속시간 열린루프, mecanum_drive.py 주석 참조) 결과 명령의 ~2.5~2.95배·반대
+#    방향이었다(90도 명령이 물리적으로 ~-263도 — 사용자가 GUI 로 본 "270도 반대방향"과
+#    일치). 이 YAW_ODOM_SCALE=1.12 는 3)/4)에서 폐루프 스윕으로 찾은 값인데, 우연히
+#    "90도·180도 두 각도에서만" 그 3배 결함을 부분적으로 가리는 방향으로 작동했을 뿐
+#    45도 같은 다른 각도에서는 그대로 파탄났을 것이다(끝점이 mod 360 으로 우연히
+#    맞아떨어지는 것과 같은 종류의 함정). mecanum_drive.py 에서 SIGN_YAW/YAW_SCALE 을
+#    실측대로 재보정한 뒤에는 cmd_vel_from_wheel_velocities(IK 의 정확한 역)가 훨씬
+#    더 물리와 잘 맞는다(부호·자릿수 모두 정상화) — 그러나 완전히 1:1 은 아니다.
+#    브리프 원안은 여기서 YAW_ODOM_SCALE=1.0(무보정)을 지시했지만, **실측으로
+#    검증한 결과 1.0 은 틀렸다**: --probe=ROTCHK(90도)가 gt_err_deg=20.46°(목표 ≤4°
+#    한참 초과, steps=2000=max_steps 소진 — 수렴 못 함)를 냈고, 결정적으로
+#    --mission=B 가 2/2 회 모두 ok=False 로 실패했다(entry_follow 가 마커를 단 한
+#    번도 못 잡음: n_fix=0, err_pos_gt 0.57~0.64m — "몇 cm" 목표의 20배 이상, 도크
+#    체크·XN정렬 안무 전체가 카메라 시야 밖으로 새 나간 것으로 보인다). 원인:
+#    cmd_vel_from_wheel_velocities 가 복원하는 값은 "명령된(=휠이 미끄러지지 않았다고
+#    가정한) 회전율"이지 물리적 GT 회전율이 아니다 — SIGN_YAW/YAW_SCALE 을 고쳐도
+#    롤러-지면 슬립 자체는 여전히 존재해서(YAW_SCALE 정의부 주석 참조, "roller-slip
+#    dominated") 명령 대비 물리는 여전히 소폭(실측 +13~+20%) 더 돈다. 그래서
+#    YAW_ODOM_SCALE 을 1.0 이 아니라, **같은 --probe=YAWSTEP 실측치의
+#    k_gt_over_odom 평균**(1.1953, 1.1885, 1.1332, 1.1538 → avg=1.1677 — cmd 기준이
+#    아니라 odom 기준 비율이라는 점에 주의, mecanum_drive.py 주석의 k_gt_over_cmd
+#    와는 다른 숫자다)으로 설정한다. 이 값은 3)/4)의 1.12 처럼 폐루프를 직접
+#    스윕해서 끼워맞춘 게 아니라, mecanum_drive.py 수정과 동일한 열린루프 실측
+#    데이터에서 그대로 가져온 값이다 — 재검증: ROTCHK 5.45°(20.46->), ROTCHK180
+#    10.94°(42.57->, 참고: 180도는 시작점에서 정확히 반대편이라 +180/-180 둘 다
+#    "정답" 경로라 스윕각 부호 자체는 진단적 의미가 적다), ROTCHK45 1.93°(목표
+#    이내), --mission=B 2/2 ok=True(entry_lead err_pos_gt 0.15m, entry_follow
+#    0.01m, n_fix 234/238 — 실측치는 taskBYAW-report.md 참조). 상수 자체는 지우지
+#    않고 남겨둔다: 이 보정 지점(seam)이 앞으로도 남아있어야, 만약 다른 원인(예: 새
+#    로봇 에셋)으로 오도-물리 불일치가 다시 생기면 같은 자리에서 --probe=YAWSTEP/
+#    ROTCHK/ROTCHK180/ROTCHK45 로 재보정할 수 있다.
+YAW_ODOM_SCALE = 1.1677
 ROBOT_SPAWN_Y = 0.06
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
@@ -611,6 +647,13 @@ def main():
         n_fix = 0                # 이 세그먼트(이 호출)에서 성공한 마커 fix 횟수(정지-후 보정 포함).
         stopping = False        # done 판정 이후 래치: 이후 잔차가 tol 밖으로 흔들려도 계속 정지시킨다.
         settle_poses = []       # settle 창(정지 후 보정)에서 매 프레임 관측한 filt.pose() 표본(Item3).
+        # taskBYAW: 끝점(도달 여부)만으로는 90도 명령이 실제로 -270도를 돌고도 mod 360
+        # 으로 우연히 맞아떨어지는 결함을 못 잡는다(회귀 원인 그 자체). 그래서 경로
+        # 자체를 계측한다 — 매 스텝 GT yaw 의 wrap180 델타를 누적(unwrap)해 이 호출이
+        # 실제로 "쓸고 지나간" 총 회전각을 별도로 남긴다(제어에는 쓰지 않음, 리포팅
+        # 전용 — gt_pose_xz_yaw 와 같은 용도).
+        swept_gt_deg = 0.0
+        _, _, _swept_prev = gt_pose_xz_yaw(art)
         for _ in range(max_steps):
             app.update()
             steps += 1
@@ -626,6 +669,19 @@ def main():
             wv = {w: float(vel[i]) for w, i in idx.items()}
             pvx, pvy, pwz = cmd_vel_from_wheel_velocities(wv)
             filt.predict_body(pvx, pvy, pwz * YAW_ODOM_SCALE, dt)
+
+            # ---- 계측: 실제 스윕 각(GT, unwrap 누적) — 리포팅 전용, 제어에 안 씀 ----
+            _, _, _swept_now = gt_pose_xz_yaw(art)
+            _swept_dyaw = (_swept_now - _swept_prev + math.pi) % (2.0 * math.pi) - math.pi
+            if abs(_swept_dyaw) > math.radians(5.0):
+                # 물리적으로 한 스텝(120Hz)에 5도 이상 도는 것은 이 로봇의 최대
+                # 각속도(~0.6rad/s≈0.005rad/step)로 불가능하다 — atan2 분기 근처
+                # 샘플링 아티팩트나 실제 이상 거동을 놓치지 않기 위한 안전장치.
+                print(f"SWEPT_JUMP_WARN step={steps} dyaw_deg={math.degrees(_swept_dyaw):.2f} "
+                      f"raw_prev={math.degrees(_swept_prev):.2f} raw_now={math.degrees(_swept_now):.2f}",
+                      flush=True)
+            swept_gt_deg += math.degrees(_swept_dyaw)
+            _swept_prev = _swept_now
 
             # ---- 보정: 마커 검출 시 fix ----
             pose = detect_current(ctx)
@@ -719,7 +775,8 @@ def main():
         else:
             err_pos_gt, err_yaw_gt = float("nan"), float("nan")
         return {"reached": reached, "steps": steps, "err_pos_gt": err_pos_gt,
-                "err_yaw_gt": err_yaw_gt, "final_filt": fp, "n_fix": n_fix}
+                "err_yaw_gt": err_yaw_gt, "final_filt": fp, "n_fix": n_fix,
+                "swept_gt_deg": swept_gt_deg}
 
     def rotate_in_place(ctx, art, idx, filt, T_base_cam, target_yaw_deg, **kwargs):
         """제자리 회전: 위치는 현재 융합 x,z 그대로 두고 yaw 만 target_yaw_deg 로."""
@@ -1492,11 +1549,97 @@ def main():
             app.update()
         app.close(); return
 
-    if probe in ("ROTCHK", "ROTCHK180"):
+    if probe == "YAWSTEP":
+        # taskBYAW: 회전 기구학(mecanum_drive.SIGN_YAW/YAW_SCALE) 재보정을 위한 열린루프
+        # 실측. YAWCAL(위)은 "|ΔGT|>=90도"에서 조기 종료하는데, 90도/180도는 mod 360
+        # 에서 각각 -270도/±180도와 구별이 안 돼(-270≡+90, -180≡+180) 결함의 크기·부호를
+        # 오독하기 쉽다(끝점만 보면 우연히 맞아 보임 — 사용자가 GUI 로 실제로 본 "90도
+        # 명령에 270도 반대방향 회전"이 그 사례). 그래서 여기서는 대신 "고정 지속시간·
+        # 매 스텝 wrap180 누적(unwrap)"으로 잰다 — 총 회전량이 커도 랩 모호성 자체가
+        # 없다(설계상, 스텝당 각변화가 180도를 넘지 않는 한). 명령은 slew_twist 없이
+        # 매 스텝 (0,0,wz_cmd)의 휠 각속도를 그대로 재발행한다 — YAWCAL 코드의 "즉시
+        # 스텝은 과도응답을 유발한다"는 우려와 무관하게, 이 probe 의 목적은 바로 그
+        # "실제 물리가 명령과 얼마나/어느 방향으로 다른가"를 있는 그대로 재는 것이다
+        # (브리프 지시, taskBYAW-report.md 참조).
+        from mecanum_drive import (wheel_velocities_from_cmd_vel,
+                                   cmd_vel_from_wheel_velocities)
+
+        target = "entry_lead"
+        art = arts[target]
+        idx = wheel_idx[target]
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+        dur_s = 1.0   # 고정 지속시간(브리프 권장 1.0~1.5s). wz<=0.6 이면 3x 배율을
+                      # 가정해도 물리 회전량이 <=~2.5*wz*dur*180/pi 로, wz=0.6 에서
+                      # 최악 ~124도 -- 180도 근방(랩 경계)에 닿지 않아 안전하다.
+
+        def _settle(n=30):
+            vel_buf[...] = 0.0
+            art.set_joint_velocity_targets(vel_buf)
+            for _ in range(n):
+                app.update()
+
+        def _yaw_step(wz_cmd, dur_s):
+            omegas = wheel_velocities_from_cmd_vel(0.0, 0.0, wz_cmd)
+            for w, om in omegas.items():
+                vel_buf[idx[w]] = om
+            gx0, gz0, gyaw_prev = gt_pose_xz_yaw(art)
+            t0 = timeline.get_current_time()
+            prev = t0
+            gt_deg = 0.0
+            odom_deg = 0.0
+            steps = 0
+            while (timeline.get_current_time() - t0) < dur_s:
+                art.set_joint_velocity_targets(vel_buf)   # 매 스텝 재발행(slew 없음)
+                app.update()
+                steps += 1
+                now = timeline.get_current_time()
+                dt = min(0.1, max(0.0, now - prev)); prev = now
+
+                vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+                wv = {w: float(vel[i]) for w, i in idx.items()}
+                _, _, odom_wz = cmd_vel_from_wheel_velocities(wv)
+                odom_deg += math.degrees(odom_wz * dt)
+
+                _, _, gyaw = gt_pose_xz_yaw(art)
+                dyaw = (gyaw - gyaw_prev + math.pi) % (2.0 * math.pi) - math.pi
+                gt_deg += math.degrees(dyaw)
+                gyaw_prev = gyaw
+
+            gx1, gz1, _ = gt_pose_xz_yaw(art)
+            drift_m = math.hypot(gx1 - gx0, gz1 - gz0)
+            _settle()
+            return gt_deg, odom_deg, steps, drift_m
+
+        ks = []
+        for wz_cmd in (0.3, -0.3, 0.6, -0.6):
+            gt_deg, odom_deg, steps, drift_m = _yaw_step(wz_cmd, dur_s)
+            cmd_deg = math.degrees(wz_cmd * dur_s)
+            k_cmd = gt_deg / cmd_deg if abs(cmd_deg) > 1e-9 else float("nan")
+            k_odom = gt_deg / odom_deg if abs(odom_deg) > 1e-9 else float("nan")
+            ks.append(k_cmd)
+            print(f"YAWSTEP wz_cmd={wz_cmd:+.2f} dur_s={dur_s:.2f} "
+                  f"cmd_deg={cmd_deg:.2f} odom_deg={odom_deg:.2f} gt_deg={gt_deg:.2f} "
+                  f"k_gt_over_cmd={k_cmd:.4f} k_gt_over_odom={k_odom:.4f} "
+                  f"steps={steps} drift_m={drift_m:.3f}", flush=True)
+
+        avg_k = sum(ks) / len(ks)
+        spread_pct = ((max(ks) - min(ks)) / avg_k * 100.0) if avg_k else float("nan")
+        same_sign = all((k > 0) == (avg_k > 0) for k in ks)
+        print(f"YAWSTEP_SUMMARY avg_k={avg_k:.4f} spread_pct={spread_pct:.2f} "
+              f"same_sign={same_sign}", flush=True)
+
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe in ("ROTCHK", "ROTCHK180", "ROTCHK45"):
         # 폐루프 회전 검증(YAW_ODOM_SCALE 적용 후 gt_err_deg 가 줄어드는지 확인).
         # entry_lead 를 스폰 도크의 GT 자세로 filt 를 시딩하고(스폰 직후라 GT ==
         # 도크 실좌표 — MISSIONB_ROT 이 쓰는 read_markers 도크좌표 시딩과 동치)
-        # rotate_in_place 로 목표각만큼 튼다. 로직은 두 probe 가 완전히 동일하고
+        # rotate_in_place 로 목표각만큼 튼다. 로직은 세 probe 가 완전히 동일하고
         # target_yaw/출력 라벨만 다르다(중복 방지를 위해 한 분기로 합침):
         #   ROTCHK   : 90도(spawn yaw≈90 -> target 0, a869b49/MISSIONB_ROT 과 동일
         #              지오메트리 — 그때 err_yaw_gt≈31.39 실측, 목표는 ≤~4°).
@@ -1507,8 +1650,16 @@ def main():
         #              12.61°, 목표 ~4°의 3배 초과) — 그래서 90도·180도를 동시에 만족하는
         #              값을 다시 스윕해 1.12 로 교체했다(전체 스윕 수치·판단 근거는 위
         #              YAW_ODOM_SCALE 정의부 주석 4) 및 taskBharden-report.md 참조). 이제
-        #              이 두 probe 는 그 상수(현재 1.12)가 두 각도 모두에서 계속 ≤~4°를
-        #              유지하는지 확인하는 회귀 검증용이다.
+        #              이 두 probe 는 그 상수가 두 각도 모두에서 계속 ≤~4°를 유지하는지
+        #              확인하는 회귀 검증용이다.
+        #   ROTCHK45 : 45도(spawn yaw≈90 -> target 45). taskBYAW(2026-07-25) 추가 —
+        #              90도·180도는 mod 360 에서 각각 -270도/±180도와 endpoint 가
+        #              구별 안 돼(-270≡+90, -540≡+180) YAW_ODOM_SCALE=1.12 라는 순수
+        #              폐루프 경험값(위 3)/4) 참조, "물리 상수 아님, 일반화 검증 안 됨"
+        #              이라고 그 자신이 경고했다)으로도 우연히 통과했다. mecanum_drive.py
+        #              의 회전 기구학 자체를 --probe=YAWSTEP 실측대로 재보정한 뒤에는
+        #              YAW_ODOM_SCALE=1.0(무보정)이어도 45도 같은 "mod 360 으로 가려지지
+        #              않는" 각도가 맞아야 진짜 고쳐진 것이다 — 그 회귀 방지용 probe.
         #
         # drive_to_pose 는 매 스텝 detect_current(ctx) 를 호출하므로(크래시 방지) 진짜
         # 카메라 ctx(fuse_camera_setup)를 만들되 ref_id 를 존재하지 않는 값으로 바꿔
@@ -1530,7 +1681,7 @@ def main():
         filt = PoseFilter(pos_gain=0.5, yaw_gain=0.9)
         filt.set_pose(gx0, gz0, math.degrees(gyaw0))
 
-        target_yaw = 0.0 if probe == "ROTCHK" else -90.0
+        target_yaw = {"ROTCHK": 0.0, "ROTCHK180": -90.0, "ROTCHK45": 45.0}[probe]
         rot_res = rotate_in_place(ctx, art, idx, filt, None, target_yaw)
         fp = filt.pose()
         gx, gz, gyaw = gt_pose_xz_yaw(art)
@@ -1554,7 +1705,8 @@ def main():
               f"gt_yaw={gt_yaw_deg:.2f} gt_err_deg={gt_err_deg:.2f} "
               f"reached={rot_res['reached']} steps={rot_res['steps']} "
               f"n_fix={rot_res['n_fix']} seed_yaw={seed_yaw_deg:.2f} "
-              f"d_filt_deg={d_filt:.2f} d_gt_deg={d_gt:.2f} implied_scale={implied_scale:.4f}",
+              f"d_filt_deg={d_filt:.2f} d_gt_deg={d_gt:.2f} implied_scale={implied_scale:.4f} "
+              f"swept_gt_deg={rot_res['swept_gt_deg']:.2f}",
               flush=True)
 
         if headless:

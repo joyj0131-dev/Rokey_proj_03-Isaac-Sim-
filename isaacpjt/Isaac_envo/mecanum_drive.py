@@ -46,14 +46,33 @@ ROLLER_MASS = 0.05
 R_MOUNT = WHEEL_RADIUS - ROLLER_RADIUS
 
 # --- cmd_vel -> wheel sign / scale calibration ------------------------------
-# Verified by mecanum_holonomic_test.py against the authored roller chirality.
+# vx/vy sign+scale verified by mecanum_holonomic_test.py (that file does not
+# exist in this repo any more, but vx/vy are separately confirmed good by the
+# mission's ~1cm position accuracy -- do not touch SIGN_FORWARD/SIGN_STRAFE).
 SIGN_FORWARD = +1.0
 SIGN_STRAFE = -1.0     # so +vy (robot left) drives the chassis toward +Y
-SIGN_YAW = +1.0
-# vx/vy map ~1:1. In-place yaw is roller-slip dominated (faster hub spin -> more
-# slip -> less realised yaw), so the yaw gain is fit empirically at the wz~0.5
-# operating point rather than from geometry. See mecanum_holonomic_test.py.
-YAW_SCALE = 1.12
+#
+# YAW re-measured 2026-07-25 (taskBYAW-report.md, --probe=YAWSTEP, fixed-duration
+# open-loop spins on hwia_4cam_mecha_roller_lowered.usd -- the asset actually in
+# use today, not the caster.usd the old YAW_SCALE=1.12/mecanum_holonomic_test.py
+# comment referred to). The previous SIGN_YAW=+1.0/YAW_SCALE=1.12 made
+# cmd_vel_from_wheel_velocities (the exact least-squares IK inverse) agree with
+# the *commanded* wz, but the robot's *physical* GT rotation was ~2.5-2.95x
+# larger and in the OPPOSITE direction across all four measured wz_cmd in
+# {+0.3,-0.3,+0.6,-0.6} (k_gt_over_cmd = -2.93, -2.95, -2.61, -2.49; avg=-2.745,
+# same sign / same order of magnitude in all 4 -- a single sign+scale
+# correction is valid). A commanded 90 deg turn was physically ~-263 deg
+# (matches the user's GUI observation of ~270 deg the wrong way); it only
+# "worked" for 90/180 deg targets because -270 == +90 and -540 == +180 (mod
+# 360) hide a 3x error that any other angle (e.g. 45 deg) would expose. Fix:
+# new SIGN_YAW*YAW_SCALE = old(+1.0*1.12) / avg_k = 1.12 / -2.745 = -0.4080, so
+# that a commanded wz now produces a physical wz (verified after the fix:
+# --probe=YAWSTEP k_gt_over_cmd ~= +1.0, --probe=ROTCHK/ROTCHK180/ROTCHK45
+# small gt_err_deg, see report). In-place yaw is still roller-slip dominated,
+# so this remains an empirical fit, not a geometric constant -- re-measure with
+# --probe=YAWSTEP if the wheel/roller asset changes again.
+SIGN_YAW = -1.0
+YAW_SCALE = 0.4080
 
 
 def _move_toward(current, target, max_delta):
