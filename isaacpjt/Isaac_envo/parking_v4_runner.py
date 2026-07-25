@@ -645,10 +645,25 @@ def fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front"):
 # 패턴을 그대로 따르되 annotator 이름만 "distance_to_image_plane" 으로 바꾼다 — p4_depth
 # 가 이미 검증한 이름을 그대로 재사용(짐작 아님).
 DEPTH_CAM_RES = (640, 480)
-# p4_depth 의 depth_stop_detector.DEFAULT_ROI_FRAC 을 그대로 재사용한다(taskC2-brief.md
-# 지시 — dual 러너 자체가 차종별 튜닝으로 쓴 DEPTH_ROI_FRAC=(0.44,0.56,0.44,0.56) 이
-# 아니라, detector 모듈의 범용 기본값). (col_lo, col_hi, row_lo, row_hi), 0~1 비율.
-DEPTH_ROI_FRAC = (0.30, 0.70, 0.50, 1.00)
+# p4_depth 의 depth_stop_detector.DEFAULT_ROI_FRAC=(0.30,0.70,0.50,1.00) 을 처음에는
+# 그대로 재사용했으나(taskC2fix-brief.md 지시), 이 로봇 에셋에서는 실측(diag 스크립트,
+# raw 프레임 행별 min 덤프, taskC2fix-report.md 참고)으로 그 ROI 가 구조적으로 못
+# 쓴다는 게 확인됐다: 이 카메라는 수직 FOV 가 65°(vaper/focal 실측)로 넓고 지상
+# 0.16m 높이에 달려 있어, row_hi=1.00(프레임 맨 아래, 최대 하향각)까지 내려가면
+# 트럭과 무관하게 "항상" 바닥을 근거리에서 본다 — x 를 -4.5(트럭 밖)에 둔 채로도
+# 맨 아래 행이 이미 0.172m 로 고정돼(행별 덤프: row=240(수평)=3.033m(먼 배경) ->
+# row=264(0.55)=1.684 -> row=360(0.75)=0.342 -> row=479(1.00)=0.172, 매끄러운
+# 바닥-교차 기하와 정확히 일치) 실제 바퀴 근접거리(로봇이 중앙정렬 상태일 때
+# ≈0.25~0.6m)보다 항상 더 가까워 min() 을 완전히 집어삼킨다 — 그래서 첫 실행에서
+# 트럭을 끝까지 무사고로 통과했는데도 n_troughs_left=n_troughs_right=0 이 나왔다
+# (자기 오클루전이 원인이라는 첫 가설은 RSD455/Visual 을 숨겨도 값이 그대로여서
+# 실측으로 기각했다 — depth_setup() 의 occluder-hide 는 p4_depth 검증 관례를 따라
+# 남겨두지만 이 문제의 원인은 아니었다). 카메라 높이(0.16m)가 바퀴 높이범위
+# (0~0.846m) 안에 있으므로 수평에 가까운 광선만으로도(하향각 불필요) 바퀴 옆면과
+# 바로 교차한다 — row_hi 를 바닥이 안 잡히는 범위로 좁힌다(0.58: 행별 덤프 보간상
+# 바닥의 최악값이 ≈1.0m 로 바퀴 근접거리보다 한참 멀어 안전). col 범위는 원래
+# 참조값을 그대로 둔다(바닥 문제와 무관). (col_lo, col_hi, row_lo, row_hi), 0~1 비율.
+DEPTH_ROI_FRAC = (0.30, 0.70, 0.48, 0.58)
 
 
 def depth_setup(stage, timeline, app, robot_id, side="left", cam_res=DEPTH_CAM_RES):
@@ -657,15 +672,32 @@ def depth_setup(stage, timeline, app, robot_id, side="left", cam_res=DEPTH_CAM_R
     fuse_camera_setup 의 카메라 배선 부분(render_product 생성 -> annotator attach)만
     떼어낸 구조다 — 마커/보정 없이 뎁스 스트림만 필요한 --probe=DEPTH(C2)와
     이후 이식될 정지판단(C3)이 공용으로 쓴다.
+
+    자기 오클루전 수정(taskC2fix 실측으로 발견): 이 에셋의 cam_side_<side>_link 밑에는
+    front 카메라와 마찬가지로 RSD455 물리 모델이 통째로 붙어있고, 그 RSD455/Visual
+    서브트리(Case_front/Glass/Front_mask/camera_mask 등)가 카메라 prim 바로 앞
+    0~0.04m 거리에 있다(diag_side_cam2.py 오프라인 실측, taskC2fix-report.md 참고).
+    p4_depth 의 depth_stop_lift_test_dual.py 가 front 카메라에 대해 이미 검증한 것과
+    똑같은 수정("cam_.../RSD455/Visual" 을 invisible)을 side 카메라에도 그대로
+    적용한다 — 수정 전에는 x 위치·트럭 유무와 무관하게 ROI 최소뎁스가 항상 자기
+    하우징까지의 고정거리(~0.1725m)로 눌러붙어(n_troughs=0) 트럭을 전혀 못 봤다.
     """
     import omni.replicator.core as rep
+    from pxr import UsdGeom as _UsdGeom2
     cam_path = find_side_camera(stage, robot_id, side)
+    occluder_path = cam_path.rsplit("/", 1)[0] + "/RSD455/Visual"
+    occluder = stage.GetPrimAtPath(occluder_path)
+    if occluder.IsValid():
+        _UsdGeom2.Imageable(occluder).CreateVisibilityAttr(_UsdGeom2.Tokens.invisible)
+        for _ in range(3):
+            app.update()
     rp = rep.create.render_product(cam_path, cam_res)
     depth_annot = rep.AnnotatorRegistry.get_annotator("distance_to_image_plane")
     depth_annot.attach([rp])
     for _ in range(3):
         app.update()
-    return {"cam_path": cam_path, "render_product": rp, "depth_annot": depth_annot}
+    return {"cam_path": cam_path, "render_product": rp, "depth_annot": depth_annot,
+            "occluder_hidden": bool(occluder.IsValid())}
 
 
 def depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC):
@@ -1634,12 +1666,19 @@ def main():
         app.close(); return
 
     if probe == "DEPTH":
-        # Mission Phase C, Task C2: 측면 뎁스캠 파이프라인 증명. entry_follow 를
-        # 인계장 베이 진입선(+X 끝, 트럭 밖)에 -X 를 보게 놓고 트럭(Pickup, C1이 배치)
-        # 밑을 천천히 -X 로 통과시키며 매 프레임 ROI 최소뎁스를 찍는다. 검출 로직(C3)
-        # 은 아직 없다 — 여기서는 depth_setup/depth_roi_min 로 만든 스트림 자체가
-        # 바퀴를 지날 때 뚜렷한 트로프(하강->회복)를 두 번(후축, 전축) 보이는지만
-        # 실측으로 증명한다.
+        # Mission Phase C, Task C2(재작업): 양측 뎁스캠으로 실시간 중앙유지 + ROI
+        # 최소뎁스 스트림 증명. 이전 시도(a4ec68a)는 두 가지를 잘못 짚었다 —
+        # ① 측면캠이 "아래(-Y)"를 본다고 오판(브리프 MEASURED FACTS 실측: 실제로는
+        # 옆(±Z, 수평)을 본다), ② 그 오판을 상쇄하려고 로봇 중심선을 트럭의 "한쪽"
+        # 트레드 행(FrontLeftWheel/RearLeftWheel)에 맞춰 좌우 비대칭으로 정렬 —
+        # 그래서 트럭 휠 사이 좁은 통로(±0.165m 여유)를 벗어나 바퀴에 직접 부딪혀
+        # x≈-8 부근에서 9초 가까이 정체 + Z 좌표가 튀는 물리충돌이 났다. 여기서는
+        # 사용자가 재측정한 사실만 쓴다: 로봇을 트럭 중심선(네 바퀴 world z 평균 —
+        # 대칭 배치라면 HANDOFF_BAY_CENTER[1]과 같아야 하지만 실측해 증명한다,
+        # 짐작 금지)에 정렬하고, 좌우 뎁스캠을 "둘 다" 붙여 매 스텝 좌-우 ROI 최소뎁스
+        # 차이를 vy(strafe)로 없애 중앙을 실시간으로 유지한다(회전 없음 — 사용자 결정,
+        # 오도메트리 헤딩 오차에 강건하기 위함). 트로프 검출 로직(C3) 은 여기서 하지
+        # 않는다 — n_troughs_* 는 이 프로브의 실측 보고용 카운트일 뿐이다.
         target = "entry_follow"
         art = arts[target]
         idx = wheel_idx[target]
@@ -1649,81 +1688,97 @@ def main():
             if a.startswith("--depth-speed="):
                 speed = float(a.split("=", 1)[1])
 
-        # x_start: 베이 진입선. 트럭 후미 x = HANDOFF_BAY_CENTER[0] + 길이/2 =
-        # -8.5+5.829/2 = -5.586(brief 의 length=5.829). 로봇 전체가 트럭 밖에 서도록
-        # 1m 남짓 여유를 둔다. x_end: 양 축(후축≈-6.569, 전축≈-10.163)을 다 지나
-        # 전방 범퍼(x≈-11.415)까지 넘어서 두 번째 트로프의 "회복"까지 보이게 한다.
+        # x_start: 베이 진입선(트럭 밖, 후미 x≈-5.586 보다 1m 남짓 여유). x_end: 양 축
+        # (후축≈-6.569, 전축≈-10.163) 을 다 지나 전방 범퍼(x≈-11.415) 까지 넘어서
+        # 두 번째 트로프의 "회복"까지 보이게 한다.
         x_start = -4.5
         x_end = -11.8
 
         # 로봇을 -X 를 보게 180도 반전(REARXN 의 _yaw_quat(spawn_orn,180.0)과 동일
-        # 관례 — spawn yaw=0 은 +X 를 본다, "REAR" 확률 주석 "후방 카메라는 -X 를
-        # 보므로" 참고). detect_at_pose(320행)의 yaw_deg 회전과 같은 합성(_quat_mul).
+        # 관례 — spawn yaw=0 은 +X 를 본다). detect_at_pose 의 yaw_deg 회전과 같은
+        # 합성(_quat_mul).
         _, spawn_orn = art.get_world_poses()
         spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
         half = math.radians(180.0) * 0.5
         qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])
         face_neg_x = _quat_mul(spawn_orn, qy)
 
-        # z_bay 정렬: 실측(diag, taskC2-report.md) 결과 측면 뎁스캠은 URDF 설명과 달리
-        # "옆으로"가 아니라 로봇 중심선에서 좌/우로 ±0.39m 떨어진 지점에서 바로 아래
-        # (world -Y)를 본다 — 다운룩 카메라다. 그래서 로봇 중심선을 트럭 중심선(z=7.075)
-        # 에 맞추면 카메라는 항상 트럭 중심 부근의 빈 바닥만 보고(트럭 트레드 반폭
-        # ≈0.82m는 카메라 오프셋 0.39m보다 훨씬 커 바퀴가 시야 밖에 남는다), 실측
-        # 트로프 0개(n_troughs=0, baseline=0.1726 그대로 유지, 앞선 실행 로그 참고)로
-        # 확인됐다. 짐작 대신 두 값을 모두 "지금" 실측해 정렬한다: ① 트럭 좌측 휠(원본
-        # 진입 방향 기준 로봇 -X 진행 중 먼저 지나는 쪽이 아니라, 그냥 하나의 트레드 행)
-        # 의 실제 world z(FrontLeftWheel/RearLeftWheel 평균), ② LEFT 카메라의
-        # base_link 대비 z 오프셋(테스트 위치에 놓고 카메라 prim 의 world z 를 직접
-        # 읽어 뺀다). 두 값으로 z_bay = wheel_z - cam_offset_z 를 풀어 카메라가 그
-        # 휠의 궤적 바로 위를 지나가게 한다.
+        # 트럭 중심선 z: 네 바퀴 world z 의 평균(앞축 평균, 뒷축 평균 각각 구해 다시
+        # 평균) — 실측(짐작 금지). 대칭 배치라면 HANDOFF_BAY_CENTER[1](7.075)과
+        # 같아야 하지만, 두 값을 모두 찍어 실제로 같은지 증명한다.
         from pxr import UsdGeom as _UsdGeom
         _tc = timeline.get_current_time()
-        _wl = _UsdGeom.Xformable(stage.GetPrimAtPath(
-            f"{HANDOFF_VEHICLE_ROOT}/FrontLeftWheel")).ComputeLocalToWorldTransform(_tc).ExtractTranslation()
-        _wl2 = _UsdGeom.Xformable(stage.GetPrimAtPath(
-            f"{HANDOFF_VEHICLE_ROOT}/RearLeftWheel")).ComputeLocalToWorldTransform(_tc).ExtractTranslation()
-        wheel_row_z = 0.5 * (float(_wl[2]) + float(_wl2[2]))
 
-        art.set_world_poses(np.array([[x_start, ROBOT_SPAWN_Y, HANDOFF_BAY_CENTER[1]]]),
-                            np.array([face_neg_x]))
-        for _ in range(15):
-            app.update()
-        _cam_path_probe = find_side_camera(stage, target, "left")
-        _cam_z0 = _UsdGeom.Xformable(stage.GetPrimAtPath(_cam_path_probe)) \
-            .ComputeLocalToWorldTransform(timeline.get_current_time()).ExtractTranslation()[2]
-        cam_offset_z = float(_cam_z0) - HANDOFF_BAY_CENTER[1]
-        z_bay = wheel_row_z - cam_offset_z
-        print(f"DEPTH_PROBE_ALIGN wheel_row_z={wheel_row_z:.4f} cam_offset_z={cam_offset_z:.4f} "
-              f"z_bay={z_bay:.4f}", flush=True)
+        def _wheel_world_z(name):
+            return float(_UsdGeom.Xformable(stage.GetPrimAtPath(
+                f"{HANDOFF_VEHICLE_ROOT}/{name}")).ComputeLocalToWorldTransform(_tc)
+                .ExtractTranslation()[2])
 
-        art.set_world_poses(np.array([[x_start, ROBOT_SPAWN_Y, z_bay]]),
+        front_center_z = 0.5 * (_wheel_world_z("FrontLeftWheel") + _wheel_world_z("FrontRightWheel"))
+        rear_center_z = 0.5 * (_wheel_world_z("RearLeftWheel") + _wheel_world_z("RearRightWheel"))
+        z_center_truck = 0.5 * (front_center_z + rear_center_z)
+        print(f"DEPTH_PROBE_ALIGN front_center_z={front_center_z:.4f} "
+              f"rear_center_z={rear_center_z:.4f} z_center_truck={z_center_truck:.4f} "
+              f"bay_center_z={HANDOFF_BAY_CENTER[1]:.4f}", flush=True)
+
+        art.set_world_poses(np.array([[x_start, ROBOT_SPAWN_Y, z_center_truck]]),
                             np.array([face_neg_x]))
         for _ in range(30):
             app.update()
 
-        ctx = depth_setup(stage, timeline, app, target, side="left")
+        ctx_left = depth_setup(stage, timeline, app, target, side="left")
+        ctx_right = depth_setup(stage, timeline, app, target, side="right")
         for _ in range(10):
             app.update()
 
         gx0, gz0, gyaw0 = gt_pose_xz_yaw(art)
+        entry_z = gz0
         print(f"DEPTH_PROBE_START target={target} x0={gx0:.3f} z0={gz0:.3f} "
-              f"yaw0_deg={math.degrees(gyaw0):.1f} cam={ctx['cam_path']}", flush=True)
+              f"yaw0_deg={math.degrees(gyaw0):.1f} cam_left={ctx_left['cam_path']} "
+              f"cam_right={ctx_right['cam_path']}", flush=True)
+
+        # ---- 중앙유지 제어(사용자 결정): 좌-우 ROI 최소뎁스 차를 vy(strafe)로 없앤다.
+        # 부호 도출(짐작 아님 — mecanum_drive.py 실측 검증치와 브리프 실측치를 조합한
+        # 기하 논증, taskC2fix-report.md 에 전개 상세): mecanum_drive.py 의 로봇 로컬
+        # 프레임은 X-forward, Y-left, Z-up(파일 헤더) 이고 WHEEL_CENTERS 의
+        # wheel_fl(전-좌)=+0.35Y 가 이를 증명한다. 브리프 MEASURED FACTS 의
+        # Camera_Pseudo_Depth_Left 도 같은 로컬 프레임에서 위치(+Y=+0.392)와 정면방향
+        # (+Y, "바깥쪽")의 부호가 같다 — 카메라는 항상 "자기 쪽으로" 바깥을 본다는
+        # 뜻이고, 이 위치<->정면방향 부호 관계는 로봇 전체에 어떤 강체회전(현재 헤딩,
+        # 0°든 180°든)을 얹어도 보존된다(둘 다 같은 로컬 벡터의 변환이므로). vy(로봇
+        # 로컬 왼쪽, mecanum_drive.py 헤더 주석이 이미 "~1cm 정확도로 검증됨"이라
+        # 명시한 부호)도 같은 로컬 +Y 축이다. 따라서 "왼쪽 카메라가 더 멀리 잰다(여유
+        # 있다) -> 왼쪽으로 strafe" 라는 부호는 로봇의 현재 월드 헤딩과 무관하게 항상
+        # 성립한다 — 별도의 런타임 부호 캘리브레이션(예: 시험 펄스) 없이 바로
+        # err=left-right 를 쓴다.
+        LAT_KP = 1.2
+        LAT_VY_MAX = 0.15
+        LAT_DEADBAND = 0.01
 
         vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
                            dtype=np.float32)
         cur_tw = (0.0, 0.0, 0.0)
         prev = timeline.get_current_time()
-        samples = []   # (step, gx, gz, roi_min|None)
-        max_steps = 5000   # 1차 시도(2500)가 x=-8 부근 알 수 없는 저항으로 정체돼 시간 내
-                           # 양 축을 다 못 지났다(taskC2-report.md) — 회복 여지를 주려고 늘림.
+        samples = []   # (step, gx, gz, left|None, right|None, vy_applied)
+        max_steps = 3000
         for step in range(1, max_steps + 1):
             app.update()
             now = timeline.get_current_time()
             dt = min(0.1, max(0.0, now - prev)); prev = now
 
             gx, gz, gyaw = gt_pose_xz_yaw(art)
-            tgt = (speed, 0.0, 0.0) if gx > x_end else (0.0, 0.0, 0.0)
+            left_v = depth_roi_min(ctx_left, roi_frac=DEPTH_ROI_FRAC)
+            right_v = depth_roi_min(ctx_right, roi_frac=DEPTH_ROI_FRAC)
+
+            if left_v is not None and right_v is not None:
+                err = left_v - right_v
+                vy_cmd = 0.0 if abs(err) < LAT_DEADBAND else \
+                    max(-LAT_VY_MAX, min(LAT_VY_MAX, LAT_KP * err))
+            else:
+                # 축 사이(레퍼런스 없음) — 강제로 옆으로 밀지 않고 직진만 유지한다.
+                vy_cmd = 0.0
+
+            tgt = (speed, vy_cmd, 0.0) if gx > x_end else (0.0, 0.0, 0.0)
             cur_tw = slew_twist(cur_tw, tgt, dt, linear_accel=LINEAR_ACCEL,
                                 linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
             omegas = wheel_velocities_from_cmd_vel(*cur_tw)
@@ -1732,43 +1787,61 @@ def main():
                 vel_buf[idx[w]] = om
             art.set_joint_velocity_targets(vel_buf)
 
-            roi = depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC)
-            samples.append((step, gx, gz, roi))
+            samples.append((step, gx, gz, left_v, right_v, cur_tw[1]))
             if step % 15 == 0:
-                roi_txt = f"{roi:.4f}" if roi is not None else "None"
-                print(f"DEPTH_STREAM step={step} x={gx:.3f} roi_min={roi_txt}", flush=True)
+                l_txt = f"{left_v:.4f}" if left_v is not None else "None"
+                r_txt = f"{right_v:.4f}" if right_v is not None else "None"
+                print(f"DEPTH_STREAM step={step} x={gx:.3f} z={gz:.3f} "
+                      f"left={l_txt} right={r_txt} vy_cmd={cur_tw[1]:.4f}", flush=True)
 
             if gx <= x_end and cur_tw == (0.0, 0.0, 0.0):
                 for _ in range(20):
                     app.update()
-                    roi = depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC)
-                    samples.append((step, gx, gz, roi))
+                    left_v = depth_roi_min(ctx_left, roi_frac=DEPTH_ROI_FRAC)
+                    right_v = depth_roi_min(ctx_right, roi_frac=DEPTH_ROI_FRAC)
+                    samples.append((step, gx, gz, left_v, right_v, 0.0))
                 break
 
         n_samples = len(samples)
-        finite_rois = [r for _, _, _, r in samples if r is not None]
-        early = [r for _, _, _, r in samples[:60] if r is not None]
-        baseline = float(np.median(early)) if early else float("nan")
-        min_seen = min(finite_rois) if finite_rois else float("nan")
-        z_all = [gz for _, _, gz, _ in samples]
-        print(f"DEPTH_PROBE_ZDRIFT z_min={min(z_all):.4f} z_max={max(z_all):.4f} "
-              f"z_target={z_bay:.4f}", flush=True)
+        finished = bool(samples) and samples[-1][1] <= x_end + 0.05
+        z_devs = [abs(gz - entry_z) for _, _, gz, _, _, _ in samples]
+        max_lat_dev_m = max(z_devs) if z_devs else float("nan")
 
-        # 트로프 개수: baseline-0.05 아래로 내려간 연속 구간을 하나로 센다
-        # (depth_stop_detector.DepthStopDetector 의 drop_margin=0.05 관례 재사용).
-        n_troughs = 0
-        in_trough = False
-        thresh = baseline - 0.05 if math.isfinite(baseline) else float("nan")
-        for _, _, _, r in samples:
-            below = (r is not None) and math.isfinite(thresh) and (r < thresh)
-            if below and not in_trough:
-                n_troughs += 1
-                in_trough = True
-            elif not below:
-                in_trough = False
+        def _side_stats(values):
+            """min(유효값), baseline(첫 30개 유효값 중앙값), 트로프 개수.
 
-        print(f"DEPTH_PROBE_SUMMARY n_samples={n_samples} baseline={baseline:.4f} "
-              f"min_seen={min_seen:.4f} n_troughs={n_troughs}", flush=True)
+            트로프 판정은 depth_stop_detector.DepthStopDetector 의 drop_margin=0.05
+            관례 재사용(baseline 아래로 연속 하강하는 구간을 하나로 센다) — C3 의
+            실제 정지판단 로직이 아니라 이 프로브의 실측 보고 전용 카운트다.
+            """
+            finite = [v for v in values if v is not None]
+            min_v = min(finite) if finite else float("nan")
+            baseline_samples = finite[:30]
+            baseline = float(np.median(baseline_samples)) if len(baseline_samples) >= 5 else float("nan")
+            thresh = baseline - 0.05 if math.isfinite(baseline) else float("nan")
+            n_troughs = 0
+            in_trough = False
+            for v in values:
+                below = (v is not None) and math.isfinite(thresh) and (v < thresh)
+                if below and not in_trough:
+                    n_troughs += 1
+                    in_trough = True
+                elif not below:
+                    in_trough = False
+            return min_v, baseline, n_troughs
+
+        left_series = [s[3] for s in samples]
+        right_series = [s[4] for s in samples]
+        min_left, base_left, n_troughs_left = _side_stats(left_series)
+        min_right, base_right, n_troughs_right = _side_stats(right_series)
+        print(f"DEPTH_PROBE_BASELINE base_left={base_left:.4f} base_right={base_right:.4f}",
+              flush=True)
+
+        passed_under = bool(finished and math.isfinite(max_lat_dev_m) and max_lat_dev_m < 0.165)
+
+        print(f"DEPTH_PROBE_SUMMARY passed_under={passed_under} min_left={min_left:.4f} "
+              f"min_right={min_right:.4f} max_lat_dev_m={max_lat_dev_m:.4f} "
+              f"n_troughs_left={n_troughs_left} n_troughs_right={n_troughs_right}", flush=True)
 
         if headless:
             app.close(); return
