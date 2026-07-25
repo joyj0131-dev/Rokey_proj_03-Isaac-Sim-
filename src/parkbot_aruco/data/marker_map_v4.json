@@ -147,6 +147,15 @@
       "z": 7.075,
       "yaw": 0.0,
       "role": "ENTRY"
+    },
+    {
+      "id": 60,
+      "serves": "BAY_OUT_ENTRY",
+      "kind": "handoff_entry",
+      "x": -5.0,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
     }
   ]
 }

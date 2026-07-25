@@ -43,6 +43,25 @@ HANDOFF_VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", 
 V4_FLOOR_Y = 0.0
 HANDOFF_SETTLE_FRAMES = 60
 
+# ---- Mission Phase C, Task C4: 인계 베이 입구 ArUco 마커(런타임 스폰) ----
+# C4 WIP(commit 85e219a) 가 남긴 블로커: entry_follow 가 XN 이후 ~6m 를 마커 없이
+# 순수 오도로 주행해 도착 시점 융합오차 22.9cm(err_pos_gt) — 통로 여유 16.5cm(=
+# (1.28-0.95)/2, HANDOFF 브리프 실측)를 초과해 바퀴에 충돌한다. 진입 직전 재보정용
+# 마커를 하나 더 놓아 이 드리프트 구간을 끊는다.
+#   x=-5.0: 트럭 후미(=x≈-5.59, len_x=5.829 를 베이 중심 -8.5 에 실은 절반=2.9145)
+#     보다 0.585m 앞(+x) — 트럭에 가려지지 않으면서도 최대한 후미에 가깝다(브리프
+#     지시 "가능한 한 트럭 후미에 가깝게"). --probe=BAYMARK 로 실측 검증한다.
+#   z=7.075: HANDOFF_BAY_CENTER 와 동일한 통로 중심선(트럭 좌우축 중앙).
+#   yaw=0: 다른 v4 마커와 동일(현재 전부 0, marker_layout.MARKER_YAW_BY_KIND 참고).
+#   id=60: 이미 텍스처가 생성돼 있는 미사용 ID 블록(마커 배치 브리프가 지정,
+#     textures/aruco/aruco_DICT_5X5_100_060.png 재사용 — 신규 생성 불필요).
+BAY_MARKER_ID = 60
+BAY_MARKER_SERVES = "BAY_OUT_ENTRY"
+BAY_MARKER_KIND = "handoff_entry"
+BAY_MARKER_X = -5.0
+BAY_MARKER_Z = HANDOFF_BAY_CENTER[1]
+BAY_MARKER_YAW = 0.0
+
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
@@ -418,6 +437,130 @@ def spawn_handoff_vehicle(stage):
     return HANDOFF_VEHICLE_ROOT
 
 
+def _bay_marker_material(stage, path, texture_path):
+    """build_marker_layout._marker_material 과 동일한 셰이더 네트워크(UsdPreviewSurface
+    + UsdUVTexture + UsdPrimvarReader_float2, specular=0). 그 함수는 SimulationApp
+    없이 도는 오프라인 스크립트(build_marker_layout.py)라 이 파일에서 직접 import 할
+    수 없어 같은 검증된 USD Python API 호출을 그대로 재현한다 — 이 패턴은 실제로
+    parking_environment_v4.usd 의 기존 ArucoMat_* 16개를 만든 코드와 동일하다."""
+    from pxr import Sdf, UsdShade
+
+    material = UsdShade.Material.Define(stage, path)
+
+    reader = UsdShade.Shader.Define(stage, path.AppendChild("StReader"))
+    reader.CreateIdAttr("UsdPrimvarReader_float2")
+    reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    reader.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    texture = UsdShade.Shader.Define(stage, path.AppendChild("Texture"))
+    texture.CreateIdAttr("UsdUVTexture")
+    texture.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(texture_path)
+    texture.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("raw")
+    texture.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("clamp")
+    texture.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("clamp")
+    texture.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(
+        reader.ConnectableAPI(), "result")
+    texture.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
+
+    shader = UsdShade.Shader.Define(stage, path.AppendChild("Shader"))
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
+        texture.ConnectableAPI(), "rgb")
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
+    shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+    shader.CreateInput("specular", Sdf.ValueTypeNames.Float).Set(0.0)
+
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    return material
+
+
+def spawn_bay_marker(stage, marker_id=BAY_MARKER_ID, x=BAY_MARKER_X, z=BAY_MARKER_Z,
+                      yaw=BAY_MARKER_YAW, serves=BAY_MARKER_SERVES, kind=BAY_MARKER_KIND):
+    """인계 베이 입구에 ArUco 마커를 런타임 스폰한다 (Mission Phase C, Task C4).
+
+    build_stage() 는 이 라이브 스테이지의 루트 레이어를 새로 만들고
+    parking_environment_v4.usd 는 그 밑에 서브레이어로만 얹는다(435행,
+    `stage.GetRootLayer().subLayerPaths.append(...)`) — 그래서 여기서 무엇을
+    Define 해도 이 세션의 인메모리 루트 레이어에만 쓰이고, 디스크의 팀 공용 USD
+    파일은 한 바이트도 바뀌지 않는다(.Save() 를 호출하지 않는다 — 로봇/차량
+    스폰과 동일한 방식, spawn_handoff_vehicle 참고).
+
+    코드 크기(0.19444445)·타일(0.25)·사전(DICT_5X5_100)·바닥 y(0.0012)는 기존
+    마커와 동일(marker_layout.MARKER_CODE_SIZE/MARKER_TILE/ARUCO_DICT/MARKER_Y를
+    그대로 재사용하지 않고 리터럴로 박아 넣은 이유: marker_layout.py 는 v4 가 아닌
+    구세대(v2/v3) 레이아웃 상수 모듈이라 값이 우연히 같을 뿐 이 파일이 의존할
+    권위 있는 출처가 아니다 — 권위는 parking_environment_v4.usd 자체의 기존
+    aruco:codeSize 값이며, 위 스크립트 조사로 0.19444445 로 확인했다). 텍스처는
+    이미 생성돼 있는 aruco_DICT_5X5_100_060.png 를 그대로 쓴다(신규 생성 불필요).
+
+    read_markers()/marker_visual_center() 는 stage.Traverse() 로 aruco:markerId
+    속성을 찾을 뿐이라 런타임에 붙은 이 프림도 코드 변경 없이 그대로 잡힌다. 기존
+    도크 마커와 달리 aruco:position 과 데칼 xformOp:translate 를 항상 같은 (x,z)로
+    쓴다 — 그 0.7m 어긋남은 원본 에셋의 과거 편집 이력일 뿐 이 신규 마커에는 해당
+    사항이 없다(둘 다 우리가 직접 같은 값으로 설정한다).
+    """
+    from pxr import Gf, Sdf, UsdGeom, UsdShade
+
+    code_size = 0.19444445
+    tile = 0.25
+    marker_y = 0.0012
+    dict_name = "DICT_5X5_100"
+
+    texture_file = WORK_DIR / "textures" / "aruco" / f"aruco_{dict_name}_{marker_id:03d}.png"
+    if not texture_file.is_file():
+        raise FileNotFoundError(f"마커 텍스처가 없습니다: {texture_file}")
+
+    root = UsdGeom.Xform.Define(stage, "/World/ArucoMarkerPreview").GetPath()
+    looks = Sdf.Path("/World/Looks")
+
+    half = tile * 0.5
+    points = [
+        Gf.Vec3f(-half, 0.0,  half),
+        Gf.Vec3f( half, 0.0,  half),
+        Gf.Vec3f( half, 0.0, -half),
+        Gf.Vec3f(-half, 0.0, -half),
+    ]
+    uvs = [Gf.Vec2f(0, 0), Gf.Vec2f(1, 0), Gf.Vec2f(1, 1), Gf.Vec2f(0, 1)]
+
+    mesh_path = root.AppendChild(f"{kind}_{serves}")
+    mesh = UsdGeom.Mesh.Define(stage, mesh_path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    mesh.CreateNormalsAttr([Gf.Vec3f(0, 1, 0)] * 4)
+    mesh.SetNormalsInterpolation(UsdGeom.Tokens.vertex)
+    mesh.CreateExtentAttr([points[0], points[2]])
+    st = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+    st.Set(uvs)
+
+    xf = UsdGeom.Xformable(mesh)
+    xf.AddTranslateOp().Set(Gf.Vec3d(float(x), marker_y, float(z)))
+    if yaw:
+        xf.AddRotateYOp().Set(float(yaw))
+
+    material = _bay_marker_material(
+        stage, looks.AppendChild(f"ArucoMat_{marker_id:03d}"),
+        Sdf.AssetPath(str(texture_file)))
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+    prim = mesh.GetPrim()
+    prim.CreateAttribute("aruco:markerId", Sdf.ValueTypeNames.Int).Set(int(marker_id))
+    prim.CreateAttribute("aruco:dictionary", Sdf.ValueTypeNames.String).Set(dict_name)
+    prim.CreateAttribute("aruco:kind", Sdf.ValueTypeNames.String).Set(kind)
+    prim.CreateAttribute("aruco:yaw", Sdf.ValueTypeNames.Float).Set(float(yaw))
+    prim.CreateAttribute("aruco:serves", Sdf.ValueTypeNames.String).Set(serves)
+    prim.CreateAttribute("aruco:note", Sdf.ValueTypeNames.String).Set(
+        "인계 베이 입구 진입정렬(Mission Phase C, Task C4, 런타임 스폰)")
+    prim.CreateAttribute("aruco:codeSize", Sdf.ValueTypeNames.Float).Set(code_size)
+    prim.CreateAttribute("aruco:position", Sdf.ValueTypeNames.Float3).Set(
+        Gf.Vec3f(float(x), 0.0, float(z)))
+
+    print(f"BAY_MARKER_SPAWNED id={marker_id} serves={serves} pos=({x:.3f},{z:.3f}) "
+          f"path={mesh_path}", flush=True)
+    return str(mesh_path)
+
+
 def build_stage(app):
     from pxr import Gf, UsdGeom
     import omni.usd
@@ -442,6 +585,11 @@ def build_stage(app):
         app.update()
 
     n_lidar = _disable_sensors(stage)
+
+    # Mission Phase C, Task C4: 인계 베이 입구 마커. validate_markers() 가 다른
+    # 마커와 동일한 z-부호 규약 검사를 이 마커에도 적용하도록 markers 딕셔너리
+    # 조립 이전에 스폰한다.
+    spawn_bay_marker(stage)
 
     markers = read_markers(stage)
     problems = sm.validate_markers(
@@ -1961,6 +2109,111 @@ def main():
         print(f"REARXN_DIAG xn=({xn_x:.3f},{xn_z:.3f}) gt=({gx:.3f},{gz:.3f}) "
               f"gt_yaw={math.degrees(gyaw):.1f} fix_err_vs_gt_m={fix_err:.4f} "
               f"last_tried_pose=(x={xn_x + lat:.3f},z={xn_z - d:.3f},yaw~180)", flush=True)
+
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe == "BAYMARK":
+        # Task C4a 증명: 인계 베이 입구에 런타임 스폰한 마커(spawn_bay_marker,
+        # serves=BAY_OUT_ENTRY)를 entry_follow 전방캠이 접근선(facing -x, 필터yaw
+        # -90°, 브리프 규약)에서 어느 거리 구간에 검출하는지 실측한다. REARXN 과
+        # 같은 패턴(fuse_camera_setup 으로 도크 기준 T_base_cam 을 보정한 뒤
+        # ctx["ref_id"] 를 목표 마커로 바꿔치기)을 재사용하되, 후방캠 180도 반전은
+        # 필요 없다 — 전방캠은 로봇 정면(local +X)을 그대로 보고, calibrate_tbasecam
+        # 내부 detect_at_pose 의 "마커가 정면" 전제(spawn_orn, yaw=90, 도크가 +X 에
+        # 있음)와도 그대로 맞는다(FUSE 프로브와 동일한 정면 보정, REARXN 처럼 반전할
+        # 필요가 없다).
+        cam_h = 0.15
+        target = "entry_follow"
+        art = arts[target]
+        ctx = fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front")
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+
+        # ---- sibling 대피(Task 3b-1 §3.1 실측과 동일 문제): entry_follow 의 보정
+        # 자세(도크에서 -X 로 1.5m)가 entry_lead 도크와 0.86m 밖에 안 떨어져 있어
+        # entry_lead 가 그대로 있으면 이 마커 검출/측위가 오염된다(_mission_setup
+        # 의 ① 대피 단계와 동일 근거). BAYMARK 는 _mission_setup 을 재사용하지
+        # 않는 독립 프로브라 여기서 직접 대피/복원한다.
+        sib_art = arts.get("entry_lead")
+        sib_pos0 = sib_orn0 = None
+        if sib_art is not None:
+            sib_pos0, sib_orn0 = sib_art.get_world_poses()
+            sib_pos0 = np.asarray(sib_pos0).reshape(1, 3).copy()
+            sib_orn0 = np.asarray(sib_orn0).reshape(1, 4).copy()
+            away = sib_pos0.copy(); away[0, 2] += 50.0
+            sib_art.set_world_poses(away, sib_orn0)
+            for _ in range(5):
+                app.update()
+            print("BAYMARK_PARK_CLEAR robot=entry_lead", flush=True)
+
+        try:
+            T_base_cam, cal_name, cal_err = calibrate_tbasecam(
+                ctx, art, app, timeline, gt_pose_xz_yaw, spawn_orn)
+        finally:
+            if sib_art is not None:
+                sib_art.set_world_poses(sib_pos0, sib_orn0)
+                for _ in range(5):
+                    app.update()
+                print("BAYMARK_PARK_RESTORE robot=entry_lead", flush=True)
+        print(f"BAYMARK_TBASECAM_CAL best={cal_name} verify_pos_err={cal_err:.4f}m", flush=True)
+
+        # ---- 검출 대상을 도크→베이입구 마커로 전환(보정 완료 후에만) ----
+        bay_id = read_markers(stage)[BAY_MARKER_SERVES]["id"]
+        bay_x, bay_z = marker_visual_center(stage, BAY_MARKER_SERVES)
+        ctx["ref_id"] = bay_id
+
+        def _yaw_quat(base_orn, extra_yaw_deg):
+            """REARXN 의 동명 헬퍼와 동일 관례(_quat_mul(base,qy)) — 검산은 그쪽 주석 참고."""
+            half = math.radians(extra_yaw_deg) * 0.5
+            qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])
+            return _quat_mul(base_orn, qy)
+
+        # spawn(+X, yaw=90) -> -180 -> yaw=-90(월드 -X, 브리프 규약: "facing -x").
+        approach_orn = _yaw_quat(spawn_orn, -180.0)
+
+        # ---- 접근선 위 여러 거리에서 검출/오차 실측. d = 로봇 배치 x 가 마커보다
+        # +x 로 얼마나 앞서 있는지(로봇은 -x 로 전진해 마커에 다가간다) — REARXN/REAR
+        # 가 쓰는 것과 동일한 "d" 관례(카메라 오프셋 보정 없이 로봇 배치 좌표 자체를
+        # 스윕해 실측 창을 찾는다). z 는 베이 통로 중심선(bay_z, 트럭 좌우축 중앙과
+        # 동일)으로 고정.
+        d_values = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5,
+                    1.6, 1.7, 1.8, 2.0, 2.2, 2.5, 2.8, 3.1, 3.4)
+        results = []
+        for d in d_values:
+            art.set_world_poses(
+                np.array([[bay_x + d, ROBOT_SPAWN_Y, bay_z]]),
+                np.array([approach_orn]))
+            for _ in range(30):
+                app.update()
+            pose = detect_current(ctx)
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
+            fix = localize_pose(ctx, pose, T_base_cam) if pose is not None else None
+            if fix is not None:
+                err = math.hypot(fix.x - gx, fix.z - gz)
+                fix_str = f"({fix.x:.3f},{fix.z:.3f})"
+            else:
+                err = float("nan")
+                fix_str = "(nan,nan)"
+            hit = fix is not None
+            results.append((d, hit, err))
+            print(f"BAYMARK d={d:.2f} hit={hit} fix={fix_str} err_vs_gt={err:.4f}", flush=True)
+
+        hits = [d for d, hit, _ in results if hit]
+        errs = [e for _, hit, e in results if hit]
+        if hits:
+            print(f"BAYMARK_SUMMARY window=[{min(hits):.2f},{max(hits):.2f}]m "
+                  f"n_hit={len(hits)}/{len(results)} "
+                  f"err_mean={sum(errs)/len(errs):.4f} err_max={max(errs):.4f} "
+                  f"marker_id={bay_id} marker_pos=({bay_x:.3f},{bay_z:.3f}) "
+                  f"tbasecam={cal_name} cal_err={cal_err:.4f}", flush=True)
+        else:
+            print(f"BAYMARK_SUMMARY window=none n_hit=0/{len(results)} "
+                  f"marker_id={bay_id} marker_pos=({bay_x:.3f},{bay_z:.3f}) "
+                  f"tbasecam={cal_name} cal_err={cal_err:.4f}", flush=True)
 
         if headless:
             app.close(); return

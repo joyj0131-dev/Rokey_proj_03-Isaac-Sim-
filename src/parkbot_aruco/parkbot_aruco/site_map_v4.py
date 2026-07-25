@@ -22,6 +22,9 @@ SERVES_ROLE = {
     "GATE_OUT": ENTRY, "W_OUT": ENTRY,
     "D_OUT_1": ENTRY, "D_OUT_2": ENTRY,
     "XN": ENTRY, "A1'": ENTRY, "A2'": ENTRY, "A3'": ENTRY,
+    # 인계 베이 입구(Mission Phase C, Task C4 — parking_v4_runner.spawn_bay_marker
+    # 가 런타임 스폰. z=+7.075 로 이미 ENTRY 부호 규약을 따른다).
+    "BAY_OUT_ENTRY": ENTRY,
     # z 음수 = 출차
     "GATE_IN": EXIT, "W_IN": EXIT,
     "D_IN_1": EXIT, "D_IN_2": EXIT,
