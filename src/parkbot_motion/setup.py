@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'pose_controller_node = parkbot_motion.pose_controller_node:main',
         ],
     },
 )
