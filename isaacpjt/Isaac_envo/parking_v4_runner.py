@@ -1053,6 +1053,10 @@ def main():
     for a in sys.argv[1:]:
         if a.startswith("--mission="):
             mission = a.split("=", 1)[1]
+    # R2(ROS2 노드 리팩터 설계서 3~4절): 러너를 시뮬 브리지로 — 미션 로직 없이
+    # /cmd_vel 구독 + /odom·/joint_states 발행만 한다. --probe=/--mission= 과
+    # 독립된 별도 플래그(둘 다 없을 때 쓰는 게 정상 사용법).
+    bridge = "--bridge" in sys.argv[1:]
     if probe == "B":
         keep = sm.ROBOTS[0]
         hidden = []
@@ -3627,8 +3631,24 @@ def main():
         return [r for r in sm.ROBOTS
                 if stage.GetPrimAtPath(robot_prim_path(r)).IsActive()]
 
+    # R2: 마지막으로 측정한 바디 twist(vx,vy,wz) — publish_odom 이 Odometry.twist 에
+    # 싣는다(속도는 오도메트리 적분과 별개로 매 스텝 새로 측정한 값). 0 으로 시작해
+    # step_odometry 가 처음 갱신하기 전에도 publish_odom 이 안전하게 읽을 수 있다.
+    last_twist = {r: (0.0, 0.0, 0.0) for r in sm.ROBOTS}
+
     def publish_odom():
-        """--odom 모드에 따라 휠 오도메트리 또는 GT 를 발행한다."""
+        """--odom 모드에 따라 휠 오도메트리 또는 GT 를 발행한다.
+
+        R2 계약(리팩터 설계서 4절): pose 필드는 이 프로젝트 좌표계 그대로
+        (position.x,position.z = 월드 (x,z)[m], position.y 는 항상 0 — 높이는
+        휠 오도가 추정하지 않는다; orientation 은 yaw 를 메시지의 z축 회전
+        쿼터니언에 인코딩 — ROS map(z-up) 표준이 아니라 이 프로젝트의 yaw=0→+Z
+        규약, gt_pose_xz_yaw/WheelOdometry 와 동일, 기존 발행 패턴 그대로
+        유지). twist 필드는 REP103 대로 child_frame(base_link) 기준 바디
+        twist: linear.x=전진[m/s], linear.y=좌[m/s], angular.z=CCW+[rad/s] —
+        read_wheel_twist(cmd_vel_from_wheel_velocities 의 최소자승 역)로 매
+        스텝 측정한 값이며 GT 는 전혀 섞이지 않는다.
+        """
         for r in _active_robots():
             if odom_mode == "wheel":
                 px, pz, pyaw = odom[r].x, odom[r].z, odom[r].yaw
@@ -3642,12 +3662,17 @@ def main():
             msg.pose.pose.position.z = float(pz)
             msg.pose.pose.orientation.z = math.sin(pyaw * 0.5)
             msg.pose.pose.orientation.w = math.cos(pyaw * 0.5)
+            vx, vy, wz = last_twist[r]
+            msg.twist.twist.linear.x = float(vx)
+            msg.twist.twist.linear.y = float(vy)
+            msg.twist.twist.angular.z = float(wz)
             odom_pub[r].publish(msg)
 
     def step_odometry(dt):
-        """휠 각속도를 읽어 각 로봇 오도메트리를 적분한다."""
+        """휠 각속도를 읽어 각 로봇 오도메트리를 적분하고, 측정 twist 를 남긴다."""
         for r in _active_robots():
             vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])
+            last_twist[r] = (vx, vy, wz)
             odom[r].update(vx, vy, wz, dt)
 
     if "--headless-test" in sys.argv[1:]:
@@ -3766,6 +3791,130 @@ def main():
         if headless:
             app.close()
             return
+
+    if bridge:
+        # ---- R2: 시뮬 브리지 루프 ----
+        # 미션 로직 없음(스테이지 저작 이후 여기서부터는 구독/발행만). 외부
+        # ROS2 노드(R3 navigate_action_server 등)가 /cmd_vel·/robot_<id>/lift_cmd 로
+        # 로봇을 몰고 /odom·/joint_states 를 구독한다. GT 는 콘솔 하트비트에만
+        # 쓴다(제어 입력 절대 아님 — 브리핑 지시).
+        from sensor_msgs.msg import JointState
+        from std_msgs.msg import Float32
+        from geometry_msgs.msg import Twist
+
+        joint_pub = {r: ros_node.create_publisher(JointState, f"/robot_{r}/joint_states", 10)
+                     for r in arts}
+        target_twist = {r: (0.0, 0.0, 0.0) for r in arts}
+        applied_twist = {r: (0.0, 0.0, 0.0) for r in arts}
+        lift_cmd = {r: 0.0 for r in arts}
+        lift_applied = {r: 0.0 for r in arts}
+        bridge_vel_buf = {r: np.zeros(np.asarray(arts[r].get_joint_positions()).reshape(-1).shape,
+                                      dtype=np.float32) for r in arts}
+
+        def make_cmd_vel_cb(key):
+            def cb(msg):
+                # ROS(REP103) Twist -> 이 프로젝트 body twist(vx 전진, vy 좌,
+                # wz CCW+). 부호반전 없음(dock_lift_handoff_runner_v2.py 의
+                # 레거시 브리지는 -msg.angular.z 로 반전했지만, v4 는 검증 결과
+                # 다르다 — body_twist_toward(project wz>0 이면 yaw 증가, 즉
+                # 전방벡터가 world+Z 에서 world+X 로 도는 방향=body 좌측)와
+                # (forward,left,up)=(world Z,X,Y) 가 오른손좌표(Z×X=Y)라서, 이
+                # project wz 는 ROS angular.z 의 CCW+(위에서 봤을 때 좌회전
+                # 양수) 와 이미 같은 부호다. wheel_velocities_from_cmd_vel 의
+                # SIGN_YAW=-1.0/YAW_SCALE 은 그 자체가 "명령된 wz -> 실제
+                # 물리 wz" 보정이라 여기 부호와 무관(taskR2-report.md 참고).
+                target_twist[key] = (float(msg.linear.x), float(msg.linear.y),
+                                     float(msg.angular.z))
+            return cb
+
+        def make_lift_cb(key):
+            def cb(msg):
+                lift_cmd[key] = max(0.0, min(1.0, float(msg.data)))
+            return cb
+
+        cmd_sub = {r: ros_node.create_subscription(Twist, f"/robot_{r}/cmd_vel",
+                                                    make_cmd_vel_cb(r), 10)
+                   for r in arts}
+        lift_sub = {r: ros_node.create_subscription(Float32, f"/robot_{r}/lift_cmd",
+                                                     make_lift_cb(r), 10)
+                    for r in arts}
+
+        def publish_joint_states():
+            for r in arts:
+                art = arts[r]
+                pos = np.asarray(art.get_joint_positions()).reshape(-1)
+                vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+                names, positions, velocities = [], [], []
+                for wkey, jname in WHEEL_JOINTS.items():
+                    i = wheel_idx[r][wkey]
+                    names.append(jname)
+                    positions.append(float(pos[i]))
+                    velocities.append(float(vel[i]))
+                for jname in ARM_TARGETS:
+                    i = arm_idx[r][jname]
+                    names.append(jname)
+                    positions.append(float(pos[i]))
+                    velocities.append(float(vel[i]))
+                msg = JointState()
+                msg.header.stamp = ros_node.get_clock().now().to_msg()
+                msg.name = names
+                msg.position = positions
+                msg.velocity = velocities
+                joint_pub[r].publish(msg)
+
+        # 0..1 초당 램프율 — 리프트가 스텝이 아니라 시간에 걸쳐 걸리게 한다
+        # (dock_lift_handoff_runner_v2.py 의 arm_cmd/arm_applied 램프와 같은
+        # 취지, dt 스케일만 명시적으로 함).
+        LIFT_RAMP_RATE = 1.0
+
+        def _lift_move_toward(cur, tgt, max_delta):
+            d = tgt - cur
+            if abs(d) <= max_delta:
+                return tgt
+            return cur + math.copysign(max_delta, d)
+
+        print(f"BRIDGE_READY robots={list(arts)} domain={os.environ.get('ROS_DOMAIN_ID', '0')} "
+              f"odom_mode={odom_mode}", flush=True)
+        prev_sim = timeline.get_current_time()
+        last_heartbeat = prev_sim
+        while app.is_running():
+            app.update()
+            now_sim = timeline.get_current_time()
+            dt = min(0.1, max(0.0, now_sim - prev_sim))
+            prev_sim = now_sim
+            rclpy.spin_once(ros_node, timeout_sec=0.0)
+
+            for r in arts:
+                applied_twist[r] = slew_twist(applied_twist[r], target_twist[r], dt,
+                                              linear_accel=LINEAR_ACCEL,
+                                              linear_decel=LINEAR_DECEL,
+                                              angular_accel=ANGULAR_ACCEL)
+                omegas = wheel_velocities_from_cmd_vel(*applied_twist[r])
+                buf = bridge_vel_buf[r]
+                buf[...] = 0.0
+                for w, om in omegas.items():
+                    buf[wheel_idx[r][w]] = om
+                arts[r].set_joint_velocity_targets(buf)
+
+                lift_applied[r] = _lift_move_toward(lift_applied[r], lift_cmd[r],
+                                                    LIFT_RAMP_RATE * dt)
+                deploy_arms(arts[r], arm_idx[r], lift_applied[r])
+
+            step_odometry(dt)
+            publish_odom()
+            publish_joint_states()
+
+            if now_sim - last_heartbeat >= 2.0:
+                last_heartbeat = now_sim
+                gt_str = " ".join(
+                    f"{r}=({x:.2f},{z:.2f},{math.degrees(yaw):.1f})"
+                    for r, (x, z, yaw) in ((r, gt_pose_xz_yaw(arts[r])) for r in arts))
+                cmd_str = " ".join(f"{r}=({vx:.2f},{vy:.2f},{wz:.2f})"
+                                   for r, (vx, vy, wz) in target_twist.items())
+                print(f"BRIDGE_ALIVE t={now_sim:.1f} robots={len(arts)} "
+                      f"cmd=[{cmd_str}] gt=[{gt_str}]", flush=True)
+        app.close()
+        return
 
     prev_sim = timeline.get_current_time()
     while app.is_running():
