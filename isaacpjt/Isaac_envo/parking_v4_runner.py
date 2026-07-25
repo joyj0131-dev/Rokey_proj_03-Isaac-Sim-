@@ -37,6 +37,21 @@ HANDOFF_VEHICLE_ROOT = f"/World/VehicleAsset/Vehicles/{HANDOFF_VEHICLE_NAME}"
 # 쓰고 라벨/역할은 다루지 않는다.
 HANDOFF_BAY_CENTER = (-8.5, 7.075)  # (x, z)
 HANDOFF_VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", "RearRightWheel")
+
+# ---- Mission Phase C, Task C5: 앞축·뒤축 리프트 ----
+# 관절명/목표각(도) — origin/p4_depth:depth_stop_lift_test_dual.py 의 ARM_TARGETS 와
+# hwia_parking_robot_final_caster.urdf(548~551줄) 양쪽에서 동일 값으로 실측 확인됨.
+ARM_TARGETS = {
+    "arm_left_front_joint": 90.0,
+    "arm_left_rear_joint": -90.0,
+    "arm_right_front_joint": -90.0,
+    "arm_right_rear_joint": 90.0,
+}
+# 뒷축 리프트 판정 관례(HANDOFF.md 3절 "완료된 1로봇 뒷바퀴 리프트 통합 테스트" +
+# depth_stop_lift_test_dual.py 의 dual lift_pass) — 축당 최소 상승·좌우 대칭 허용폭.
+ARM_LIFT_MIN_RISE_M = 0.025
+ARM_LIFT_SYM_TOL_M = 0.03
+ARM_LIFT_RAMP_STEPS = 180
 # v4 바닥 상판 y — parking_environment_v4.usd 의 ParkingEnvironment/Floor(scale.y=0.12,
 # translate.y=-0.06 -> 상판 y=0.0)와 VehicleWaitAreas 각 Pad(translate.y≈0.0001)로 실측
 # 확인. spawn_handoff_vehicle() 은 이 상수에 짐작 없이 실측 bbox 오프셋을 더한다.
@@ -968,6 +983,40 @@ def calibrate_tbasecam(ctx, art, app, timeline, gt_fn, spawn_orn):
     return best_T, best_name, best_err
 
 
+def configure_arm_drives(stage, robot_joints, stiffness=1800.0, damping=140.0, max_force=5000.0):
+    """스윙 암 4개(ARM_TARGETS)를 위치 드라이브로 설정한다 — configure_hub_drives(휠,
+    속도드라이브 stiffness=0)와 짝을 이루는 팔 전용 버전. 값은
+    origin/p4_depth:depth_stop_lift_test_dual.py 의 build_test_stage() 가 검증한
+    stiffness=1800/damping=140/maxForce=5000 을 그대로 재사용한다(URDF 자체
+    dynamics damping=8.0 은 임포트시 기본값일 뿐이며, 두 참조 구현 모두 런타임에
+    이 값으로 덮어써야 실제로 트럭을 들어올릴 만큼 팔이 버틴다 — Task C5 브리프
+    지시대로 검증된 값을 재사용, 새로 추측하지 않는다)."""
+    from pxr import UsdPhysics
+
+    for jname in ARM_TARGETS:
+        joint = stage.GetPrimAtPath(f"{robot_joints}/{jname}")
+        drive = UsdPhysics.DriveAPI.Get(joint, "angular")
+        if not drive:
+            drive = UsdPhysics.DriveAPI.Apply(joint, "angular")
+        drive.CreateStiffnessAttr(stiffness)
+        drive.CreateDampingAttr(damping)
+        drive.CreateMaxForceAttr(max_force)
+        drive.CreateTargetPositionAttr(0.0)
+
+
+def deploy_arms(art, idx, scale):
+    """ARM_TARGETS 를 위치 목표로 적용한다(scale∈[0,1]). 호출측이 매 스텝 scale 을
+    0->1 로 늘려가며 반복 호출하면 각도가 아니라 시간에 걸쳐 램프된다 — step 이
+    아니라 램프로 적용하라는 브리프 지시, dock_lift_handoff_runner_v2.py(467~482줄)
+    apply_arms() 와 p4_depth set_arm_targets() 둘 다 동일 관례. DOF 배열은 이
+    파일의 기존 휠 관례(art.get_joint_positions()/(...).reshape(-1), 1D)를 그대로
+    따른다(_ingress_axle 의 vel_buf 와 동일 패턴)."""
+    pos = np.array(art.get_joint_positions(), dtype=np.float32).reshape(-1)
+    for name, deg in ARM_TARGETS.items():
+        pos[idx[name]] = math.radians(deg * scale)
+    art.set_joint_position_targets(pos)
+
+
 def main():
     _restart_with_isaac_python()
     from isaacsim import SimulationApp
@@ -1062,11 +1111,19 @@ def main():
     for robot_id in arts:
         configure_hub_drives(stage, f"{robot_prim_path(robot_id)}/joints")
 
+    # Task C5: 스윙 암 4개를 위치 드라이브로 설정(configure_hub_drives 와 같은 시점 —
+    # 두 곳 다 Articulation.initialize() 이후 UsdPhysics.DriveAPI 를 직접 프림에
+    # 걸어 이미 이 파일에서 검증된 관례를 그대로 재사용).
+    for robot_id in arts:
+        configure_arm_drives(stage, f"{robot_prim_path(robot_id)}/joints")
+
     from mecanum_drive import WHEEL_JOINTS, cmd_vel_from_wheel_velocities
     from wheel_odometry import WheelOdometry
 
     wheel_idx = {r: {w: arts[r].dof_names.index(j) for w, j in WHEEL_JOINTS.items()}
                  for r in arts}
+    arm_idx = {r: {n: arts[r].dof_names.index(n) for n in ARM_TARGETS}
+               for r in arts}
 
     def read_wheel_twist(art, idx):
         """휠 관절 '각속도'로부터 로봇 로컬 twist 를 복원한다.
@@ -3117,7 +3174,7 @@ def main():
         """
         from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist, cmd_vel_from_wheel_velocities
         from axle_center import TroughTracker
-        from pxr import UsdGeom as _UsdGeomC
+        from pxr import UsdGeom as _UsdGeomC, Usd as _UsdC
 
         mb = run_mission_b_choreo()
         if not mb["ok"]:
@@ -3456,10 +3513,83 @@ def main():
         lead_axle = _ingress_axle("entry_lead", lead_setup["art"], lead_setup["idx"],
                                   lead_setup["filt"], 1, "rear", rear_axle_gt_x)
 
+        # ---- Task C5: 앞축·뒤축 동시 리프트 ----
+        # 두 로봇 다 각자 축 아래 정지를 마쳤다(follow=앞축, lead=뒤축). 잔류 속도가
+        # 완전히 가라앉게 먼저 몇 프레임 정착한 뒤(_ingress_axle 자신도 정지 직후
+        # 20프레임 정착하지만, 그 사이 다른 로봇의 접근/진입으로 물리 스텝이 계속
+        # 돌아간 만큼 한 번 더 짧게 정착) before_lift 를 찍는다. 그 다음 ARM_TARGETS
+        # 를 두 로봇 다 매 스텝 같이 갱신하며 180스텝(ARM_LIFT_RAMP_STEPS)에 걸쳐
+        # 0->1 로 램프한다 — "동시에 전개"(브리프 지시)는 여기서 시뮬레이션 시간
+        # 기준 동시라는 뜻이다(dock_lift_handoff_runner_v2.py apply_arms()/p4_depth
+        # depth_stop_lift_test_dual.py set_arm_targets() 의 "매 ramp_step 마다 로봇들을
+        # 같이 갱신 후 app.update() 1회" 관례와 동일). 램프 후 360프레임 더 정착해
+        # 접촉이 안정화되길 기다린 뒤 after_lift 를 찍는다(전부 p4_depth 리프트
+        # 시퀀스 그대로).
+        for _ in range(30):
+            app.update()
+
+        def _wheel_pos(name):
+            v = _UsdGeomC.Xformable(stage.GetPrimAtPath(
+                f"{HANDOFF_VEHICLE_ROOT}/{name}")).ComputeLocalToWorldTransform(
+                _UsdC.TimeCode.Default()).ExtractTranslation()
+            return (float(v[0]), float(v[1]), float(v[2]))
+
+        before_lift = {wn: _wheel_pos(wn) for wn in HANDOFF_VEHICLE_WHEELS}
+
+        follow_art, follow_arm_idx = follow_setup["art"], arm_idx["entry_follow"]
+        lead_art, lead_arm_idx = lead_setup["art"], arm_idx["entry_lead"]
+        for ramp_step in range(1, ARM_LIFT_RAMP_STEPS + 1):
+            scale = ramp_step / ARM_LIFT_RAMP_STEPS
+            deploy_arms(follow_art, follow_arm_idx, scale)
+            deploy_arms(lead_art, lead_arm_idx, scale)
+            app.update()
+        for _ in range(360):
+            app.update()
+
+        after_lift = {wn: _wheel_pos(wn) for wn in HANDOFF_VEHICLE_WHEELS}
+
+        # y(높이) 상승 — 축별로 좌우 두 휠 평균(front/rear), 그 둘의 평균이 차량
+        # 전체 상승(vehicle_rise). 판정은 HANDOFF.md 3절(1로봇 뒷바퀴 리프트) +
+        # depth_stop_lift_test_dual.py 의 dual lift_pass 관례를 그대로 확장한다:
+        # 축당 "최소 상승 ARM_LIFT_MIN_RISE_M(0.025m, 실측 기준선 0.0289m/16%
+        # 마진) 이상 AND 좌우 비대칭 < ARM_LIFT_SYM_TOL_M(0.03m)" — 한쪽 팔만
+        # 걸리는 경우(비대칭 큼)를 여기서 잡는다.
+        rises = {wn: after_lift[wn][1] - before_lift[wn][1] for wn in HANDOFF_VEHICLE_WHEELS}
+        rise_front = 0.5 * (rises["FrontLeftWheel"] + rises["FrontRightWheel"])
+        rise_rear = 0.5 * (rises["RearLeftWheel"] + rises["RearRightWheel"])
+        vehicle_rise = 0.5 * (rise_front + rise_rear)
+
+        def _axle_lift_ok(w0, w1):
+            lo, hi = sorted((rises[w0], rises[w1]))
+            return lo >= ARM_LIFT_MIN_RISE_M and (hi - lo) < ARM_LIFT_SYM_TOL_M
+
+        front_lift_ok = _axle_lift_ok("FrontLeftWheel", "FrontRightWheel")
+        rear_lift_ok = _axle_lift_ok("RearLeftWheel", "RearRightWheel")
+
+        # 트럭이 팔에서 미끄러지거나 도는지(브리프: "confirm the truck doesn't
+        # slide/spin off the arms") — 4휠 평균 수평(x,z) 변위를 리프트 전후로 비교.
+        # 세로 기울기(tilt_deg, 선택 항목)는 앞/뒤 상승차를 축거로 나눈 각도.
+        slide_x = sum(after_lift[wn][0] - before_lift[wn][0] for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
+        slide_z = sum(after_lift[wn][2] - before_lift[wn][2] for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
+        slide_m = math.hypot(slide_x, slide_z)
+        wheelbase_m = abs(front_axle_gt_x - rear_axle_gt_x)
+        tilt_deg = (math.degrees(math.atan2(rise_front - rise_rear, wheelbase_m))
+                    if wheelbase_m > 1e-6 else 0.0)
+
+        lift_ok = bool(front_lift_ok and rear_lift_ok)
+        print(f"MISSIONC_LIFT rise_front={rise_front:.4f} rise_rear={rise_rear:.4f} "
+              f"vehicle_rise={vehicle_rise:.4f} ok={lift_ok} tilt_deg={tilt_deg:.2f} "
+              f"slide_m={slide_m:.4f} slide_x={slide_x:.4f} slide_z={slide_z:.4f} "
+              f"wheel_rise_fl={rises['FrontLeftWheel']:.4f} "
+              f"wheel_rise_fr={rises['FrontRightWheel']:.4f} "
+              f"wheel_rise_rl={rises['RearLeftWheel']:.4f} "
+              f"wheel_rise_rr={rises['RearRightWheel']:.4f}", flush=True)
+
         ok = bool(follow_axle["detected"] and follow_axle["err_vs_gt_axle"] <= 0.05
                   and not follow_axle["collided"] and follow_axle["max_lat_dev_m"] < 0.165
                   and lead_axle["detected"] and lead_axle["err_vs_gt_axle"] <= 0.05
-                  and not lead_axle["collided"] and lead_axle["max_lat_dev_m"] < 0.165)
+                  and not lead_axle["collided"] and lead_axle["max_lat_dev_m"] < 0.165
+                  and lift_ok)
         print(f"MISSIONC_RESULT ok={ok}", flush=True)
 
     if probe is None and mission == "B":
