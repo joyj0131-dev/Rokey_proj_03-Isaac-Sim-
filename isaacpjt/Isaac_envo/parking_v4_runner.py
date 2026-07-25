@@ -22,6 +22,27 @@ ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
              / "hwia_4cam_mecha_roller_lowered.usd")
 ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh")
 
+# ---- Mission Phase C, Task C1: 인계장 베이 Pickup ----
+# p4_depth 의 depth_stop_lift_test_dual.py 가 같은 fab_vehicles.usd 차량을 참조·배치·
+# 물리완화하는 방식을 그대로 따른다(git show origin/p4_depth:isaacpjt/Isaac_envo/
+# depth_stop_lift_test_dual.py). VEHICLE_ROOT 관례(/World/VehicleAsset/Vehicles/<이름>)도
+# 동일하게 재사용한다.
+VEHICLES_USD = WORK_DIR / "fab_vehicles.usd"
+HANDOFF_VEHICLE_NAME = "Pickup"
+HANDOFF_VEHICLE_ROOT = f"/World/VehicleAsset/Vehicles/{HANDOFF_VEHICLE_NAME}"
+# 인계장 베이(ExitVehicleWait) 블루패드 중심 — parking_environment_v4.usd 실측:
+# VehicleWaitAreas/ExitVehicleWait/Pad translate=(-8.5, 0.0001, 7.075), scale=(6.4,·,3.2).
+# 에셋 라벨은 "출차"지만 site_map_v4.py 의 z 부호반전 규약상 우리 프로세스에서는
+# ENTRY 팀 베이다(W_OUT 마커, id 51, 같은 좌표) — spawn_handoff_vehicle() 은 좌표만
+# 쓰고 라벨/역할은 다루지 않는다.
+HANDOFF_BAY_CENTER = (-8.5, 7.075)  # (x, z)
+HANDOFF_VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", "RearRightWheel")
+# v4 바닥 상판 y — parking_environment_v4.usd 의 ParkingEnvironment/Floor(scale.y=0.12,
+# translate.y=-0.06 -> 상판 y=0.0)와 VehicleWaitAreas 각 Pad(translate.y≈0.0001)로 실측
+# 확인. spawn_handoff_vehicle() 은 이 상수에 짐작 없이 실측 bbox 오프셋을 더한다.
+V4_FLOOR_Y = 0.0
+HANDOFF_SETTLE_FRAMES = 60
+
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
@@ -204,6 +225,199 @@ def robot_prim_path(robot_id):
     return f"/World/Robots/{robot_id}"
 
 
+def spawn_handoff_vehicle(stage):
+    """인계장 베이 블루패드에 Pickup 을 참조 스폰한다 (Mission Phase C, Task C1).
+
+    참조·배치·물리완화 방식은 p4_depth 의 depth_stop_lift_test_dual.py 를 그대로
+    따른다(git show origin/p4_depth:isaacpjt/Isaac_envo/depth_stop_lift_test_dual.py):
+    fab_vehicles.usd 를 통째로 참조해 목표 차종만 남기고 나머지는 비활성화하고,
+    fab_vehicles.usd 자체의 프리뷰용 부속물(조명/지면/독립 물리씬)은 끈다. FAB 차량의
+    휠은 Cylinder 콜라이더인데 PhysX 근사가 나빠 정지 상태에서도 지터한다고 그 파일이
+    보고하고 있어(--sphere-wheels 플래그 주석), PhysX Vehicle 구동계(엔진/기어/서스펜션
+    API)를 통째로 제거하고 휠 콜라이더를 Sphere 로 바꾼다 — 그 파일이 기본 실행에서
+    쓰는 조합과 동일(구동계 제거는 항상, sphere-wheels 는 플래그 없이도 항상 적용:
+    우리 차량은 절대 스스로 구르지 않고 그냥 서 있기만 하면 되므로 더 보수적으로 간다).
+    """
+    from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
+
+    if not VEHICLES_USD.is_file():
+        raise RuntimeError(f"차량 에셋 없음: {VEHICLES_USD}")
+
+    vehicle_asset = stage.GetPrimAtPath("/World/VehicleAsset")
+    if not vehicle_asset.IsValid():
+        vehicle_asset = UsdGeom.Xform.Define(stage, "/World/VehicleAsset").GetPrim()
+    vehicle_asset.GetReferences().AddReference(str(VEHICLES_USD))
+
+    # fab_vehicles.usd 자체의 프리뷰용 부속물 — v4 스테이지의 PhysicsScene/조명과
+    # 충돌하므로 끈다(depth_stop_lift_test_dual.py 의 deactivate 목록과 동일).
+    for name in ("PhysicsScene", "DriveGround", "FabLighting", "Cylinder001"):
+        p = stage.GetPrimAtPath(f"/World/VehicleAsset/{name}")
+        if p.IsValid():
+            p.SetActive(False)
+
+    vehicles = stage.GetPrimAtPath("/World/VehicleAsset/Vehicles")
+    if not vehicles.IsValid():
+        raise RuntimeError("/World/VehicleAsset/Vehicles 를 찾지 못했습니다")
+    for vehicle in vehicles.GetChildren():
+        if vehicle.GetName() != HANDOFF_VEHICLE_NAME:
+            vehicle.SetActive(False)
+
+    target = stage.GetPrimAtPath(HANDOFF_VEHICLE_ROOT)
+    if not target.IsValid():
+        raise RuntimeError(f"차량을 찾지 못했습니다: {HANDOFF_VEHICLE_ROOT}")
+
+    # 차종마다 축거가 달라 앞/뒤축 로컬 Z 를 실제 휠 좌표에서 뽑는다(하드코딩 금지 —
+    # depth_stop_lift_test_dual.py 관례와 동일). 아직 이동 전 local translate 값이므로
+    # 참조 원본 자세 기준이다.
+    wheel_local = {}
+    for wn in HANDOFF_VEHICLE_WHEELS:
+        w = stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/{wn}")
+        if not w.IsValid():
+            raise RuntimeError(f"휠을 찾지 못했습니다: {HANDOFF_VEHICLE_ROOT}/{wn}")
+        wheel_local[wn] = UsdGeom.Xformable(w).GetLocalTransformation().ExtractTranslation()
+    front_local_z = (wheel_local["FrontLeftWheel"][2] + wheel_local["FrontRightWheel"][2]) * 0.5
+    rear_local_z = (wheel_local["RearLeftWheel"][2] + wheel_local["RearRightWheel"][2]) * 0.5
+
+    # 참조 원본(무회전)은 로컬 Z 가 세계 Z 와 그대로 겹친다(depth_stop_lift_test_dual.py
+    # 는 이 차량을 회전 없이 translate 만으로 배치했고 그때 차 길이가 world Z 를 따랐다
+    # — 로봇 에셋과 달리 이 차량 에셋은 Z-up->Y-up 축변환이 필요 없다). 길이축을 X로
+    # 돌리려면 Y축 ±90°: world_x = local_x*cosθ + local_z*sinθ 이므로(축 중심의
+    # local_x≈0 가정) front_world_x - rear_world_x ≈ (front_local_z-rear_local_z)*sinθ.
+    # 앞축이 게이트쪽(-x, 먼 쪽)에 오려면 이 값이 음수여야 한다 — 그래서 두 로컬 Z 의
+    # 대소로 회전 부호를 정한다(차종이 바뀌어도 축 좌표만 보면 되므로 하드코딩 아님).
+    yaw_deg = -90.0 if front_local_z > rear_local_z else 90.0
+
+    # 주의: target(Pickup) 자신의 로컬 트랜스폼은 build_fab_vehicles.py 가 이미
+    # "FBX 로컬축(X=좌우,Y=전후,Z=위) -> PhysX/Isaac 축(X=좌우,Y=위,Z=전후)" 정렬 회전을
+    # 구워 넣은 것이다(vehicle_root_world = yaw_basis * fbx_to_vehicle_basis *
+    # body_world — 위 build_fab_vehicles.py 참고). depth_stop_lift_test_dual.py 는 이
+    # 회전을 절대 지우지 않고 translate 성분만 GetLocalTransformation().SetTranslate()
+    # 로 바꿔치기해 재사용한다(_replace_matrix_xform). 여기서도 그 관례를 그대로
+    # 따른다: target 자체는 회전을 보존하고 translate 만 (0,0,0)으로 바꿔 VehicleAsset
+    # (래퍼) 원점에 "정렬된 채"(길이=로컬Z, 좌우=로컬X, 높이=로컬Y — 아래 실측으로
+    # 확인) 두고, 내가 필요한 추가 Y축 회전은 VehicleAsset 래퍼 쪽에 얹는다 — 이
+    # 파일이 로봇을 놓을 때 이미 쓰는 것과 똑같은 "AddTranslateOp 후 AddRotateOp"
+    # 관례(Z-up 에셋 -> Y-up 스테이지 변환에 씀)를 그대로 재사용하므로 새 행렬 곱
+    # 규약을 만들지 않는다. (디버깅 메모: target 의 회전을 통째로 지우고 새
+    # translate+rotateY 를 바로 얹는 첫 시도도 동일한 bbox 를 냈다 — 바디/휠 등
+    # 자식 prim 들이 이미 자기 자신의 xformOp 로 "정렬된 로컬 프레임"을 갖고 있어서,
+    # target 루트에 어떤 강체변환을 얹어도 결과가 같았다. 그래도 이 방식을 유지하는
+    # 이유는 p4_depth 가 검증한 패턴을 그대로 재사용해 회귀 위험을 줄이기 위해서다.)
+    target_xf = UsdGeom.Xformable(target)
+    target_matrix = target_xf.GetLocalTransformation()
+    target_matrix.SetTranslate(Gf.Vec3d(0.0, 0.0, 0.0))
+    target_xf.ClearXformOpOrder()
+    target_xf.MakeMatrixXform().Set(target_matrix)
+
+    cx, cz = HANDOFF_BAY_CENTER
+    va_xf = UsdGeom.Xformable(vehicle_asset)
+    va_xf.ClearXformOpOrder()
+    translate_op = va_xf.AddTranslateOp()
+    translate_op.Set(Gf.Vec3d(cx, 0.0, cz))
+    va_xf.AddRotateYOp().Set(yaw_deg)
+
+    # 바닥에 닿게: 일단 y=0 으로 놓고 실측 bbox 최저점으로 오프셋을 구한다(짐작 금지 —
+    # taskC1-brief.md 요구사항). V4_FLOOR_Y 는 parking_environment_v4.usd Floor/Pad
+    # 상판을 실측한 값(=0.0)이고, 여기서는 차량 자체의 최저점만 bbox 로 구한다.
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render, UsdGeom.Tokens.proxy],
+        useExtentsHint=True,
+    )
+    world_range = bbox_cache.ComputeWorldBound(target).ComputeAlignedRange()
+    if world_range.IsEmpty():
+        raise RuntimeError(f"{HANDOFF_VEHICLE_ROOT} bbox 계산 실패(빈 범위)")
+    y_min = world_range.GetMin()[1]
+    y_offset = V4_FLOOR_Y - y_min
+    translate_op.Set(Gf.Vec3d(cx, y_offset, cz))
+
+    # 최종 배치 후 실측 bbox 로 배향을 증명한다: len_x≈5.83(길이, taskC1-brief.md
+    # 실측치와 일치). wid_z 는 이 스폰 시점에 처음 실측한 값(≈2.33)이 나와야 한다 —
+    # brief 의 "width 1.910/height(third dim) 2.327" 라벨은 실측(휠 world y=0.423 이
+    # 타이어 반경과 정확히 일치 -> Y 가 확실히 위쪽축)과 대조해보면 서로 뒤바뀌어
+    # 있었다(진짜 폭=2.327, 진짜 높이=1.910). len_x/wid_z 토큰은 "길이=X, 나머지
+    # 수평축=Z, 높이=Y(안 찍음, 회전에 안 바뀜)"만 증명하면 되므로 이 라벨 오류는
+    # 배치 정확성에 영향 없다 — 패드 z 한도(3.2m) 안에 2.327 이든 1.910 이든 다 들어간다.
+    bbox_cache.Clear()
+    world_range = bbox_cache.ComputeWorldBound(target).ComputeAlignedRange()
+    size = world_range.GetSize()
+    len_x, wid_z = float(size[0]), float(size[2])
+
+    # 진단용: 앞축이 정말 게이트쪽(-x)에 있는지 실측 세계좌표로 직접 확인한다(부호
+    # 유도만 믿지 않는다 — taskC1-brief.md 정직성 요구사항). V4_VEHICLE 토큰 형식은
+    # 고정이므로 별도 줄로 출력한다.
+    time_code = Usd.TimeCode.Default()
+    front_world_x = 0.5 * (
+        UsdGeom.Xformable(stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/FrontLeftWheel"))
+        .ComputeLocalToWorldTransform(time_code).ExtractTranslation()[0]
+        + UsdGeom.Xformable(stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/FrontRightWheel"))
+        .ComputeLocalToWorldTransform(time_code).ExtractTranslation()[0]
+    )
+    rear_world_x = 0.5 * (
+        UsdGeom.Xformable(stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/RearLeftWheel"))
+        .ComputeLocalToWorldTransform(time_code).ExtractTranslation()[0]
+        + UsdGeom.Xformable(stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/RearRightWheel"))
+        .ComputeLocalToWorldTransform(time_code).ExtractTranslation()[0]
+    )
+    print(f"V4_VEHICLE_AXLES front_world_x={front_world_x:.3f} rear_world_x={rear_world_x:.3f} "
+          f"(front should be < rear, gate side -x)", flush=True)
+
+    # ---- 물리 완화(p4_depth 참고, "Key facts"·"reference implementation" 지시대로) ----
+    vehicle_single_apis = (
+        PhysxSchema.PhysxVehicleAPI,
+        PhysxSchema.PhysxVehicleDriveStandardAPI,
+        PhysxSchema.PhysxVehicleEngineAPI,
+        PhysxSchema.PhysxVehicleGearsAPI,
+        PhysxSchema.PhysxVehicleAutoGearBoxAPI,
+        PhysxSchema.PhysxVehicleClutchAPI,
+        PhysxSchema.PhysxVehicleControllerAPI,
+        PhysxSchema.PhysxVehicleAckermannSteeringAPI,
+        PhysxSchema.PhysxVehicleMultiWheelDifferentialAPI,
+    )
+    wheel_apis = (
+        PhysxSchema.PhysxVehicleWheelAttachmentAPI,
+        PhysxSchema.PhysxVehicleWheelAPI,
+        PhysxSchema.PhysxVehicleTireAPI,
+        PhysxSchema.PhysxVehicleSuspensionAPI,
+        PhysxSchema.PhysxVehicleSuspensionComplianceAPI,
+    )
+    for api_schema in vehicle_single_apis:
+        if target.HasAPI(api_schema):
+            target.RemoveAPI(api_schema)
+    for instance_name in (PhysxSchema.Tokens.brakes0, PhysxSchema.Tokens.brakes1):
+        if target.HasAPI(PhysxSchema.PhysxVehicleBrakesAPI, instance_name):
+            target.RemoveAPI(PhysxSchema.PhysxVehicleBrakesAPI, instance_name)
+    for wheel_name in HANDOFF_VEHICLE_WHEELS:
+        wheel = stage.GetPrimAtPath(f"{HANDOFF_VEHICLE_ROOT}/{wheel_name}")
+        for api_schema in wheel_apis:
+            if wheel.HasAPI(api_schema):
+                wheel.RemoveAPI(api_schema)
+
+    # 휠 Cylinder 콜라이더 -> Sphere (--sphere-wheels 와 동일 완화, 항상 적용).
+    sphere_radius = None
+    for wheel_name in HANDOFF_VEHICLE_WHEELS:
+        wheel_path = f"{HANDOFF_VEHICLE_ROOT}/{wheel_name}"
+        cylinder = stage.GetPrimAtPath(f"{wheel_path}/Collision")
+        if not cylinder.IsValid():
+            raise RuntimeError(f"휠 충돌체를 찾지 못했습니다: {wheel_path}/Collision")
+        sphere_radius = float(UsdGeom.Cylinder(cylinder).GetRadiusAttr().Get())
+        cylinder.SetActive(False)
+        sphere = UsdGeom.Sphere.Define(stage, f"{wheel_path}/CollisionSphere")
+        sphere.CreateRadiusAttr(sphere_radius)
+        sphere.CreatePurposeAttr(UsdGeom.Tokens.guide)
+        UsdPhysics.CollisionAPI.Apply(sphere.GetPrim())
+
+    vehicle_rigid = PhysxSchema.PhysxRigidBodyAPI.Apply(target)
+    vehicle_rigid.GetDisableGravityAttr().Set(False)
+    vehicle_rigid.CreateEnableCCDAttr(True)
+    vehicle_rigid.GetSolverPositionIterationCountAttr().Set(16)
+    vehicle_rigid.GetSolverVelocityIterationCountAttr().Set(8)
+
+    print(f"V4_VEHICLE name={HANDOFF_VEHICLE_NAME} pos=({cx},{cz}) yaw={yaw_deg:.1f} "
+          f"len_x={len_x:.3f} wid_z={wid_z:.3f}", flush=True)
+    return HANDOFF_VEHICLE_ROOT
+
+
 def build_stage(app):
     from pxr import Gf, UsdGeom
     import omni.usd
@@ -248,6 +462,14 @@ def build_stage(app):
         xf.ClearXformOpOrder()
         xf.AddTranslateOp().Set(Gf.Vec3d(m["x"], ROBOT_SPAWN_Y, m["z"]))
         xf.AddRotateXOp().Set(-90.0)          # Z-up 에셋 -> Y-up 스테이지
+    for _ in range(30):
+        app.update()
+
+    # Mission Phase C, Task C1: 인계장 베이에 Pickup 을 얹는다. 로봇 도크/경로(x≈
+    # -3.2~-1.2, XN x≈-2.5) 와 베이(x=-8.5±3.2 -> -11.7~-5.3) 사이 x 방향 여유가
+    # ≥1.1m 있어 --mission=B 경로를 막지 않을 것으로 보이나, 아래 회귀 실행으로
+    # 반드시 확인한다(짐작 금지 — taskC1-brief.md).
+    spawn_handoff_vehicle(stage)
     for _ in range(30):
         app.update()
 
@@ -541,6 +763,21 @@ def main():
     timeline.play()
     for _ in range(30):
         app.update()
+
+    # Task C1 Step 2: 인계장 베이 차량(Pickup) 정착 확인 — spawn_handoff_vehicle() 이
+    # 물리완화를 적용했지만 실제로 지터하지 않는지는 몇 프레임 굴려 실측해야 안다
+    # (짐작 금지). physx 인터페이스로 직접 읽는다(omni.physx, depth_stop_lift_test_dual.py
+    # 의 rigid_position() 관례와 동일 — USD 속성 캐시가 아니라 물리 시뮬레이션 값).
+    import omni.physx as _omni_physx
+    _physx_iface = _omni_physx.get_physx_interface()
+    _veh_p0 = tuple(float(x) for x in
+                     _physx_iface.get_rigidbody_transformation(HANDOFF_VEHICLE_ROOT)["position"])
+    for _ in range(HANDOFF_SETTLE_FRAMES):
+        app.update()
+    _veh_p1 = tuple(float(x) for x in
+                     _physx_iface.get_rigidbody_transformation(HANDOFF_VEHICLE_ROOT)["position"])
+    _veh_drift = math.sqrt(sum((a - b) ** 2 for a, b in zip(_veh_p0, _veh_p1)))
+    print(f"V4_VEHICLE_SETTLE drift_m={_veh_drift:.5f}", flush=True)
 
     # 비활성화된 로봇은 아티큘레이션을 만들지 않는다(프림이 없으니 초기화도 불가).
     arts = {}
