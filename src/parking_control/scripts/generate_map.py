@@ -141,14 +141,11 @@ def build_map():
             # "모든 통로가 수평"이라는 전제 자체가 안 맞는다(2026-07-24 확인,
             # 아래 obstacle_detector.py 주석 참고). 로봇 물리 경로 재설계(B) 때
             # zone_boxes도 같이 다시 설계해야 한다.
-            # half_w_m: safety_monitor_node.py가 천장 LiDAR 2대(서/동)의 실제
-            # 설치 위치를 계산하는 데 쓰는 값(core/lidar_frame_transform.py의
-            # sensor_offsets) — v2는 "주차장 중심 기준 절반 폭"(17.0m)이라는
-            # 대칭 구조였지만, v3는 슬롯 열(x=2.8~9.6)과 인계장(x=-21~-8.5)이
-            # 비대칭으로 떨어져 있어 같은 개념이 안 맞는다. ⚠ 여기 값은 죽는 것만
-            # 막으려고 옛 v2 값을 그대로 둔 자리표시자다 — LiDAR 센서가 v3
-            # 레이아웃에 맞게 실제로 재설치/재측량된 뒤에 반드시 갱신할 것
-            # (지금 값으로는 서쪽/동쪽 LiDAR 위치 계산이 부정확할 가능성이 높음).
+            # half_w_m: 더 이상 안 쓰임(2026-07-24) — LiDAR가 서/동 2대에서
+            # 1대로 통합되면서 safety_monitor_node.py가
+            # core/lidar_frame_transform.sensor_offset()(인자 없음, v3.usd 실측
+            # 고정값)을 직접 쓰도록 바뀌었다. 이 키는 죽은 값이라 지워도 되지만
+            # 당장 해는 없어 남겨둠.
             params=dict(slot_count=3, layout="v3", space_length=6.6,
                         space_width=3.4, aisle_width=9.0, half_w_m=17.0),
         ),
