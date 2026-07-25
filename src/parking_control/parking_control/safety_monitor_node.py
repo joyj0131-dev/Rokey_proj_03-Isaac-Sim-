@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""safety_monitor: LiDAR 포인트클라우드 하나로 세 가지를 한다.
+"""safety_monitor: LiDAR 월드 포인트클라우드 하나로 두 가지를 한다.
 
   ① 통로 장애물 감지 → obstacle_alert 토픽 발행 (parking_robot_system의
      safety_monitor 스켈레톤과 같은 인터페이스)
   ② 주차 슬롯 점유 판정 → parking_slots.status를 실시간으로 갱신
-  ③ (2026-07-23 추가) RViz2 실시간 시각화 — 두 센서를 합친 월드 좌표
-     포인트클라우드를 /parking/lidar/points_world(scripts/lidar/run_live_rviz.sh
-     가 쓰는 것과 같은 토픽·config/lidar_live.rviz의 "Combined LiDAR World"
-     디스플레이가 그대로 보여줌)로, 슬롯 점유·통로 막힘 판정 결과는
-     parking_status_markers(MarkerArray — 슬롯은 초록/빨강 박스, 막힌 통로는
-     빨강 반투명 박스)로 발행한다. RViz2에서 그 config를 열고 Marker Array
-     디스플레이(토픽: parking_status_markers)만 하나 추가하면 실시간으로
-     주차 현황·장애물이 눈에 보인다.
+  둘의 판정 결과는 parking_status_markers(MarkerArray — 슬롯은 초록/빨강
+  박스, 막힌 통로는 빨강 반투명 박스)로도 발행한다. RViz2에서
+  config/lidar_live.rviz를 열고 Marker Array 디스플레이(토픽:
+  parking_status_markers)만 하나 추가하면 실시간으로 주차 현황·장애물이
+  눈에 보인다.
 
-같은 LiDAR 토픽을 보는 감시 기능이라 노드 하나로 합쳤다(구독·DB 연결을
+같은 LiDAR 데이터를 보는 감시 기능이라 노드 하나로 합쳤다(구독·DB 연결을
 두 번 만들 이유가 없음). 담당자가 아직 미정인 팀 공유 스켈레톤
 (parking_robot_system)은 건드리지 않고, 이 노드가 그 자리를 대신할 수
 있는 독립 구현이다(sim_orchestrator와 같은 패턴 — 필요하면 팀 합의 후 교체).
@@ -22,21 +19,21 @@
 ObstacleAlert.msg가 불리언 하나뿐이고, 주차 목적에도 있다/없다면
 충분하기 때문이다.
 
-실제 LiDAR: 2026-07-24 v3.usd(Sensors 스코프) 확인 결과 예전(서/동 2대)에서
-**1대로 통합**됐다(sensor:role="주차장 전체 커버리지(1대 통합)"). 이 노드도
-그에 맞춰 단일 토픽(lidar_topic 파라미터, 기본값은 실측 확인 전 추정치 —
-실제 rokey님 발행 토픽 이름 확인되면 바로 갱신할 것)을 구독한다.
-센서 로컬 좌표로 발행되므로(아직 TF 없음), core/lidar_frame_transform.py로
-저희 월드 좌표로 변환한 뒤에야 기존 판정 로직에 넣을 수 있다. ★이 변환의
-축 가정은 실측 검증이 안 됐다 — 파일 상단 경고 참고, 반드시 실제
-데이터로 verify_with_known_point() 등으로 확인할 것.★
+2026-07-25: 이전 버전은 자체 lidar_topic 파라미터(추정 토픽명)로 raw
+센서 좌표를 구독한 뒤 core/lidar_frame_transform.py(검증 안 된 센서
+오프셋 계산)로 직접 월드 좌표 변환을 했었다. 그 토픽명은 실제로 존재하지
+않았고(실측 결과 진짜 발행 토픽은 /parking/lidar/ceiling_01/points_usd,
+scripts/lidar/capture_lidar.py --live가 발행), 변환도 이미 검증된
+scripts/lidar/ros_pointcloud_world_relay.py가 같은 일을 하고 있었다 —
+raw 토픽들을 구독해 USD Y-up → ROS map 변환까지 끝낸 뒤
+/parking/lidar/points_world로 재발행한다(scripts/lidar/run_live_rviz.sh가
+캡처+릴레이+RViz를 한 번에 띄우는 스크립트). 그래서 이 노드는 이제 자체
+변환 없이 그 결과 토픽을 바로 구독한다 — 이 노드가 다시 같은 이름으로
+points_world를 발행하면 릴레이와 퍼블리셔가 중복되므로 더 이상 발행하지
+않는다(RViz는 릴레이가 내는 걸 직접 본다).
 
-⚠ 센서 위치 계산(core/lidar_frame_transform.sensor_offset)은 v3.usd에서 실측한
-값(x=0.5, 높이=5.12)을 쓴다 — 다만 "포인트클라우드 raw 좌표가 USD 로컬 좌표와
-같은 축 라벨링을 따르는지"는 여전히 미검증이니 첫 실데이터로 꼭 확인할 것.
-
-주의: 브릿지가 안 떠 있으면 두 토픽 다 데이터가 안 들어와서 이 노드는
-그냥 조용히 대기만 한다 (에러는 안 남).
+주의: 브릿지/캡처/릴레이가 안 떠 있으면 토픽에 데이터가 안 들어와서 이
+노드는 그냥 조용히 대기만 한다 (에러는 안 남).
 """
 
 import numpy as np
@@ -44,16 +41,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
-from std_msgs.msg import Header
 from visualization_msgs.msg import Marker, MarkerArray
 
 from parking_robot_interfaces.msg import ObstacleAlert
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
-from parking_control.core.lidar_frame_transform import (
-    sensor_offset, transform_to_world,
-)
 from parking_control.core.obstacle_detector import detect_blocked_zones, zone_boxes
 from parking_control.core.slot_occupancy_detector import detect as detect_slot_occupancy
 from parking_control.parking_slot_manager_node import _default_map_yaml
@@ -69,9 +62,10 @@ class SafetyMonitorNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        # 2026-07-24: LiDAR가 서/동 2대에서 1대로 통합됨(v3.usd 확인) — 토픽 이름은
-        # 아직 실측 확인 전 추정치, 실제 rokey님 발행 토픽으로 확인되면 갱신할 것.
-        self.declare_parameter("lidar_topic", "/parking/lidar/ceiling/points")
+        # 2026-07-25: scripts/lidar/ros_pointcloud_world_relay.py가 이미 raw
+        # 센서 토픽들을 구독해 ROS map(월드) 좌표로 변환·병합해 이 토픽으로 낸다
+        # (scripts/lidar/run_live_rviz.sh가 캡처+릴레이+RViz를 한 번에 띄움).
+        self.declare_parameter("lidar_world_topic", "/parking/lidar/points_world")
 
         p = self.get_parameter
         self._db = ParkingDB(
@@ -81,56 +75,34 @@ class SafetyMonitorNode(Node):
         self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
-        self._x_offset, self._height_offset = sensor_offset()
-
         self._alert_pub = self.create_publisher(ObstacleAlert, "obstacle_alert", 10)
-        # RViz2 시각화용(2026-07-23) — 토픽 이름은 scripts/lidar/run_live_rviz.sh /
-        # config/lidar_live.rviz가 이미 쓰는 이름과 같게 맞춰서, 그 rviz 파일을
-        # 그대로 열고 MarkerArray 디스플레이만 하나 추가하면 된다.
-        self._cloud_pub = self.create_publisher(
-            PointCloud2, "/parking/lidar/points_world", 10)
         self._marker_pub = self.create_publisher(
             MarkerArray, "parking_status_markers", 10)
         self.create_subscription(
-            PointCloud2, p("lidar_topic").value, self._on_pointcloud, 10)
+            PointCloud2, p("lidar_world_topic").value, self._on_pointcloud, 10)
 
         slot_count = len(self._map.nodes_of_kind("slot"))
         self.get_logger().info(
-            f"safety_monitor 시작 (lidar_topic={p('lidar_topic').value}, "
+            f"safety_monitor 시작 (lidar_world_topic={p('lidar_world_topic').value}, "
             f"통로 {len(self._zone_boxes)}개 + 슬롯 {slot_count}개 감시) — "
-            "LiDAR가 연결되기 전까지는 대기만 합니다. ⚠ 센서 좌표 변환은 "
-            "실측 검증 전이니 첫 실데이터로 core/lidar_frame_transform.py의 "
-            "verify_with_known_point()로 꼭 확인할 것")
+            "캡처+릴레이(scripts/lidar/run_live_rviz.sh)가 연결되기 전까지는 "
+            "대기만 합니다.")
 
     def _on_pointcloud(self, msg):
-        # read_points()는 구조화 배열(필드별 named dtype)을 반환하므로
-        # np.array(list(...), dtype=float64)로 바로 캐스팅하면 에러가 난다.
-        # 필드를 각각 뽑아서 일반 (N,3) 배열로 조립해야 한다.
+        # ros_pointcloud_world_relay.py가 이미 ROS map(월드) 좌표로 변환해 내보내므로
+        # 여기서는 추가 변환 없이 그대로 쓴다. read_points()는 구조화 배열(필드별
+        # named dtype)을 반환하므로 np.array(list(...), dtype=float64)로 바로
+        # 캐스팅하면 에러가 난다 — 필드를 각각 뽑아서 일반 (N,3) 배열로 조립한다.
         cloud = point_cloud2.read_points(
             msg, field_names=("x", "y", "z"), skip_nans=True)
         if cloud.size == 0:
-            local_points = np.empty((0, 3))
-        else:
-            local_points = np.column_stack(
-                [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
-
-        points = transform_to_world(local_points, self._x_offset, self._height_offset)
-        if points.size == 0:
             return
+        points = np.column_stack(
+            [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
 
-        self._publish_world_cloud(points)
         blocked = self._check_obstacles(points)
         slot_results = self._update_slot_occupancy(points)
         self._publish_markers(blocked, slot_results)
-
-    def _publish_world_cloud(self, points):
-        """두 센서를 합친 월드 좌표 포인트클라우드를 RViz2용으로 그대로 내보낸다
-        (scripts/lidar/run_live_rviz.sh의 world_relay와 같은 토픽 — 그 rviz
-        config를 그대로 재사용할 수 있다)."""
-        header = Header(frame_id="map")
-        header.stamp = self.get_clock().now().to_msg()
-        self._cloud_pub.publish(
-            point_cloud2.create_cloud_xyz32(header, points[:, :3].tolist()))
 
     def _check_obstacles(self, points):
         robot_positions = self._db.all_robot_positions()

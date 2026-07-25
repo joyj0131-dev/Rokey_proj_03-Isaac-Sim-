@@ -123,25 +123,34 @@ class FormationMotion:
     (parking_robot_system.frame_transform 참고).
     """
 
-    def __init__(self, node, *, rear_id="robot_rear", front_id="robot_front",
-                 handoff_x=-8.5, handoff_z=-5.5, gate_x=-13.0,
-                 dock_rear=(-3.2, -2.2), dock_front=(-1.2, -2.2), lane_z=-5.3,
+    def __init__(self, node, *, rear_id="entry_lead", front_id="entry_follow",
+                 handoff_x=-8.5, handoff_z=7.075, gate_x=-12.55,
+                 dock_rear=(-3.2, 2.2), dock_front=(-1.2, 2.2), lane_z=6.875,
                  rear_axle_z=-1.93, front_axle_z=1.66,
                  callback_group=None):
         # rear_id/front_id: 이 편대가 실제로 제어할 물리 로봇 이름(토픽/서비스 네임스페이스에
         # 그대로 쓰인다) — 입차/출차 전용 로봇쌍을 분리하려면 액션서버 생성 시 다른 이름을
-        # 넘기면 된다(하드코딩 대신 파라미터화, 2026-07-24).
+        # 넘기면 된다(하드코딩 대신 파라미터화, 2026-07-24). 실제 로봇 ID는
+        # src/parkbot_aruco/parkbot_aruco/site_map_v4.ROBOTS =
+        # (entry_lead, entry_follow, exit_lead, exit_follow) — 아래 기본값은 그중
+        # entry_lead/entry_follow(2026-07-25, 이전 robot_rear/robot_front 오기 수정).
         #
-        # handoff_x/handoff_z/gate_x/dock_rear/dock_front/lane_z: 2026-07-24 v3
-        # 레이아웃 기본값(입차 전용). v3.usd 실측 좌표(USD 프레임, 이 클래스가 쓰는 것과
-        # 동일 좌표계) 그대로다:
-        #   handoff = vehicle:entryWait(-8.5,-5.5) — 차량이 로봇에게 실제 인계되는 지점
-        #   gate_x  = vehicle:entryGate x(-13.0)   — 인계지점 진입 전 통과하는 게이트
-        #   dock_rear/dock_front = dock_ROBOT_IN/IN_2(-3.2,-2.2)/(-1.2,-2.2) — 로봇 대기 도크
-        #   lane_z  = lane:inboundZ(-5.3) — carry 구간(인계지점↔슬롯)에서 쓰는 전용 차로.
-        #             출차 세트는 lane:outboundZ(+5.3) 등 대칭값을 launch 파라미터로 넘긴다
-        #             (parking_robot_system.launch.py 참고) — 입/출차가 물리적으로 다른
-        #             차로를 쓰게 돼 있어야 두 로봇쌍이 동시에 움직여도 안 부딪힌다.
+        # handoff_x/handoff_z/gate_x/dock_rear/dock_front/lane_z: 2026-07-25 v4
+        # 레이아웃 기본값(입차 전용). parking_environment_v4.usd ArucoMarkerPreview
+        # 실측 좌표(USD 프레임, 이 클래스가 쓰는 것과 동일 좌표계) 기반이다. ★주의:
+        # v4 에셋의 aruco:note는 이 좌표를 "출차"라고 표기하지만, 그건 에셋 제작자
+        # 라벨일 뿐이고 우리 팀 규약(site_map_v4.py: 입차=z 양수)에서는 ENTRY다 —
+        # 이전 버전은 이 반전을 놓쳐 입/출차 좌표가 통째로 뒤바뀌어 있었다.
+        #   handoff = W_OUT 마커(-8.5, 7.075) — 차량이 로봇에게 실제 인계되는 지점
+        #   gate_x  = GATE_OUT 마커 x(-12.55) — 인계지점 진입 전 통과하는 게이트
+        #   dock_rear/dock_front = D_OUT_1/D_OUT_2(-3.2,2.2)/(-1.2,2.2) — 로봇 대기 도크
+        #   lane_z  = XN/A1' 마커 계열(6.875) — carry 구간 1단계(핸드오프→슬롯 x열)에서
+        #             쓰는 입차 전용 차로. 슬롯 자체는 반대쪽(z=-6.875)에 있어 carry의
+        #             2단계가 그 경계를 가로질러 슬롯까지 마저 들어간다(v4 실측 반영,
+        #             2026-07-25). 출차 세트는 대칭값(-6.875 등, 슬롯과 같은 차로)을
+        #             launch 파라미터로 넘긴다(parking_robot_system.launch.py 참고) —
+        #             입/출차가 물리적으로 다른 차로를 쓰게 돼 있어야 두 로봇쌍이
+        #             동시에 움직여도 안 부딪힌다.
         # rear_axle_z/front_axle_z(차체 축 오프셋)는 차량 규격이라 위치와 무관 — 그대로 유지.
         self.node = node
         self.rear_id = rear_id
@@ -161,12 +170,18 @@ class FormationMotion:
         self.veh_yaw = None
         grp = callback_group or ReentrantCallbackGroup()
         for r in self.robots:
+            # 토픽 접두사 "/robot_{id}/..."는 isaacpjt/Isaac_envo/parking_v4_runner.py가
+            # 실제로 발행하는 이름(odom_pub, attach_camera_graph 참고) — "/{id}/..."가
+            # 아니다(2026-07-25 확인·수정: 이전엔 접두사 없이 구독해서 odom이 전혀 안
+            # 들어왔다). cmd_vel은 현재 v4 runner 쪽에 구독자가 없어(주행 루프가 아직
+            # probe 전용) 실제로는 아무도 안 받지만, 나중에 붙을 때 같은 네임스페이스
+            # 관례를 따르도록 미리 맞춰둔다.
             node.create_subscription(
-                Odometry, f"/{r}/odom",
+                Odometry, f"/robot_{r}/odom",
                 lambda m, rid=r: self._odom(rid, m), 10, callback_group=grp)
         node.create_subscription(
             PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
-        self.cmd = {r: node.create_publisher(Twist, f"/{r}/cmd_vel", 10) for r in self.robots}
+        self.cmd = {r: node.create_publisher(Twist, f"/robot_{r}/cmd_vel", 10) for r in self.robots}
 
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
     def _odom(self, rid, m):

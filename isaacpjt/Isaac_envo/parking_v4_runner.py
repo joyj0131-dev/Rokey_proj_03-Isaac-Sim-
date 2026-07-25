@@ -6,7 +6,17 @@
 
 좌표 규약은 site_map_v4 가 전담한다(입차=z양수, 에셋 라벨과 반대).
 
-실행: parking_v4_runner.sh [--gui] [--headless-test]
+실행: parking_v4_runner.sh [--gui] [--headless-test] [--keep-lidar]
+
+--keep-lidar(2026-07-25 추가): probe들은 기본적으로 천장 RTX LiDAR를 끈다
+(무겁고 불필요해서, _disable_sensors 참고) — 이 플래그를 주면 끄지 않는다.
+`--gui --keep-lidar`로 실행하면(probe 없이) Isaac Sim GUI 창이 뜬 채로
+v4 씬이 Play 상태로 유지되므로, /World/Sensors/CeilingLidarCenter 프림을
+선택해 Isaac Sim 자체 뷰포트에서 LiDAR 포인트클라우드를 눈으로 볼 수 있다
+— ROS/rviz2 없이 순수 Isaac Sim GUI로 확인하고 싶을 때 쓴다(시스템 ROS를
+이 프로세스와 같은 셸에서 source할 필요가 없다 — 재실행되는 Isaac
+python.sh가 자체 번들 rclpy를 쓰기 때문에 시스템 ROS Humble을 섞으면
+오히려 충돌 위험이 있다).
 """
 import math
 import os
@@ -122,7 +132,7 @@ def robot_prim_path(robot_id):
     return f"/World/Robots/{robot_id}"
 
 
-def build_stage(app):
+def build_stage(app, keep_lidar=False):
     from pxr import Gf, UsdGeom
     import omni.usd
 
@@ -145,7 +155,7 @@ def build_stage(app):
     for _ in range(30):
         app.update()
 
-    n_lidar = _disable_sensors(stage)
+    n_lidar = 0 if keep_lidar else _disable_sensors(stage)
 
     markers = read_markers(stage)
     problems = sm.validate_markers(
@@ -399,7 +409,7 @@ def main():
     import omni.timeline
     from isaacsim.core.prims import Articulation
 
-    stage = build_stage(app)
+    stage = build_stage(app, keep_lidar="--keep-lidar" in sys.argv[1:])
 
     # probe B 는 측정 대상 외 로봇을 화면·물리에서 뺀다(사용자 요청 + 개루프 주행 중
     # 옆 도크 로봇과의 충돌 제거). 반드시 timeline.play()/Articulation.initialize() '전에'

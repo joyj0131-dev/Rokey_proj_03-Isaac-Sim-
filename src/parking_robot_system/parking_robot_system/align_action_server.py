@@ -38,16 +38,16 @@ class AlignActionServerNode(Node):
         # "exit"(슬롯 픽업, pickup_at_slot)인지 — 예전엔 target_pose의 x좌표로 베이/슬롯을
         # 구분했지만(BAY_X_THRESHOLD), v3 레이아웃에서는 세트 자체가 이미 입차/출차 전용으로
         # 고정돼 있어서 좌표로 추측할 필요가 없다(추측하면 새 좌표계에서 틀릴 위험도 있었음).
-        self.declare_parameter("rear_id", "robot_rear")
-        self.declare_parameter("front_id", "robot_front")
+        self.declare_parameter("rear_id", "entry_lead")
+        self.declare_parameter("front_id", "entry_follow")
         self.declare_parameter("handoff_x", -8.5)
-        self.declare_parameter("handoff_z", -5.5)
-        self.declare_parameter("gate_x", -13.0)
+        self.declare_parameter("handoff_z", 7.075)
+        self.declare_parameter("gate_x", -12.55)
         self.declare_parameter("dock_rear_x", -3.2)
-        self.declare_parameter("dock_rear_z", -2.2)
+        self.declare_parameter("dock_rear_z", 2.2)
         self.declare_parameter("dock_front_x", -1.2)
-        self.declare_parameter("dock_front_z", -2.2)
-        self.declare_parameter("lane_z", -5.3)
+        self.declare_parameter("dock_front_z", 2.2)
+        self.declare_parameter("lane_z", 6.875)
         self.declare_parameter("site_role", "entry")   # entry | exit
         p = self.get_parameter
         self._site_role = p("site_role").value

@@ -53,6 +53,10 @@ DEFAULT_STAGE_CANDIDATES = (
     # build_integrated_parking_field.py의 최종 산출물(주차장+차량+로봇)을
     # 최우선으로 사용한다. 파일이 아직 없으면 기반 주차장으로 fallback한다.
     Path("/home/rokey/Isaac_envo/parking/parking_robot_field.usd"),
+    # 2026-07-25 추가: 지금 실제로 쓰는 레이아웃(3슬롯, 천장 LiDAR 1대 통합,
+    # site_map_v4 규약)이 이 파일이다 — 아래 구버전(parking_environment.usd,
+    # 16슬롯·서/동 LiDAR 2대) fallback보다 먼저 시도해야 한다.
+    REPO_ROOT / "isaacpjt/Isaac_envo/parking/parking_environment_v4.usd",
     Path("/home/rokey/Isaac_envo/parking/parking_environment.usd"),
     REPO_ROOT / "isaacpjt/Isaac_envo/parking/parking_environment.usd",
 )

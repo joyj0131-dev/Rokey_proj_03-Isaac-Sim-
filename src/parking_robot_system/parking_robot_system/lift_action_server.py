@@ -49,8 +49,8 @@ class LiftActionServerNode(Node):
     def __init__(self):
         super().__init__('lift_action_server')
 
-        self.declare_parameter("rear_id", "robot_rear")
-        self.declare_parameter("front_id", "robot_front")
+        self.declare_parameter("rear_id", "entry_lead")
+        self.declare_parameter("front_id", "entry_follow")
         self.robots = (self.get_parameter("rear_id").value,
                        self.get_parameter("front_id").value)
 

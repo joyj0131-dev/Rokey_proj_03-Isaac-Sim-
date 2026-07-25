@@ -50,19 +50,20 @@ class NavigateActionServerNode(Node):
     def __init__(self):
         super().__init__('navigate_action_server')
 
-        # 2026-07-24: 입차/출차 전용 로봇쌍 분리 — 로봇 이름 + 인계지점/게이트/도크/전용
-        # 차로 좌표를 전부 파라미터로 받는다(기본값은 v3 레이아웃의 입차 세트).
-        # parking_robot_system.launch.py가 출차 세트엔 대칭값(gate_z=+5.5 등)을 넘긴다.
-        self.declare_parameter("rear_id", "robot_rear")
-        self.declare_parameter("front_id", "robot_front")
+        # 2026-07-25: 입차/출차 전용 로봇쌍 분리 — 로봇 이름 + 인계지점/게이트/도크/전용
+        # 차로 좌표를 전부 파라미터로 받는다(기본값은 v4 레이아웃의 입차 세트,
+        # site_map_v4 규약 기준 — 이전 기본값은 ENTRY/EXIT가 뒤바뀌어 있었다).
+        # parking_robot_system.launch.py가 출차 세트엔 대칭값을 넘긴다.
+        self.declare_parameter("rear_id", "entry_lead")
+        self.declare_parameter("front_id", "entry_follow")
         self.declare_parameter("handoff_x", -8.5)
-        self.declare_parameter("handoff_z", -5.5)
-        self.declare_parameter("gate_x", -13.0)
+        self.declare_parameter("handoff_z", 7.075)
+        self.declare_parameter("gate_x", -12.55)
         self.declare_parameter("dock_rear_x", -3.2)
-        self.declare_parameter("dock_rear_z", -2.2)
+        self.declare_parameter("dock_rear_z", 2.2)
         self.declare_parameter("dock_front_x", -1.2)
-        self.declare_parameter("dock_front_z", -2.2)
-        self.declare_parameter("lane_z", -5.3)
+        self.declare_parameter("dock_front_z", 2.2)
+        self.declare_parameter("lane_z", 6.875)
         p = self.get_parameter
 
         grp = ReentrantCallbackGroup()

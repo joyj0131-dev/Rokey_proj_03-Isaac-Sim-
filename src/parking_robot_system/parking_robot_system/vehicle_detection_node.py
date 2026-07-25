@@ -4,8 +4,9 @@
 detect_vehicle(액션 서버) — P1 스텁: 실제 카메라/LiDAR 인식(SR-01, SR-04, P5) 대신
 알려진 인계 위치를 고정 반환한다. 이 노드는 입차 세트에서만 실제로 쓰인다(출차는
 SEARCHING에서 이미 알고 있는 슬롯 좌표를 그대로 쓰고 detect_vehicle을 안 부른다).
-2026-07-24: 좌표(USD x,z)를 파라미터화 — 기본값은 v3 레이아웃 입차 인계지점
-(vehicle:entryWait). request.trigger는 이 스텁에서는 사용하지 않는다(항상 동일 응답).
+2026-07-25: 좌표(USD x,z)를 파라미터화 — 기본값은 v4 레이아웃 입차 인계지점
+(W_OUT 마커, site_map_v4 규약상 ENTRY — 이전 기본값은 z 부호가 반대인 EXIT
+좌표였다). request.trigger는 이 스텁에서는 사용하지 않는다(항상 동일 응답).
 """
 import rclpy
 from rclpy.action import ActionServer
@@ -27,7 +28,7 @@ class VehicleDetectionNode(Node):
         super().__init__('vehicle_detection_node')
 
         self.declare_parameter("pickup_x_usd", -8.5)
-        self.declare_parameter("pickup_z_usd", -5.5)
+        self.declare_parameter("pickup_z_usd", 7.075)
         self._pickup_x = self.get_parameter("pickup_x_usd").value
         self._pickup_z = self.get_parameter("pickup_z_usd").value
 

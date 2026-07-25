@@ -14,9 +14,15 @@ odom은 초당 수십 번 오므로 매번 DB에 쓰지 않고 ROBOT_UPDATE_INTE
 없다(DB 부하만 늘어남).
 
 브릿징할 로봇 목록은 "robot_ids" 파라미터(문자열 리스트)로 받는다 — 예전엔
-("robot_rear","robot_front") 2대로 하드코딩돼 있었는데, 입차 전용(robot_rear/
-robot_front)/출차 전용(robot_rear2/robot_front2) 로봇쌍이 배치되면서(2026-07-24)
-4대로 늘어 파라미터화했다. 기본값도 지금 하드웨어 배치 그대로 4대.
+2대로 하드코딩돼 있었는데, 입차 전용(entry_lead/entry_follow)/출차 전용
+(exit_lead/exit_follow) 로봇쌍이 배치되면서 4대로 늘어 파라미터화했다. 기본값도
+지금 하드웨어 배치 그대로 4대(로봇 ID는 site_map_v4.ROBOTS가 유일한 출처 —
+2026-07-25 수정: 이전엔 robot_rear/robot_front/robot_rear2/robot_front2라는
+잘못된 이름을 썼다).
+
+odom 토픽 이름은 "/robot_{robot_id}/odom"이다(isaacpjt/Isaac_envo/parking_v4_runner.py
+가 실제로 발행하는 이름 — "/{robot_id}/odom"이 아니다. 2026-07-25 확인·수정: 이전엔
+접두사 없이 구독해서 실측 odom이 전혀 안 들어왔다).
 """
 import time
 
@@ -40,7 +46,7 @@ class RobotPositionBridgeNode(Node):
         self.declare_parameter("db_name", "parking")
         self.declare_parameter(
             "robot_ids",
-            ["robot_rear", "robot_front", "robot_rear2", "robot_front2"])
+            ["entry_lead", "entry_follow", "exit_lead", "exit_follow"])
 
         p = self.get_parameter
         self._db = ParkingDB(
@@ -52,7 +58,7 @@ class RobotPositionBridgeNode(Node):
         for rid in robots:
             self._db.upsert_robot(rid)
             self.create_subscription(
-                Odometry, f"/{rid}/odom",
+                Odometry, f"/robot_{rid}/odom",
                 lambda msg, r=rid: self._on_odom(r, msg), 10)
 
         self.get_logger().info(

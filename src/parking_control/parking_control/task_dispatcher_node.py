@@ -51,11 +51,13 @@ class TaskDispatcherNode(Node):
         self.declare_parameter("map_yaml", _default_map_yaml())
         self.declare_parameter("zone_lock_mode", "stub")   # stub | db
         self.declare_parameter("zone_retry_sec", 1.0)
-        # 입차/출차 전용 로봇쌍(고정) — 2026-07-24 하드웨어 배치 확정.
-        self.declare_parameter("entry_rear_id", "robot_rear")
-        self.declare_parameter("entry_front_id", "robot_front")
-        self.declare_parameter("exit_rear_id", "robot_rear2")
-        self.declare_parameter("exit_front_id", "robot_front2")
+        # 입차/출차 전용 로봇쌍(고정) — site_map_v4.ROBOTS/ROBOT_DOCK_MARKER가 유일한
+        # 출처(2026-07-25 수정 — 이전엔 robot_rear/robot_front/robot_rear2/robot_front2라는
+        # 잘못된 이름을 썼다).
+        self.declare_parameter("entry_rear_id", "entry_lead")
+        self.declare_parameter("entry_front_id", "entry_follow")
+        self.declare_parameter("exit_rear_id", "exit_lead")
+        self.declare_parameter("exit_front_id", "exit_follow")
 
         p = self.get_parameter
         self._db = ParkingDB(

@@ -160,10 +160,11 @@ def _dock_pose(y_map):
 
 
 # ---- 출차(EXIT) 하차 목표: 인계지점(map 프레임) ----
-# 2026-07-24: v3 레이아웃에서는 입차/출차 인계지점이 물리적으로 분리돼 있어서(예전엔
+# 2026-07-25: v4 레이아웃에서는 입차/출차 인계지점이 물리적으로 분리돼 있어서(예전엔
 # 인계베이 하나 USD(-29.6,0)를 공유) 고정 상수 대신 노드 파라미터(bay_x_map/bay_y_map)로
 # 받는다 — parking_robot_system.launch.py가 출차 세트에 exit 인계지점 map 좌표를 넘긴다.
-# 기본값은 출차 인계지점(vehicle:exitWait USD(-8.5,5.5) → map(-8.5,-5.5)).
+# 기본값은 출차 인계지점(W_IN 마커 USD(-8.5,-7.075) → map(-8.5,7.075)). site_map_v4
+# 규약상 z 음수 = EXIT — 이전 기본값은 z 부호가 반대인 ENTRY 좌표였다.
 def _bay_pose(x_map, y_map):
     pose = Pose()
     pose.position.x = x_map
@@ -180,7 +181,7 @@ class RobotTaskOrchestratorNode(Node):
         # 출차 세트에서만 실제로 쓰인다(MOVING 단계 carry_bay 목적지) — 입차 세트는
         # 이 파라미터를 launch에서 안 넘겨도 무해(그 경로 자체를 안 타므로).
         self.declare_parameter("bay_x_map", -8.5)
-        self.declare_parameter("bay_y_map", -5.5)
+        self.declare_parameter("bay_y_map", 7.075)
         self._bay_x_map = self.get_parameter("bay_x_map").value
         self._bay_y_map = self.get_parameter("bay_y_map").value
 
@@ -346,7 +347,7 @@ class RobotTaskOrchestratorNode(Node):
     # ---- 상태머신 실행부 ----
     def _on_execute_parking_task(self, goal_handle):
         goal = goal_handle.request
-        robot_id = goal.leader_robot_id or 'robot_rear'
+        robot_id = goal.leader_robot_id or 'entry_lead'
         steps = plan_steps(goal.slot_pose)   # ("SEARCHING", ..., "DONE") 고정 8단계
         total = len(steps) - 1               # 실제 액션 호출 전이 수(7)
         vehicle_pose = None
