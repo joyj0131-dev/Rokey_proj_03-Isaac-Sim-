@@ -516,6 +516,23 @@ def find_rear_camera(stage, robot_id):
     raise RuntimeError(f"{robot_id}: 후방 카메라 prim 을 찾지 못했습니다")
 
 
+def find_side_camera(stage, robot_id, side="left"):
+    """로봇 서브트리에서 측면(side) 카메라 prim 경로를 찾는다.
+
+    find_front_camera/find_rear_camera 와 같은 패턴: 경로에 "side_<side>"
+    (예: cam_side_left_link/depth_cam_left/Camera_Pseudo_Depth_Left)가 있는
+    카메라를 고른다. 못 찾으면 조용히 넘어가지 않고 실패한다.
+    """
+    from pxr import Usd
+    root = stage.GetPrimAtPath(robot_prim_path(robot_id))
+    cams = [p for p in Usd.PrimRange(root) if p.GetTypeName() == "Camera"]
+    needle = f"side_{side}".lower()
+    for p in cams:
+        if needle in str(p.GetPath()).lower():
+            return str(p.GetPath())
+    raise RuntimeError(f"{robot_id}: {side} 측면 카메라 prim 을 찾지 못했습니다")
+
+
 def attach_camera_graph(robot_id, cam_path, role="front", width=640, height=480):
     """C++ OmniGraph 로 image_raw + camera_info 를 발행한다.
 
@@ -615,6 +632,65 @@ def fuse_camera_setup(stage, timeline, app, target, cam_h, cam_role="front"):
             "code_size_m": code_size_m, "detector": detector, "K": K,
             "dist": np.zeros((5, 1), dtype=np.float64), "cam_xf": cam_xf,
             "rgb_annot": rgb_annot}
+
+
+# ---- Mission Phase C, Task C2: 측면 뎁스캠 파이프라인 ----
+# p4_depth 의 depth_stop_lift_test_dual.py 는 isaacsim.sensors.camera.Camera 고수준
+# 래퍼(add_distance_to_image_plane_to_frame/get_depth)를 쓰지만, 그 내부가 결국
+# omni.replicator.core 로 "distance_to_image_plane" annotator 를 render_product 에
+# attach 하는 것과 동일하다(isaacsim.sensors.camera.camera.Camera.
+# add_distance_to_image_plane_to_frame, 828행: self.attach_annotator(annotator_name=
+# "distance_to_image_plane", ...) -> rep.AnnotatorRegistry.get_annotator(...)). 여기서는
+# fuse_camera_setup 의 rgb annotator 배선(rep.create.render_product + AnnotatorRegistry)
+# 패턴을 그대로 따르되 annotator 이름만 "distance_to_image_plane" 으로 바꾼다 — p4_depth
+# 가 이미 검증한 이름을 그대로 재사용(짐작 아님).
+DEPTH_CAM_RES = (640, 480)
+# p4_depth 의 depth_stop_detector.DEFAULT_ROI_FRAC 을 그대로 재사용한다(taskC2-brief.md
+# 지시 — dual 러너 자체가 차종별 튜닝으로 쓴 DEPTH_ROI_FRAC=(0.44,0.56,0.44,0.56) 이
+# 아니라, detector 모듈의 범용 기본값). (col_lo, col_hi, row_lo, row_hi), 0~1 비율.
+DEPTH_ROI_FRAC = (0.30, 0.70, 0.50, 1.00)
+
+
+def depth_setup(stage, timeline, app, robot_id, side="left", cam_res=DEPTH_CAM_RES):
+    """측면 뎁스캠 render_product + distance_to_image_plane annotator 컨텍스트.
+
+    fuse_camera_setup 의 카메라 배선 부분(render_product 생성 -> annotator attach)만
+    떼어낸 구조다 — 마커/보정 없이 뎁스 스트림만 필요한 --probe=DEPTH(C2)와
+    이후 이식될 정지판단(C3)이 공용으로 쓴다.
+    """
+    import omni.replicator.core as rep
+    cam_path = find_side_camera(stage, robot_id, side)
+    rp = rep.create.render_product(cam_path, cam_res)
+    depth_annot = rep.AnnotatorRegistry.get_annotator("distance_to_image_plane")
+    depth_annot.attach([rp])
+    for _ in range(3):
+        app.update()
+    return {"cam_path": cam_path, "render_product": rp, "depth_annot": depth_annot}
+
+
+def depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC):
+    """ctx(depth_setup 반환값)의 현재 프레임에서 ROI 최소(유효) 뎁스 [m], 없으면 None.
+
+    p4_depth depth_stop_detector.roi_min_depth 와 같은 ROI 규약(col_lo,col_hi,row_lo,
+    row_hi, 0~1 비율)이나, Task C3 에서 그 모듈을 이식하기 전까지는 이 파일 하나로
+    완결되도록(브리프 지시) numpy 몇 줄로 인라인 계산한다. 프레임이 아직 준비 안
+    됐거나(빈 배열/2차원 아님) ROI 안에 유효(finite) 픽셀이 하나도 없으면 None.
+    """
+    frame = ctx["depth_annot"].get_data()
+    if frame is None or not getattr(frame, "size", 0):
+        return None
+    arr = np.asarray(frame, dtype=np.float64).squeeze()
+    if arr.ndim != 2:
+        return None
+    h, w = arr.shape
+    col_lo_f, col_hi_f, row_lo_f, row_hi_f = roi_frac
+    row_lo, row_hi = int(h * row_lo_f), max(int(h * row_hi_f), int(h * row_lo_f) + 1)
+    col_lo, col_hi = int(w * col_lo_f), max(int(w * col_hi_f), int(w * col_lo_f) + 1)
+    patch = arr[row_lo:row_hi, col_lo:col_hi]
+    finite = patch[np.isfinite(patch)]
+    if finite.size == 0:
+        return None
+    return float(finite.min())
 
 
 def _quat_mul(q0, q1):
@@ -758,6 +834,19 @@ def main():
                 p.SetActive(False)
                 hidden.append(r)
         print(f"PROBE_B_HIDDEN kept={keep} hidden={hidden}", flush=True)
+    if probe == "DEPTH":
+        # Task C2: entry_follow 하나만 남긴다(다른 로봇과의 물리 간섭/충돌 제거 —
+        # probe=B 와 동일한 이유·동일한 시점: Articulation.initialize() 전).
+        keep = "entry_follow"
+        hidden = []
+        for r in sm.ROBOTS:
+            if r == keep:
+                continue
+            p = stage.GetPrimAtPath(robot_prim_path(r))
+            if p and p.IsValid():
+                p.SetActive(False)
+                hidden.append(r)
+        print(f"PROBE_DEPTH_HIDDEN kept={keep} hidden={hidden}", flush=True)
 
     timeline = omni.timeline.get_timeline_interface()
     timeline.play()
@@ -1538,6 +1627,149 @@ def main():
               f"fused_traj_p95={p95(fpos)*100:.2f}cm "
               f"single_traj_p95={(p95(spos)*100 if spos else float('nan')):.2f}cm "
               f"n={len(traj)} cal={cal_name} report={path.name}", flush=True)
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe == "DEPTH":
+        # Mission Phase C, Task C2: 측면 뎁스캠 파이프라인 증명. entry_follow 를
+        # 인계장 베이 진입선(+X 끝, 트럭 밖)에 -X 를 보게 놓고 트럭(Pickup, C1이 배치)
+        # 밑을 천천히 -X 로 통과시키며 매 프레임 ROI 최소뎁스를 찍는다. 검출 로직(C3)
+        # 은 아직 없다 — 여기서는 depth_setup/depth_roi_min 로 만든 스트림 자체가
+        # 바퀴를 지날 때 뚜렷한 트로프(하강->회복)를 두 번(후축, 전축) 보이는지만
+        # 실측으로 증명한다.
+        target = "entry_follow"
+        art = arts[target]
+        idx = wheel_idx[target]
+
+        speed = 0.4
+        for a in sys.argv[1:]:
+            if a.startswith("--depth-speed="):
+                speed = float(a.split("=", 1)[1])
+
+        # x_start: 베이 진입선. 트럭 후미 x = HANDOFF_BAY_CENTER[0] + 길이/2 =
+        # -8.5+5.829/2 = -5.586(brief 의 length=5.829). 로봇 전체가 트럭 밖에 서도록
+        # 1m 남짓 여유를 둔다. x_end: 양 축(후축≈-6.569, 전축≈-10.163)을 다 지나
+        # 전방 범퍼(x≈-11.415)까지 넘어서 두 번째 트로프의 "회복"까지 보이게 한다.
+        x_start = -4.5
+        x_end = -11.8
+
+        # 로봇을 -X 를 보게 180도 반전(REARXN 의 _yaw_quat(spawn_orn,180.0)과 동일
+        # 관례 — spawn yaw=0 은 +X 를 본다, "REAR" 확률 주석 "후방 카메라는 -X 를
+        # 보므로" 참고). detect_at_pose(320행)의 yaw_deg 회전과 같은 합성(_quat_mul).
+        _, spawn_orn = art.get_world_poses()
+        spawn_orn = np.asarray(spawn_orn).reshape(-1)[:4].copy()
+        half = math.radians(180.0) * 0.5
+        qy = np.array([math.cos(half), 0.0, math.sin(half), 0.0])
+        face_neg_x = _quat_mul(spawn_orn, qy)
+
+        # z_bay 정렬: 실측(diag, taskC2-report.md) 결과 측면 뎁스캠은 URDF 설명과 달리
+        # "옆으로"가 아니라 로봇 중심선에서 좌/우로 ±0.39m 떨어진 지점에서 바로 아래
+        # (world -Y)를 본다 — 다운룩 카메라다. 그래서 로봇 중심선을 트럭 중심선(z=7.075)
+        # 에 맞추면 카메라는 항상 트럭 중심 부근의 빈 바닥만 보고(트럭 트레드 반폭
+        # ≈0.82m는 카메라 오프셋 0.39m보다 훨씬 커 바퀴가 시야 밖에 남는다), 실측
+        # 트로프 0개(n_troughs=0, baseline=0.1726 그대로 유지, 앞선 실행 로그 참고)로
+        # 확인됐다. 짐작 대신 두 값을 모두 "지금" 실측해 정렬한다: ① 트럭 좌측 휠(원본
+        # 진입 방향 기준 로봇 -X 진행 중 먼저 지나는 쪽이 아니라, 그냥 하나의 트레드 행)
+        # 의 실제 world z(FrontLeftWheel/RearLeftWheel 평균), ② LEFT 카메라의
+        # base_link 대비 z 오프셋(테스트 위치에 놓고 카메라 prim 의 world z 를 직접
+        # 읽어 뺀다). 두 값으로 z_bay = wheel_z - cam_offset_z 를 풀어 카메라가 그
+        # 휠의 궤적 바로 위를 지나가게 한다.
+        from pxr import UsdGeom as _UsdGeom
+        _tc = timeline.get_current_time()
+        _wl = _UsdGeom.Xformable(stage.GetPrimAtPath(
+            f"{HANDOFF_VEHICLE_ROOT}/FrontLeftWheel")).ComputeLocalToWorldTransform(_tc).ExtractTranslation()
+        _wl2 = _UsdGeom.Xformable(stage.GetPrimAtPath(
+            f"{HANDOFF_VEHICLE_ROOT}/RearLeftWheel")).ComputeLocalToWorldTransform(_tc).ExtractTranslation()
+        wheel_row_z = 0.5 * (float(_wl[2]) + float(_wl2[2]))
+
+        art.set_world_poses(np.array([[x_start, ROBOT_SPAWN_Y, HANDOFF_BAY_CENTER[1]]]),
+                            np.array([face_neg_x]))
+        for _ in range(15):
+            app.update()
+        _cam_path_probe = find_side_camera(stage, target, "left")
+        _cam_z0 = _UsdGeom.Xformable(stage.GetPrimAtPath(_cam_path_probe)) \
+            .ComputeLocalToWorldTransform(timeline.get_current_time()).ExtractTranslation()[2]
+        cam_offset_z = float(_cam_z0) - HANDOFF_BAY_CENTER[1]
+        z_bay = wheel_row_z - cam_offset_z
+        print(f"DEPTH_PROBE_ALIGN wheel_row_z={wheel_row_z:.4f} cam_offset_z={cam_offset_z:.4f} "
+              f"z_bay={z_bay:.4f}", flush=True)
+
+        art.set_world_poses(np.array([[x_start, ROBOT_SPAWN_Y, z_bay]]),
+                            np.array([face_neg_x]))
+        for _ in range(30):
+            app.update()
+
+        ctx = depth_setup(stage, timeline, app, target, side="left")
+        for _ in range(10):
+            app.update()
+
+        gx0, gz0, gyaw0 = gt_pose_xz_yaw(art)
+        print(f"DEPTH_PROBE_START target={target} x0={gx0:.3f} z0={gz0:.3f} "
+              f"yaw0_deg={math.degrees(gyaw0):.1f} cam={ctx['cam_path']}", flush=True)
+
+        vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                           dtype=np.float32)
+        cur_tw = (0.0, 0.0, 0.0)
+        prev = timeline.get_current_time()
+        samples = []   # (step, gx, gz, roi_min|None)
+        max_steps = 5000   # 1차 시도(2500)가 x=-8 부근 알 수 없는 저항으로 정체돼 시간 내
+                           # 양 축을 다 못 지났다(taskC2-report.md) — 회복 여지를 주려고 늘림.
+        for step in range(1, max_steps + 1):
+            app.update()
+            now = timeline.get_current_time()
+            dt = min(0.1, max(0.0, now - prev)); prev = now
+
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
+            tgt = (speed, 0.0, 0.0) if gx > x_end else (0.0, 0.0, 0.0)
+            cur_tw = slew_twist(cur_tw, tgt, dt, linear_accel=LINEAR_ACCEL,
+                                linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+            omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+            vel_buf[...] = 0.0
+            for w, om in omegas.items():
+                vel_buf[idx[w]] = om
+            art.set_joint_velocity_targets(vel_buf)
+
+            roi = depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC)
+            samples.append((step, gx, gz, roi))
+            if step % 15 == 0:
+                roi_txt = f"{roi:.4f}" if roi is not None else "None"
+                print(f"DEPTH_STREAM step={step} x={gx:.3f} roi_min={roi_txt}", flush=True)
+
+            if gx <= x_end and cur_tw == (0.0, 0.0, 0.0):
+                for _ in range(20):
+                    app.update()
+                    roi = depth_roi_min(ctx, roi_frac=DEPTH_ROI_FRAC)
+                    samples.append((step, gx, gz, roi))
+                break
+
+        n_samples = len(samples)
+        finite_rois = [r for _, _, _, r in samples if r is not None]
+        early = [r for _, _, _, r in samples[:60] if r is not None]
+        baseline = float(np.median(early)) if early else float("nan")
+        min_seen = min(finite_rois) if finite_rois else float("nan")
+        z_all = [gz for _, _, gz, _ in samples]
+        print(f"DEPTH_PROBE_ZDRIFT z_min={min(z_all):.4f} z_max={max(z_all):.4f} "
+              f"z_target={z_bay:.4f}", flush=True)
+
+        # 트로프 개수: baseline-0.05 아래로 내려간 연속 구간을 하나로 센다
+        # (depth_stop_detector.DepthStopDetector 의 drop_margin=0.05 관례 재사용).
+        n_troughs = 0
+        in_trough = False
+        thresh = baseline - 0.05 if math.isfinite(baseline) else float("nan")
+        for _, _, _, r in samples:
+            below = (r is not None) and math.isfinite(thresh) and (r < thresh)
+            if below and not in_trough:
+                n_troughs += 1
+                in_trough = True
+            elif not below:
+                in_trough = False
+
+        print(f"DEPTH_PROBE_SUMMARY n_samples={n_samples} baseline={baseline:.4f} "
+              f"min_seen={min_seen:.4f} n_troughs={n_troughs}", flush=True)
+
         if headless:
             app.close(); return
         while app.is_running():
