@@ -1,3 +1,51 @@
+# ROS2 / colcon workspace
+build/
+install/
+log/
+
+# AI assistant / agent tool configs
+.claude/
+.codex/
+
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
+
+# Isaac Sim / Omniverse
+*.usd~
+*.usda~
+.thumbnails/
+kit_cache/
+omni_cache/
+Kit/
+*.log
+
+# ROS bag files
+*.bag
+*.db3
+*.mcap
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+venv/
+.venv/
+
+# LiDAR 데모 산출물 (재생성 가능 — 코드만 커밋)
+src/parking_control/config/sample_lidar_pointcloud.npy
+src/parking_control/scripts/lidar/*.png
+
+skills-lock.json
+DEBUG_LOG.md
+HANDOFF.md
+*.zip
