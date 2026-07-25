@@ -1,7 +1,7 @@
 import math, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from mission_control import body_twist_toward
-from wheel_odometry import WheelOdometry
+from parkbot_motion.mission_control import body_twist_toward
+from parkbot_motion.wheel_odometry import WheelOdometry
 
 def test_target_ahead_gives_forward():
     # 로봇이 +Z(yaw=0)를 보고 있고 목표가 바로 앞(+Z)이면 전진(vx>0), 횡·회전≈0.

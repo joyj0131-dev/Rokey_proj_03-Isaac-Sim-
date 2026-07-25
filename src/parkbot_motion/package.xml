@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>parkbot_motion</name>
+  <version>0.1.0</version>
+  <description>주행 제어·기구학 순수 로직 라이브러리 (body_twist_toward, 메카넘 기구학, 휠오도, 축/뎁스 감지) — 아직 노드 없음, R1 이관</description>
+  <maintainer email="tmdwodl12@gmail.com">rokey</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

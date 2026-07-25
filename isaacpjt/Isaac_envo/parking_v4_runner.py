@@ -78,6 +78,7 @@ BAY_MARKER_Z = HANDOFF_BAY_CENTER[1]
 BAY_MARKER_YAW = 0.0
 
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
+sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_motion"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
 RENDER_HZ = 60.0
@@ -1118,7 +1119,7 @@ def main():
         configure_arm_drives(stage, f"{robot_prim_path(robot_id)}/joints")
 
     from mecanum_drive import WHEEL_JOINTS, cmd_vel_from_wheel_velocities
-    from wheel_odometry import WheelOdometry
+    from parkbot_motion.wheel_odometry import WheelOdometry
 
     wheel_idx = {r: {w: arts[r].dof_names.index(j) for w, j in WHEEL_JOINTS.items()}
                  for r in arts}
@@ -1152,7 +1153,7 @@ def main():
     # FUSE 자체는 건드리지 않는다(기존 probe 회귀 방지) — 이 두 함수는 신규다.
     from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist
     from parkbot_aruco.marker_localizer import PoseFilter
-    from mission_control import body_twist_toward
+    from parkbot_motion.mission_control import body_twist_toward
 
     def drive_to_pose(ctx, art, idx, filt, T_base_cam, target_xzyaw, *,
                        max_steps=2000, pos_gain=0.8, yaw_gain=1.2,
@@ -3173,7 +3174,7 @@ def main():
         마커가 없어 INGRESS 구간은 이전과 동일하게 사실상 순수 오도다.
         """
         from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist, cmd_vel_from_wheel_velocities
-        from axle_center import TroughTracker
+        from parkbot_motion.axle_center import TroughTracker
         from pxr import UsdGeom as _UsdGeomC, Usd as _UsdC
 
         mb = run_mission_b_choreo()

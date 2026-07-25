@@ -3,7 +3,7 @@ import sys
 import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from axle_center import TroughTracker
+from parkbot_motion.axle_center import TroughTracker
 
 
 # --- 브리프 지정 케이스 (그대로 유지) -----------------------------------

@@ -4,9 +4,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO / "isaacpjt" / "Isaac_envo"))
+sys.path.insert(0, str(REPO / "src" / "parkbot_motion"))
 
-from wheel_odometry import WheelOdometry     # noqa: E402
+from parkbot_motion.wheel_odometry import WheelOdometry     # noqa: E402
 
 
 def test_forward_integrates_along_plus_z_when_yaw_zero():

@@ -14,27 +14,55 @@ Two pieces the rest of the project can share:
    ``mecanum_holonomic_test.py``.
 
 The robot frame is X-forward, Y-left, Z-up.
+
+--- R1 이관(2026-07-25) 안내 ---
+이 파일은 USD/pxr 에 의존하는 "저작(authoring)" 절반(add_mecanum_rollers,
+configure_hub_drives 등)만 여기 남았다. Isaac 을 전혀 모르는 "순수 기구학"
+절반(상수 WHEEL_JOINTS/WHEEL_RADIUS/LX/LY/SIGN_*/YAW_SCALE, 함수 slew_twist/
+wheel_velocities_from_cmd_vel/cmd_vel_from_wheel_velocities)은
+``src/parkbot_motion/parkbot_motion/mecanum_kinematics.py`` 로 이전됐다(ROS2
+노드도 같은 로직을 import 해야 하는데 이 파일은 pxr 없이는 import조차 안 되기
+때문). 아래는 그 이전된 이름들을 그대로 재-export 하는 하위호환 shim이다 —
+기존에 ``from mecanum_drive import WHEEL_JOINTS, ...`` 로 쓰던 코드
+(dock_lift_handoff_runner(_v2).py, build_depth_cam_mecha_asset.py,
+build_mecha_roller_asset.py 등)는 한 글자도 안 고쳐도 그대로 동작한다.
 """
 
 import math
+import sys
+from pathlib import Path
 
+# 순수 기구학은 parkbot_motion 패키지가 단일 소스다(중복 정의 금지 — 값이
+# 갈라지면 Isaac 저작 쪽과 제어 쪽이 서로 다른 상수를 쓰게 된다). 이 파일을
+# 직접 import 하는 레거시 스크립트들은 저마다 다른 방식으로 sys.path 를
+# 세팅하므로(WORK_DIR, ISAAC_ENVO 등) 여기서 __file__ 기준 절대경로로 한 번 더
+# 넣어 항상 찾아지게 한다.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "src" / "parkbot_motion"))
+from parkbot_motion.mecanum_kinematics import (  # noqa: E402
+    WHEEL_RADIUS,
+    WHEEL_JOINTS,
+    LX,
+    LY,
+    SIGN_FORWARD,
+    SIGN_STRAFE,
+    SIGN_YAW,
+    YAW_SCALE,
+    _move_toward,
+    slew_twist,
+    wheel_velocities_from_cmd_vel,
+    cmd_vel_from_wheel_velocities,
+)
 
 # --- Drive-wheel geometry (robot frame, from the URDF) ----------------------
-WHEEL_RADIUS = 0.060
+# Isaac 저작(add_mecanum_rollers)만 쓰는 좌표 — 순수 기구학 쪽은 필요 없어서
+# mecanum_kinematics.py 로 옮기지 않았다.
 WHEEL_CENTERS = {
     "wheel_fl": (0.68, 0.35, 0.060),
     "wheel_fr": (0.68, -0.35, 0.060),
     "wheel_rl": (-0.68, 0.35, 0.060),
     "wheel_rr": (-0.68, -0.35, 0.060),
 }
-WHEEL_JOINTS = {
-    "wheel_fl": "wheel_fl_joint",
-    "wheel_fr": "wheel_fr_joint",
-    "wheel_rl": "wheel_rl_joint",
-    "wheel_rr": "wheel_rr_joint",
-}
-LX = 0.68   # half wheelbase along X (forward)
-LY = 0.35   # half track along Y (left)
 
 # --- Mecanum roller overlay -------------------------------------------------
 # X-configuration chirality: +1 => rollers tilted toward the +Y axle.
@@ -44,109 +72,6 @@ ROLLER_RADIUS = 0.018
 ROLLER_HALF_LEN = 0.010            # cylindrical half-height of the capsule
 ROLLER_MASS = 0.05
 R_MOUNT = WHEEL_RADIUS - ROLLER_RADIUS
-
-# --- cmd_vel -> wheel sign / scale calibration ------------------------------
-# vx/vy sign+scale verified by mecanum_holonomic_test.py (that file does not
-# exist in this repo any more, but vx/vy are separately confirmed good by the
-# mission's ~1cm position accuracy -- do not touch SIGN_FORWARD/SIGN_STRAFE).
-SIGN_FORWARD = +1.0
-SIGN_STRAFE = -1.0     # so +vy (robot left) drives the chassis toward +Y
-#
-# YAW re-measured 2026-07-25 (taskBYAW-report.md, --probe=YAWSTEP, fixed-duration
-# open-loop spins on hwia_4cam_mecha_roller_lowered.usd -- the asset actually in
-# use today, not the caster.usd the old YAW_SCALE=1.12/mecanum_holonomic_test.py
-# comment referred to). The previous SIGN_YAW=+1.0/YAW_SCALE=1.12 made
-# cmd_vel_from_wheel_velocities (the exact least-squares IK inverse) agree with
-# the *commanded* wz, but the robot's *physical* GT rotation was ~2.5-2.95x
-# larger and in the OPPOSITE direction across all four measured wz_cmd in
-# {+0.3,-0.3,+0.6,-0.6} (k_gt_over_cmd = -2.93, -2.95, -2.61, -2.49; avg=-2.745,
-# same sign / same order of magnitude in all 4 -- a single sign+scale
-# correction is valid). A commanded 90 deg turn was physically ~-263 deg
-# (matches the user's GUI observation of ~270 deg the wrong way); it only
-# "worked" for 90/180 deg targets because -270 == +90 and -540 == +180 (mod
-# 360) hide a 3x error that any other angle (e.g. 45 deg) would expose. Fix:
-# new SIGN_YAW*YAW_SCALE = old(+1.0*1.12) / avg_k = 1.12 / -2.745 = -0.4080, so
-# that a commanded wz now produces a physical wz (verified after the fix:
-# --probe=YAWSTEP k_gt_over_cmd ~= +1.0, --probe=ROTCHK/ROTCHK180/ROTCHK45
-# small gt_err_deg, see report). In-place yaw is still roller-slip dominated,
-# so this remains an empirical fit, not a geometric constant -- re-measure with
-# --probe=YAWSTEP if the wheel/roller asset changes again.
-SIGN_YAW = -1.0
-YAW_SCALE = 0.4080
-
-
-def _move_toward(current, target, max_delta):
-    """Move one scalar toward its target without overshooting."""
-    delta = target - current
-    if abs(delta) <= max_delta:
-        return target
-    return current + math.copysign(max_delta, delta)
-
-
-def slew_twist(current, target, dt, linear_accel=0.5, linear_decel=0.8,
-               angular_accel=0.8):
-    """Apply a simulation-time acceleration limit to a body twist.
-
-    Linear X/Y are limited as one vector so diagonal motion does not receive
-    sqrt(2) times more acceleration.  A command that removes velocity uses the
-    higher deceleration limit; top speed is not changed.
-    """
-    current = tuple(float(v) for v in current)
-    target = tuple(float(v) for v in target)
-    dt = max(0.0, float(dt))
-    if dt == 0.0:
-        return current
-
-    cvx, cvy, cwz = current
-    tvx, tvy, twz = target
-    dvx, dvy = tvx - cvx, tvy - cvy
-    delta_norm = math.hypot(dvx, dvy)
-    # current·delta < 0 means the command is braking or reversing.
-    linear_rate = linear_decel if cvx * dvx + cvy * dvy < 0.0 else linear_accel
-    max_linear_delta = max(0.0, linear_rate) * dt
-    if delta_norm > max_linear_delta > 0.0:
-        scale = max_linear_delta / delta_norm
-        cvx += dvx * scale
-        cvy += dvy * scale
-    else:
-        cvx, cvy = tvx, tvy
-
-    cwz = _move_toward(cwz, twz, max(0.0, angular_accel) * dt)
-    return cvx, cvy, cwz
-
-
-def wheel_velocities_from_cmd_vel(vx, vy, wz):
-    """Map a robot-frame holonomic /cmd_vel to hub angular velocities [rad/s].
-
-    vx: forward [m/s], vy: left [m/s], wz: yaw (CCW+) [rad/s].
-    Returns {wheel_name: omega_rad_s}.
-    """
-    fx = SIGN_FORWARD * vx
-    sy = SIGN_STRAFE * vy
-    wl = SIGN_YAW * YAW_SCALE * wz * (LX + LY)
-    return {
-        "wheel_fl": (fx - sy - wl) / WHEEL_RADIUS,
-        "wheel_fr": (fx + sy + wl) / WHEEL_RADIUS,
-        "wheel_rl": (fx + sy - wl) / WHEEL_RADIUS,
-        "wheel_rr": (fx - sy + wl) / WHEEL_RADIUS,
-    }
-
-
-def cmd_vel_from_wheel_velocities(omegas):
-    """IK의 최소자승 역: 휠 각속도 dict -> (vx, vy, wz) 로봇 로컬 twist.
-
-    IK가 선형이므로 4x3 행렬의 pseudo-inverse 로 정확히 복원된다. 계수는
-    IK 함수에서 수치적으로 추출한다(상수 중복 금지 — IK 가 바뀌면 FK 도 따라간다).
-    """
-    import numpy as np
-
-    wheels = list(WHEEL_JOINTS)
-    basis = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
-    A = np.array([[wheel_velocities_from_cmd_vel(*b)[w] for b in basis]
-                  for w in wheels])                       # (4, 3)
-    vec = np.array([float(omegas[w]) for w in wheels])    # (4,)
-    vx, vy, wz = np.linalg.lstsq(A, vec, rcond=None)[0]
-    return float(vx), float(vy), float(wz)
 
 
 def _quat_from_z_to(direction, Gf):
