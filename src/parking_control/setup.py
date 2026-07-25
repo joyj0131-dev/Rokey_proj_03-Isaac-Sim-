@@ -12,7 +12,8 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/config',
+         glob('config/*.yaml') + glob('config/*.rviz')),
         ('share/' + package_name + '/db', glob('db/*.sql')),
     ],
     install_requires=['setuptools'],
@@ -30,6 +31,7 @@ setup(
             'robot_position_bridge = parking_control.robot_position_bridge_node:main',
             'safety_monitor = parking_control.safety_monitor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',
+            'lidar_occupancy_grid = parking_control.lidar_occupancy_grid_node:main',
         ],
     },
 )

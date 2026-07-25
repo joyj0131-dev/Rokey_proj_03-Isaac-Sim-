@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isaac의 USD Y-up PointCloud2 두 개를 ROS map Z-up cloud 하나로 합친다."""
+"""최신 중앙 LiDAR의 USD Y-up PointCloud2를 ROS map Z-up으로 변환한다."""
 
 import numpy as np
 import rclpy
@@ -13,7 +13,6 @@ from std_msgs.msg import Header
 
 RAW_TOPICS = (
     "/parking/lidar/ceiling_01/points_usd",
-    "/parking/lidar/ceiling_02/points_usd",
 )
 WORLD_TOPIC = "/parking/lidar/points_world"
 

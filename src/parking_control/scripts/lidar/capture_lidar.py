@@ -50,13 +50,12 @@ LIVE_MAX_OBJECT_HEIGHT_M = 3.0
 LIVE_SLOT_OUTER_Y_LIMIT_M = 10.5
 LIVE_STATE_CONFIRMATIONS = 12
 DEFAULT_STAGE_CANDIDATES = (
-    # build_integrated_parking_field.py의 최종 산출물(주차장+차량+로봇)을
-    # 최우선으로 사용한다. 파일이 아직 없으면 기반 주차장으로 fallback한다.
-    Path("/home/rokey/Isaac_envo/parking/parking_robot_field.usd"),
-    # 2026-07-25 추가: 지금 실제로 쓰는 레이아웃(3슬롯, 천장 LiDAR 1대 통합,
-    # site_map_v4 규약)이 이 파일이다 — 아래 구버전(parking_environment.usd,
-    # 16슬롯·서/동 LiDAR 2대) fallback보다 먼저 시도해야 한다.
+    # 현재 배포 기준: 3슬롯, 천장 중앙 LiDAR 1대, site_map_v4 좌표 규약.
+    # 구버전 통합 필드(parking_robot_field.usd)가 로컬에 남아 있어도 이 파일을
+    # 반드시 먼저 선택한다. 이전 순서는 구버전 서/동 LiDAR 2대를 잘못 열었다.
     REPO_ROOT / "isaacpjt/Isaac_envo/parking/parking_environment_v4.usd",
+    # 최신 장면이 없는 레거시 작업공간에서만 아래 파일들로 fallback한다.
+    Path("/home/rokey/Isaac_envo/parking/parking_robot_field.usd"),
     Path("/home/rokey/Isaac_envo/parking/parking_environment.usd"),
     REPO_ROOT / "isaacpjt/Isaac_envo/parking/parking_environment.usd",
 )
