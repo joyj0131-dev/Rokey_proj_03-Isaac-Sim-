@@ -2055,12 +2055,18 @@ def main():
                   flush=True)
 
             # ---- Step 5: 완료 토큰 ----
+            # gt_pos/gt_yaw: 충돌회피 여유(HARD REQUIREMENT)를 실측으로 검증하기 위한
+            # 리포팅 전용 GT — filt/제어 경로에는 영향 없다(gt_pose_xz_yaw 호출만
+            # 추가, drive_to_pose 호출부는 미변경).
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
             print(f"MISSIONB_DONE robot={target} role=front_axle xn_locked={xn_locked} "
                   f"reached={seg2b['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) yaw={fp[2]:.2f} "
+                  f"gt_pos=({gx:.3f},{gz:.3f}) gt_yaw={math.degrees(gyaw):.2f} "
                   f"err_pos_gt={seg2b['err_pos_gt']:.4f} n_fix={n_fix2} "
                   f"target=({seg2_target[0]:.3f},{seg2_target[1]:.3f},{seg2_target[2]:.1f})",
                   flush=True)
-            return {"xn_locked": xn_locked, "reached": seg2b["reached"]}
+            return {"xn_locked": xn_locked, "reached": seg2b["reached"],
+                    "gt_pos": (gx, gz), "filt_pos": (fp[0], fp[1])}
 
         def _run_entry_lead_b(setup, *, dockcheck_standoff, xn_standoff,
                               final_x_offset, align_pos_tol):
@@ -2155,13 +2161,21 @@ def main():
             seg_final = drive_to_pose(front_ctx, art, idx, filt, T_front, final_target,
                                       correct_yaw=False, pos_tol=align_pos_tol)
             fp = filt.pose()
+            # gt_pos/gt_yaw: entry_follow Step5 와 동일한 목적(충돌회피 여유 실측
+            # 근거) — 리포팅 전용, filt/제어 경로 미변경. 이 직후 entry_follow 의
+            # _mission_setup 이 이 로봇을 대피(park)시켰다가 복원하므로, 최종
+            # MISSIONB_SEPARATION 은 이 값과 별개로 전체 종료 시점에 재실측한다.
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
             print(f"MISSIONB_DONE robot={target} role=rear_axle xn_locked={xn_locked} "
                   f"reached={seg_final['reached']} pos=({fp[0]:.3f},{fp[1]:.3f}) "
-                  f"yaw={fp[2]:.2f} err_pos_gt={seg_final['err_pos_gt']:.4f} "
+                  f"yaw={fp[2]:.2f} gt_pos=({gx:.3f},{gz:.3f}) "
+                  f"gt_yaw={math.degrees(gyaw):.2f} "
+                  f"err_pos_gt={seg_final['err_pos_gt']:.4f} "
                   f"n_fix={n_fix2} "
                   f"target=({final_target[0]:.3f},{final_target[1]:.3f},{final_target[2]:.1f})",
                   flush=True)
-            return {"xn_locked": xn_locked, "reached": seg_final["reached"]}
+            return {"xn_locked": xn_locked, "reached": seg_final["reached"],
+                    "gt_pos": (gx, gz), "filt_pos": (fp[0], fp[1])}
 
         # ==== HARD REQUIREMENT: 충돌 없는 최종 지오메트리 ====
         # 도크(entry_lead x=-3.2, entry_follow x=-1.2)와 XN(x=-2.5)이 가까워 naive 하게
@@ -2177,8 +2191,17 @@ def main():
         #               계산에 들어가지 않는다(원은 방향 무관) — 180->0 변경이 이
         #               계산을 무효화하지 않는다.]
         #   entry_follow 최종: (xn_x, xn_z - XN_STANDOFF, yaw=0) = (-2.50, 5.575, 0)  [미변경]
-        # 분리 거리 = |LEAD_FINAL_X_OFFSET| = 1.70m > 1.5m 요구치(0.34m 여유 — 로봇 몸체
-        # 사이 간극 0.34m, 반경합 1.36m 기준). 서쪽(오프셋 음수)을 택한 이유: entry_lead
+        # 분리 거리(nominal) = |LEAD_FINAL_X_OFFSET| = 1.70m > 1.5m 요구치(0.34m 여유 —
+        # 로봇 몸체 사이 간극 0.34m, 반경합 1.36m 기준). taskBSEP(MISSIONB_SEPARATION,
+        # gt_pos 기반) 실측 2회: run1 gt_sep_m=1.6405(at_done)/1.6399(final), run2
+        # gt_sep_m=1.6305(at_done)/1.5958(final) — 회전기구학 수정(051aaa6) 이후
+        # entry_lead 종단오차가 15~22cm 로 커졌음에도(대부분 z 축, 분리축인 x 는 거의
+        # 안 바뀜) 4회 전부 >=1.5m 요구치를 만족했다(여유 최소 9.6cm, run2 final).
+        # 즉 nominal 1.70m 오프셋을 바꿀 필요는 없었다 — 다만 run2 의 at_done->final
+        # 하락(1.6305->1.5958, 3.5cm)은 entry_follow 의 _mission_setup 이 entry_lead 를
+        # 대피/복원하는 과정에서 생기는 재정착 오차로 보이며(원인 미분석, 여유가 커서
+        # 이 태스크 스코프 밖), 향후 오프셋을 더 줄이는 결정을 할 때는 이 변동폭도
+        # 감안해야 한다. 서쪽(오프셋 음수)을 택한 이유: entry_lead
         # 자신의 도크(x=-3.2)와 같은 편이라 entry_follow 의 L자 경로(도크체크: x=-1.2,
         # z 2.2~4.3 / XN 접근 가로구간: z=4.3, x -1.2~-2.5 / XN 접근 세로구간: x=-2.5,
         # z 4.3~5.575) 세 구간 전부에서 벌어진다(코너까지 최단거리 계산: 1.7m/2.13m/
@@ -2229,6 +2252,38 @@ def main():
         follow_result = _run_entry_follow_b(follow_setup, seg1_standoff=seg1_standoff,
                                             xn_standoff=standoff,
                                             align_pos_tol=align_pos_tol)
+
+        # ---- 최종 분리거리 실측(GT) — HARD REQUIREMENT(>=1.5m) 근거 ----
+        # ROBOT_RADIUS_M: 브리프/HARD REQUIREMENT 주석의 "로봇 풋프린트 반경
+        # ~0.68m"를 그대로 상수화(원 모델, yaw 무관).
+        ROBOT_RADIUS_M = 0.68
+
+        def _sep_report(tag, lead_gt, follow_gt, lead_filt, follow_filt):
+            dx_gt = lead_gt[0] - follow_gt[0]
+            dz_gt = lead_gt[1] - follow_gt[1]
+            gt_sep = math.hypot(dx_gt, dz_gt)
+            dx_f = lead_filt[0] - follow_filt[0]
+            dz_f = lead_filt[1] - follow_filt[1]
+            filt_sep = math.hypot(dx_f, dz_f)
+            clearance = gt_sep - 2.0 * ROBOT_RADIUS_M
+            ok_sep = gt_sep >= 1.5
+            print(f"MISSIONB_SEPARATION tag={tag} gt_sep_m={gt_sep:.4f} "
+                  f"filt_sep_m={filt_sep:.4f} clearance_m={clearance:.4f} "
+                  f"ok_sep={ok_sep}", flush=True)
+            return gt_sep
+
+        # ① 각 로봇이 자기 DONE 시점에 실측한 GT(entry_lead 쪽은 이후
+        # entry_follow 의 _mission_setup 이 대피/복원을 거친다 — 그 영향이
+        # 있었는지는 아래 ②의 재실측과 비교해 확인한다).
+        _sep_report("at_done", lead_result["gt_pos"], follow_result["gt_pos"],
+                    lead_result["filt_pos"], follow_result["filt_pos"])
+
+        # ② 모든 대피/복원이 끝난 뒤(=미션 전체 종료 시점) 두 로봇을 다시 GT로
+        # 직접 재실측한 것 — 이게 권위값(authoritative)이다.
+        final_lead_gt = gt_pose_xz_yaw(arts["entry_lead"])[:2]
+        final_follow_gt = gt_pose_xz_yaw(arts["entry_follow"])[:2]
+        _sep_report("final", final_lead_gt, final_follow_gt,
+                    lead_result["filt_pos"], follow_result["filt_pos"])
 
         ok = bool(lead_result["xn_locked"] and lead_result["reached"]
                   and follow_result["xn_locked"] and follow_result["reached"])
