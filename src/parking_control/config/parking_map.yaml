@@ -14,15 +14,15 @@ meta:
 nodes:
   A1:
     x: 2.8
-    y: 6.875
+    y: -0.0
     kind: slot
   A2:
     x: 6.2
-    y: 6.875
+    y: -0.0
     kind: slot
   A3:
     x: 9.6
-    y: 6.875
+    y: -0.0
     kind: slot
   entry_outer:
     x: -21.0
@@ -67,6 +67,18 @@ nodes:
   exit_outer:
     x: -21.0
     y: 7.075
+    kind: junction
+  exit_a1:
+    x: 2.8
+    y: 6.875
+    kind: junction
+  exit_a2:
+    x: 6.2
+    y: 6.875
+    kind: junction
+  exit_a3:
+    x: 9.6
+    y: 6.875
     kind: junction
   dock_entry_1:
     x: -3.2
@@ -126,14 +138,23 @@ edges:
   v: exit_outer
   zone: ZOUT03
 - u: crossing_exit
-  v: A1
+  v: exit_a1
   zone: ZOUT_A1
+- u: exit_a1
+  v: A1
+  zone: ZOUT_A1_dock
 - u: crossing_exit
-  v: A2
+  v: exit_a2
   zone: ZOUT_A2
+- u: exit_a2
+  v: A2
+  zone: ZOUT_A2_dock
 - u: crossing_exit
-  v: A3
+  v: exit_a3
   zone: ZOUT_A3
+- u: exit_a3
+  v: A3
+  zone: ZOUT_A3_dock
 - u: crossing_entry
   v: dock_entry_1
   zone: null
@@ -160,5 +181,8 @@ zones:
 - ZOUT02
 - ZOUT03
 - ZOUT_A1
+- ZOUT_A1_dock
 - ZOUT_A2
+- ZOUT_A2_dock
 - ZOUT_A3
+- ZOUT_A3_dock

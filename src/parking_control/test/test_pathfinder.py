@@ -22,12 +22,13 @@ from parking_control.core.pathfinder import PathFinder
 
 MAP_YAML = Path(__file__).resolve().parent.parent / "config" / "parking_map.yaml"
 
-# 현재 환경 스냅샷(v4.usd, site_map_v4 규약) 기준 손계산 값.
-# entry_wait(-8.5,-7.075) -> crossing_entry(-2.5,-6.875)
-# -> entry_a1(2.8,-6.875) -> A1(2.8,6.875).
+# 현재 환경 스냅샷(v4.usd, site_map_v4 규약 + World/Spaces 슬롯 지오메트리) 기준
+# 손계산 값. entry_wait(-8.5,-7.075) -> crossing_entry(-2.5,-6.875)
+# -> entry_a1(2.8,-6.875) -> A1(2.8,0.0). 슬롯 좌표는 아루코 마커(z=-6.875)가 아니라
+# World/Spaces의 실제 슬롯 지오메트리(parking:center, z=0 — 입/출차 정중앙)를 쓴다.
 ENTRY_WAIT_TO_CROSSING = math.hypot(6.0, 0.2)
 CROSSING_TO_A1_JUNCTION = 5.3
-A1_JUNCTION_TO_A1 = 13.75
+A1_JUNCTION_TO_A1 = 6.875
 
 
 @pytest.fixture
@@ -66,9 +67,9 @@ def test_blocked_edge_reroutes_via_exit_lane_then_restores(pf):
 
 
 def test_unreachable_returns_none(pf):
-    # A1의 두 연결(입차 진입로, 출차 차로)을 모두 끊어야 진짜 도달 불가다.
+    # A1의 두 연결(입차 진입 분기점, 출차 진입 분기점)을 모두 끊어야 진짜 도달 불가다.
     pf.block_edge("A1", "entry_a1")
-    pf.block_edge("A1", "crossing_exit")
+    pf.block_edge("A1", "exit_a1")
     assert pf.find_path("entry_wait", "A1") is None
     # 없는 노드도 None (예외를 밖으로 던지지 않음)
     assert pf.find_path("entry_wait", "Z9") is None
@@ -76,7 +77,7 @@ def test_unreachable_returns_none(pf):
 
 def test_slot_coordinates_regression(pf):
     """환경 파라미터가 바뀌면 여기서 걸린다 — 스냅샷 갱신 필요 신호."""
-    expected = {"A1": (2.8, 6.875), "A2": (6.2, 6.875), "A3": (9.6, 6.875)}
+    expected = {"A1": (2.8, 0.0), "A2": (6.2, 0.0), "A3": (9.6, 0.0)}
     for slot_id, xy in expected.items():
         assert pf.map.node_pos(slot_id) == xy, f"{slot_id} 좌표 불일치"
     assert len(pf.map.nodes_of_kind("slot")) == 3

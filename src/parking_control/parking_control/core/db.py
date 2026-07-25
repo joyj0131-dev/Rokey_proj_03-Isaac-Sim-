@@ -89,6 +89,15 @@ class ParkingDB:
             "SELECT x, y FROM robots WHERE x IS NOT NULL AND y IS NOT NULL")
         return [(float(r["x"]), float(r["y"])) for r in rows]
 
+    def upsert_robot(self, robot_id):
+        """robots 행이 없으면 만든다(기본 상태 OFFLINE). 이미 있으면 그대로 둔다 —
+        robot_position_bridge_node가 시작할 때마다 불러도 기존 status/x/y를
+        덮어쓰지 않는다(upsert_vehicle과 같은 패턴)."""
+        self._query(
+            "INSERT INTO robots (robot_id) VALUES (%s)"
+            " ON DUPLICATE KEY UPDATE robot_id = robot_id",
+            (robot_id,))
+
     def set_robot_status(self, robot_id, status):
         self._query("UPDATE robots SET status = %s WHERE robot_id = %s",
                     (status, robot_id))

@@ -48,11 +48,23 @@ def _usd_to_map(x_usd, z_usd):
 
 
 # ---- v4.usd 실측 좌표 (USD x,z) — ArucoMarkerPreview 스코프, aruco:position 기준 ----
-# 슬롯(A1/A2/A3 마커, note="슬롯 기준점 + 통로 차선") — z 음수 쪽(출차 규약)에 물리적으로 있다.
-SLOTS_USD = {"A1": (2.8, -6.875), "A2": (6.2, -6.875), "A3": (9.6, -6.875)}
+# 슬롯 실제 위치는 아루코 마커(A1/A2/A3, z=-6.875)가 아니라 World/Spaces 스코프의
+# 진짜 슬롯 지오메트리(BlueFloor 큐브, parking:center)를 써야 한다 — 2026-07-25
+# 확인: parking:center=(2.8/6.2/9.6, 0, 0), parking:length=6.6, parking:width=3.4.
+# 아루코 A1/A2/A3 마커는 슬롯 근처의 기준점일 뿐 슬롯 중심이 아니다(z=-6.875는
+# 마커 자체 위치이지 슬롯 중심 z=0이 아님) — 실제 스크린샷과 대조해 확인했다
+# (마커 z 그대로 쓰면 슬롯이 출차 쪽 끝에 붙어버리는데, 실제로는 입/출차 사이
+# 정중앙에 있다).
+SLOTS_USD = {"A1": (2.8, 0.0), "A2": (6.2, 0.0), "A3": (9.6, 0.0)}
 # 입차 차로 진입 분기점(A1'/A2'/A3' 마커, z 양수) — 슬롯과 같은 x, 반대쪽 z.
-# 로봇이 여기서 슬롯(z 음수)까지 마지막 구간을 가로질러 들어간다(실측상 실제 간격).
+# 로봇이 여기서 슬롯(z=0, World/Spaces 실제 중심)까지 마지막 구간을 곧장 들어간다.
 ENTRY_SLOT_JUNCTION_USD = {"A1": (2.8, 6.875), "A2": (6.2, 6.875), "A3": (9.6, 6.875)}
+# 출차 차로 진입 분기점 — XS(crossing_exit, x=-2.5)와 같은 z(=CROSSING_EXIT_USD의 z)에서
+# 슬롯 x로 먼저 이동한 뒤 슬롯(z=0)으로 곧장 들어간다. v4.usd에 이 지점을 위한 별도
+# 아루코 마커는 없다(A1/A2/A3 마커 자체가 "통로 차선"을 겸한다고 note에 적혀 있었지만,
+# 슬롯 실제 중심이 z=0으로 확인된 이상 그 마커 z=-6.875를 차로 좌표로 재사용한다 —
+# crossing_exit와 같은 z라 두 점이 일직선이 되어 입차 쪽과 대칭인 ㄱ자 경로가 나온다.
+EXIT_SLOT_JUNCTION_USD = {"A1": (2.8, -6.875), "A2": (6.2, -6.875), "A3": (9.6, -6.875)}
 ENTRY_GATE_USD = (-12.55, 7.075)     # GATE_OUT 마커 (z 양수 = 입차 규약)
 ENTRY_WAIT_USD = (-8.5, 7.075)       # W_OUT 마커 — 인계(핸드오프) 지점
 ENTRY_OUTER_USD = (-21.0, 7.075)     # 게이트 밖(건물 밖) — 정밀 마커 없어 게이트 연장
@@ -111,8 +123,13 @@ def build_map():
         add_node(node_id, x_usd, z_usd, kind="junction")
     for i in range(len(exit_chain) - 1):
         add_edge(exit_chain[i], exit_chain[i + 1], f"ZOUT{i + 1:02d}")
-    for slot_id in SLOTS_USD:
-        add_edge("crossing_exit", slot_id, f"ZOUT_{slot_id}")
+    # crossing_exit(XS)에서 슬롯 열마다 갈라지는 진출 분기점 → 슬롯 (입차 쪽과 대칭:
+    # 먼저 slot x로 수평 이동한 뒤 슬롯 z로 수직 진입 — 대각선 대신 ㄱ자 경로).
+    for slot_id, (x_usd, z_usd) in EXIT_SLOT_JUNCTION_USD.items():
+        junction_id = f"exit_{slot_id.lower()}"
+        add_node(junction_id, x_usd, z_usd, kind="junction")
+        add_edge("crossing_exit", junction_id, f"ZOUT_{slot_id}")
+        add_edge(junction_id, slot_id, f"ZOUT_{slot_id}_dock")
 
     # ---- 로봇 대기 도크 4개(입차 전용 2: entry_lead/entry_follow, 출차 전용 2:
     # exit_lead/exit_follow) — crossing_entry/crossing_exit는 위 차로 체인에서

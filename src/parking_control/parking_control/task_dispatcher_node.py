@@ -38,6 +38,9 @@ from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
 from parking_control.parking_slot_manager_node import _default_map_yaml
 
+# entry/exit execute_parking_task 액션서버(robot_task_orchestrator) 기동 대기 상한.
+EXECUTE_SERVER_WAIT_TIMEOUT = 5.0
+
 
 class TaskDispatcherNode(Node):
 
@@ -175,6 +178,19 @@ class TaskDispatcherNode(Node):
 
     def _send_execute_goal(self, task_id, request, leader_id, follower_id,
                            slot_id, x, y):
+        client = self._execute_clients[request.request_type]
+        # wait_for_server는 그래프 이벤트 기반 자체 폴링이라 재진입 spin이 필요
+        # 없다(robot_task_orchestrator._call_action과 같은 근거). 이걸 안 하면
+        # orchestrator가 아직 안 떠 있을 때 보낸 goal이 send_goal_async에서
+        # 조용히 유실돼 작업이 PROCESSING에 영원히 멈춘다(2026-07-25 실측으로
+        # 확인 — dispatcher를 orchestrator보다 먼저 띄우고 요청을 보내면 재현됨).
+        if not client.wait_for_server(timeout_sec=EXECUTE_SERVER_WAIT_TIMEOUT):
+            self._fail_task(
+                task_id, leader_id, follower_id,
+                f"{request.request_type} orchestrator 미기동"
+                f"({EXECUTE_SERVER_WAIT_TIMEOUT:.0f}s)")
+            return
+
         goal = ExecuteParkingTask.Goal()
         goal.task_id = task_id
         goal.request_type = request.request_type
@@ -189,7 +205,6 @@ class TaskDispatcherNode(Node):
         self.get_logger().info(
             f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송 "
             f"(리더 {leader_id}, 팔로워 {follower_id})")
-        client = self._execute_clients[request.request_type]
         send_future = client.send_goal_async(goal)
         send_future.add_done_callback(
             lambda f: self._on_goal_response(f, task_id, leader_id, follower_id))
