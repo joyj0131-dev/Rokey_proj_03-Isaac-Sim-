@@ -1157,7 +1157,11 @@ def main():
     # FUSE 자체는 건드리지 않는다(기존 probe 회귀 방지) — 이 두 함수는 신규다.
     from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist
     from parkbot_aruco.marker_localizer import PoseFilter
-    from parkbot_motion.mission_control import body_twist_toward
+    # R3a(ROS2 노드 구조 이행 설계서 3절): drive_to_pose 의 "결정" 로직(body_twist_toward
+    # 호출·래치·slew 목표·settle 표본·median 스무딩·reached 판정)을 Isaac 비의존
+    # 클래스로 뺐다 — R3b 의 navigate_action_server 가 그대로 재사용한다. 아래
+    # drive_to_pose 는 이제 배관(오도 예측 입력·마커 검출·관절 구동·앱 스텝)만 한다.
+    from parkbot_motion.pose_controller import PoseController
 
     def drive_to_pose(ctx, art, idx, filt, T_base_cam, target_xzyaw, *,
                        max_steps=2000, pos_gain=0.8, yaw_gain=1.2,
@@ -1185,6 +1189,11 @@ def main():
         반환 err_pos_gt/err_yaw_gt 는 종단(정지 후) 자세를 GT 와 비교한 값으로
         **리포팅 전용**이다 — 이 함수의 제어 로직은 filt.pose() 만 쓰고 GT 를
         전혀 참조하지 않는다.
+
+        R3a: "무엇을 명령할지"(래치·slew·settle 표본·median 스무딩·reached 재판정)는
+        이제 parkbot_motion.pose_controller.PoseController 가 결정한다. 이 함수는
+        매 스텝 그 결정에 필요한 입력(fused_pose, dt)을 만들어 먹이고, 나온 twist
+        를 휠 속도로 바꿔 구동하는 배관만 한다 — 분기·상수·순서는 전부 그대로다.
         """
         def _apply_fix(fix):
             """마커 fix 한 건을 filt 에 반영(첫 fix 시딩 / 전체보정 / 위치전용보정).
@@ -1207,14 +1216,18 @@ def main():
                               filt.yaw)
                 filt.n_fix += 1   # filt.update() 와 동일하게: fix 는 실제로 일어났다.
 
+        # R3a: 결정 로직은 PoseController 로 위임. LINEAR_ACCEL/LINEAR_DECEL/
+        # ANGULAR_ACCEL 은 여전히 이 러너가 진실원인 상수라 여기서 명시적으로
+        # 넘긴다(pose_controller 의 기본값에 암묵적으로 기대지 않는다).
+        ctrl = PoseController(target_xzyaw, pos_gain=pos_gain, yaw_gain=yaw_gain,
+                               max_lin=max_lin, max_ang=max_ang, pos_tol=pos_tol,
+                               yaw_tol=yaw_tol, linear_accel=LINEAR_ACCEL,
+                               linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
         vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
                            dtype=np.float32)
-        cur_tw = (0.0, 0.0, 0.0)
         prev = timeline.get_current_time()
         steps = 0
         n_fix = 0                # 이 세그먼트(이 호출)에서 성공한 마커 fix 횟수(정지-후 보정 포함).
-        stopping = False        # done 판정 이후 래치: 이후 잔차가 tol 밖으로 흔들려도 계속 정지시킨다.
-        settle_poses = []       # settle 창(정지 후 보정)에서 매 프레임 관측한 filt.pose() 표본(Item3).
         # taskBYAW: 끝점(도달 여부)만으로는 90도 명령이 실제로 -270도를 돌고도 mod 360
         # 으로 우연히 맞아떨어지는 결함을 못 잡는다(회귀 원인 그 자체). 그래서 경로
         # 자체를 계측한다 — 매 스텝 GT yaw 의 wrap180 델타를 누적(unwrap)해 이 호출이
@@ -1259,34 +1272,20 @@ def main():
                     _apply_fix(fix)
                     n_fix += 1
 
-            # ---- 제어: 융합 자세 -> 목표까지 body twist(body_twist_toward) ----
-            fp = filt.pose()
-            if fp is None:
-                # 아직 융합 자세가 없다(시딩도, fix 도 없었음) — 안전하게 정지 유지.
-                tvx, tvy, twz = 0.0, 0.0, 0.0
-            elif not stopping:
-                tvx, tvy, twz, done = body_twist_toward(
-                    fp, target_xzyaw, pos_gain=pos_gain, yaw_gain=yaw_gain,
-                    max_lin=max_lin, max_ang=max_ang, pos_tol=pos_tol, yaw_tol=yaw_tol)
-                if done:
-                    stopping = True
-                    tvx, tvy, twz = 0.0, 0.0, 0.0
-            else:
-                tvx, tvy, twz = 0.0, 0.0, 0.0
-            cur_tw = slew_twist(cur_tw, (tvx, tvy, twz), dt, linear_accel=LINEAR_ACCEL,
-                                linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
-            omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+            # ---- 제어: 결정은 ctrl.step 에 위임, 여기선 휠 속도 변환·구동만 ----
+            tvx, tvy, twz = ctrl.step(filt.pose(), dt)
+            omegas = wheel_velocities_from_cmd_vel(tvx, tvy, twz)
             vel_buf[...] = 0.0
             for w, om in omegas.items():
                 vel_buf[idx[w]] = om
             art.set_joint_velocity_targets(vel_buf)
 
-            if stopping and cur_tw == (0.0, 0.0, 0.0):
+            if ctrl.done:
                 # 정지 후 몇 프레임 더 보정(FUSE 종단 처리와 동일 관례). reached 는
                 # 여기서 확정하지 않는다 — 이 보정이 filt.pose() 를 움직일 수 있어
-                # 루프 종료 후 최종 자세 기준으로 재판정한다(아래 reached 재검증, Item3:
+                # 루프 종료 후 최종 자세 기준으로 재판정한다(아래 ctrl.finish, Item3:
                 # 마지막 한 프레임이 아니라 이 창 전체의 강건 중앙값으로 재판정한다).
-                for _ in range(30):
+                for _ in range(ctrl.settle_frames):
                     app.update()
                     pose = detect_current(ctx)
                     if pose is not None:
@@ -1294,9 +1293,7 @@ def main():
                         if fix is not None and filt.x is not None:
                             _apply_fix(fix)
                             n_fix += 1
-                    fp_settle = filt.pose()
-                    if fp_settle is not None:
-                        settle_poses.append(fp_settle)
+                    ctrl.settle_sample(filt.pose())
                 break
 
         # ---- settle 표본 중앙값으로 filt 잡음 억제(Task 3b-harden Item3,
@@ -1310,31 +1307,17 @@ def main():
         # 창에서 관측한 filt 표본들의 중앙값(x,z)·원형평균(yaw)으로 마지막 한 표본의 잡음을
         # 눌러 filt 자체를 갱신한다. 표본이 없으면(마커가 한 번도 안 잡힌 세그먼트, 예:
         # ROTCHK/ROTCHK180 의 순수오도 회전, 또는 max_steps 소진으로 settle 을 못 밟은
-        # 경우) 원래 filt 그대로 두어 기존 동작을 보존한다.
-        if settle_poses:
-            xs = sorted(p[0] for p in settle_poses)
-            zs = sorted(p[1] for p in settle_poses)
-            n = len(xs)
-            mid = n // 2
-            med_x = xs[mid] if n % 2 else 0.5 * (xs[mid - 1] + xs[mid])
-            med_z = zs[mid] if n % 2 else 0.5 * (zs[mid - 1] + zs[mid])
-            sy = sum(math.sin(math.radians(p[2])) for p in settle_poses)
-            cy = sum(math.cos(math.radians(p[2])) for p in settle_poses)
-            med_yaw = math.degrees(math.atan2(sy, cy))
-            filt.set_pose(med_x, med_z, med_yaw)
+        # 경우) 원래 filt 그대로 두어 기존 동작을 보존한다. (ctrl.finish 로 위임됨.)
+        final_pose, reached = ctrl.finish(filt.pose())
+        if final_pose is not None:
+            filt.set_pose(*final_pose)
 
         # ---- reached 재검증(settle 후): 루프 중간에 래치한 값을 쓰지 않고, settle
         # 루프가 끝난 뒤의 최종(=위에서 표본이 있었다면 중앙값으로 잡음을 억제한)
-        # filt.pose() 를 target_xzyaw 에 다시 견주어 판정한다. 루프가 정상 정지(break)로
-        # 끝났든 max_steps 소진으로 끝났든 동일하게 적용된다. 제어 경로와 마찬가지로
-        # GT 가 아니라 filt.pose() 만 쓴다.
+        # filt.pose() 를 target_xzyaw 에 다시 견주어 판정한다(ctrl.finish 내부에서
+        # 이미 계산됨). 루프가 정상 정지(break)로 끝났든 max_steps 소진으로 끝났든
+        # 동일하게 적용된다. 제어 경로와 마찬가지로 GT 가 아니라 filt.pose() 만 쓴다.
         fp = filt.pose()
-        if fp is None:
-            reached = False
-        else:
-            _, _, _, reached = body_twist_toward(
-                fp, target_xzyaw, pos_gain=pos_gain, yaw_gain=yaw_gain,
-                max_lin=max_lin, max_ang=max_ang, pos_tol=pos_tol, yaw_tol=yaw_tol)
 
         gx, gz, gyaw = gt_pose_xz_yaw(art)
         if fp is not None:
