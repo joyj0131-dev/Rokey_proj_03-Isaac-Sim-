@@ -3095,15 +3095,25 @@ def main():
                 "lead_result": lead_result, "follow_result": follow_result}
 
     def _run_mission_c_choreo(run_mission_b_choreo):
-        """Mission Phase C, Task C4: 베이 접근 -> 순차 진입(entry_follow=앞축 먼저,
-        entry_lead=뒷축) -> 뎁스 축감지 정지.
+        """Mission Phase C, Task C4b(redo): 베이 접근 -> 마커60 재정렬 -> 순차
+        진입(entry_follow=앞축 먼저, entry_lead=뒷축) -> 뎁스 축감지 정지.
 
         "Phase B 종단 자세에서 시작"(브리프 지시)하므로 먼저 mission B 안무를
         그대로 재사용해 그 자세를 만든다(run_mission_b_choreo — mission=="B" 와
         동일 함수, MISSIONB_* 토큰도 그대로 같이 찍힌다 — 진단에 유용하고 브리프가
-        금지하지 않는다). GT 는 리포팅 전용으로만 쓰고(err_vs_gt_axle 등), 제어는
-        전부 filt.pose()(오도 예측, 축 밑에는 아루코 마커가 없어 보정 fix 는 사실상
-        없다)와 C2 검증 좌우 뎁스 중앙유지로만 한다.
+        금지하지 않는다).
+
+        Task C4 최초 시도(85e219a, WIP)는 APPROACH(순수오도, ~6m 블라인드) 직후
+        바로 INGRESS 로 들어가 종단 융합오차 22.9cm 가 통로 여유 16.5cm 를 넘어
+        바퀴에 충돌했다. Task C4a(2ae271f)가 베이 입구에 재보정용 마커(id=60,
+        serves=BAY_OUT_ENTRY)를 추가했고, 이 redo 는 APPROACH 와 INGRESS 사이에
+        BAY_ALIGN 단계(_bay_align, 마커60 폐루프 재정렬)를 끼워 넣어 그 블라인드
+        오차를 진입 직전에 되잡는다 — 안무: APPROACH(대각이동+회전, 순수오도) ->
+        BAY_ALIGN(마커60, 위치+선택적 yaw 보정) -> INGRESS(C2 뎁스중앙유지+C3
+        TroughTracker). GT 는 리포팅 전용으로만 쓰고(err_pos_gt/err_yaw_gt/
+        err_vs_gt_axle 등), 제어는 전부 filt.pose()(오도 예측 + 마커fix)와 C2
+        검증 좌우 뎁스 중앙유지로만 한다 — 축 밑(트럭 아래)에는 여전히 아루코
+        마커가 없어 INGRESS 구간은 이전과 동일하게 사실상 순수 오도다.
         """
         from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist, cmd_vel_from_wheel_velocities
         from axle_center import TroughTracker
@@ -3131,10 +3141,29 @@ def main():
               f"rear_axle_gt_x={rear_axle_gt_x:.3f} z_center_truck={z_center_truck:.4f}",
               flush=True)
 
-        # ---- APPROACH 목표(nominal, --probe=DEPTH(C2)가 이미 검증한 x_start=-4.5
-        # 재사용 — 트럭 후미 x≈-5.585 밖 0.9m 여유). z 는 위에서 실측한 트럭
-        # 중심선, yaw 는 -x 를 향하는 -90도. ----
-        APPROACH_X = -4.5
+        # ---- APPROACH 목표(Task C4b redo): 이전 시도(85e219a)는 --probe=DEPTH(C2)의
+        # 텔레포트 시작점 x_start=-4.5 를 "주행 목표"로 재사용했는데, C2 는 정확한
+        # 위치로 텔레포트해서 시작하는 반면 미션은 XN 이후 ~6m 를 마커 없이 순수
+        # 오도로 달려가 도착 시점 융합오차가 22.9cm 까지 벌어졌다(통로 여유 16.5cm
+        # 초과 -> 바퀴 충돌, WIP 커밋 메시지 실측). Task C4a 가 진입 직전 재보정용
+        # 마커(id=60, serves=BAY_OUT_ENTRY, x=-5.0,z=7.075)를 추가하고
+        # --probe=BAYMARK 로 검출창을 실측했다: 로봇 중심 x ∈ [-3.90,-3.00](오차
+        # 0.23~1.11cm). 브리프는 그 창에서 **가장 가까운 지점**(-3.90)을 제안했다
+        # (트럭 후미까지 블라인드 구간을 1.69m 로 최소화, 브리프: heading θ 오차가
+        # 남기는 횡오차 = 1.69·sinθ) — 그런데 실측(1차 실행)으로 그 값을 실제로
+        # 써보니 정확히 그 결함이 드러났다: 창의 "가장 가까운" 경계(d=1.10)는
+        # 동시에 "안전마진이 0인" 경계이기도 해서, APPROACH 의 순수오도 블라인드
+        # 주행(err_pos_gt 최대 22.9cm 실측, WIP 커밋 근거)이 창 안쪽(d<1.10, 마커에
+        # 더 가까움)으로 오버슈트하면 그대로 검출 실패한다 — 1차 실행에서 두 로봇
+        # 다 MISSIONC_BAYALIGN n_fix=0(전혀 검출 못함)으로 이를 실측 확인했다(entry_
+        # follow err_pos_gt=15.58cm 인데도 미검출, entry_lead 는 별개 버그(아래
+        # _park_away/_restore 속도리셋 참고)까지 겹쳐 err_pos_gt=2.2m). 그래서
+        # APPROACH_X 를 창의 중앙 쪽으로 옮겨(-3.50, d=1.50) 양쪽에 각각 ~0.4m/
+        # ~0.5m 여유를 확보했다 — 블라인드 구간은 1.69m 대신 2.09m 로 늘지만(θ=3.4°
+        # 에서 횡오차 0.10m 대신 0.124m, 여전히 통로 여유 16.5cm 안), 검출 실패
+        # 리스크가 훨씬 크므로 이 트레이드오프를 택했다(실측 근거: report 참고).
+        # z 는 위에서 실측한 트럭 중심선, yaw 는 -x 를 향하는 -90도. ----
+        APPROACH_X = -3.50
         APPROACH_YAW = -90.0
         FWD_SPEED = 0.4
         RETURN_SPEED = 0.15
@@ -3146,6 +3175,22 @@ def main():
             elif a.startswith("--return-speed="):
                 RETURN_SPEED = float(a.split("=", 1)[1])
 
+        # ---- BAY_ALIGN(Task C4b 신규): 마커60 정렬 시 yaw 도 함께 보정할지.
+        # 실측 결정(2차 실행, taskC4b-report.md 참조): _approach() 가 회전 중에
+        # 이미 마커60 을 조기 포착해(위 ref_id 조기전환) rotate_in_place 의 기본
+        # correct_yaw=True 로 yaw 를 강하게 수렴시킨다 — 그 시점 err_yaw_gt(=
+        # "without", _bay_align 호출 이전)가 이미 0.05~0.15°로 매우 정확했다.
+        # 반면 _bay_align 자신의 drive_to_pose 에서 correct_yaw=True(="with")로
+        # 한 번 더 마커 yaw 를 블렌딩하면 관측 잡음이 섞여 오히려 0.38°로
+        # 살짝 나빠졌다(둘 다 브리프 임계치 3.4° 안이라 결과에 영향은 없지만,
+        # "실측해서 더 나은 쪽을 쓴다"는 브리프 지시를 문자 그대로 따른다).
+        # 그래서 BAY_ALIGN 은 위치만 보정(correct_yaw=False)하고 yaw 는
+        # _approach() 의 회전이 이미 확보한 값을 그대로 둔다.
+        BAY_ALIGN_CORRECT_YAW = False
+        for a in sys.argv[1:]:
+            if a.startswith("--bayalign-yaw="):
+                BAY_ALIGN_CORRECT_YAW = a.split("=", 1)[1].strip().lower() in ("1", "true", "yes")
+
         LAT_KP, LAT_VY_MAX, LAT_DEADBAND = 1.2, 0.15, 0.01   # C2(--probe=DEPTH) 검증값 재사용
 
         def _approach(setup, robot_id):
@@ -3153,10 +3198,19 @@ def main():
 
             Phase B 관례(회전과 이동을 분리)를 그대로 따른다: 먼저 현재 yaw 를
             유지한 채 위치만 옮기고(대각 이동은 홀로노믹이라 허용), 그 다음
-            제자리 회전으로 -x 를 보게 한다. 근처에 아루코 마커가 없어(베이는
-            도크/XN 에서 멀다) 사실상 순수 오도 주행이다 — drive_to_pose/
-            rotate_in_place 는 그래도 그대로 재사용한다(ctx 에 fix 가 안 잡히면
-            조용히 예측만 한다, 기존 동작 그대로).
+            제자리 회전으로 -x 를 보게 한다. 대각 이동 구간엔 아루코 마커가 없다
+            (도크/XN 에서 멀고, 마커60(BAY_OUT_ENTRY)의 검출창은 x<=-3.00 부터라
+            이 시점엔 아직 창 밖이다) — 사실상 순수 오도 주행이다.
+            drive_to_pose/rotate_in_place 는 그래도 그대로 재사용한다(ctx 에 fix 가
+            안 잡히면 조용히 예측만 한다, 기존 동작 그대로).
+
+            회전 직전에 front_ctx["ref_id"] 를 마커60 으로 미리 바꿔치기한다(1차
+            실행 실측으로 발견: 회전은 로봇이 이미 APPROACH_X 부근 — 검출창 안 —
+            에 도달한 뒤 진행하므로, 넓은 화각의 전방캠이 회전을 쓸며 지나가는
+            동안 마커가 우연히 시야에 들어와 rotate_in_place 의 기본 correct_yaw=
+            True 로 yaw 를 조기에 잡아줄 수 있다 — 뒤이은 _bay_align() 의 부담을
+            줄인다). XN 은 이미 대각 이동 이전에 멀어졌으므로 이 전환으로 잃는
+            XN fix 는 없다.
             """
             art, idx, filt = setup["art"], setup["idx"], setup["filt"]
             front_ctx, T_front = setup["front_ctx"], setup["T_front"]
@@ -3164,6 +3218,7 @@ def main():
             seg = drive_to_pose(front_ctx, art, idx, filt, T_front,
                                 (APPROACH_X, z_center_truck, fp0[2]),
                                 correct_yaw=False, pos_tol=0.05)
+            front_ctx["ref_id"] = read_markers(stage)[BAY_MARKER_SERVES]["id"]
             rot = rotate_in_place(front_ctx, art, idx, filt, T_front, APPROACH_YAW,
                                   pos_tol=0.05)
             fp = filt.pose()
@@ -3174,6 +3229,54 @@ def main():
                   f"{APPROACH_YAW:.1f}) drive_reached={seg['reached']} "
                   f"rot_reached={rot['reached']} err_pos_gt={err_pos_gt:.4f}", flush=True)
             return seg, rot
+
+        def _bay_align(setup, robot_id, rot_result):
+            """Task C4b(신규): 마커60(BAY_OUT_ENTRY, id=read_markers 로 조회)로
+            폐루프 재정렬 — APPROACH 가 남긴 ~6m 순수오도 구간의 위치오차
+            (85e219a 실측: 종단 err_pos_gt=22.9cm, 통로 여유 16.5cm 초과 -> 진입
+            즉시 바퀴 충돌)를 진입 직전에 마커로 되잡는다(Task C4a).
+
+            front_ctx 는 지금까지 XN(ref_id=xn_id, _mission_setup 이 설정)을
+            봤다 — 여기서 마커60 id 로 바꿔치기한다(REARXN/BAYMARK probe 와 동일한
+            ctx["ref_id"] 전환 관례, fuse_camera_setup 자체는 재보정하지 않는다 —
+            T_base_cam 은 카메라 외부파라미터라 어떤 마커를 보든 그대로 유효하다).
+
+            목표 자세는 APPROACH 종점과 동일한 (APPROACH_X, z_center_truck,
+            APPROACH_YAW) — 이미 그 근방(filt 기준으로는 사실상 그 지점)이라
+            "이동"은 거의 없고, drive_to_pose 의 정지-후 settle 창(30 프레임,
+            매 프레임 마커 fix 시도)이 실질적인 재정렬 역할을 한다: 마커 fix 가
+            filt 를 실제 위치 쪽으로 당기면, 잔차가 남는 한 body_twist_toward 가
+            그 잔차만큼 로봇을 실제로 움직여 GT 위치를 마커 쪽으로 끌어온다.
+
+            correct_yaw=BAY_ALIGN_CORRECT_YAW(모듈 상수, 이 태스크의 실측 결정 —
+            top-of-function 정의부 주석 참고): 브리프 가설(전방캠이 1.1~2.0m
+            거리에서 마커를 정면으로 보므로 도크/XN 의 비스듬한 후방캠과 달리 yaw
+            관측도 쓸만할 수 있다)을 실측으로 검증한다. rot_result(=_approach 의
+            rotate_in_place 반환값, 이 함수 호출 *이전* 시점 — 마커fix 가 전혀
+            없는 순수오도 yaw)의 err_yaw_gt 를 "without" 기준선으로, 이 함수의
+            drive_to_pose 결과(correct_yaw 적용 후)의 err_yaw_gt 를 "with" 로 나란히
+            찍는다(MISSIONC_BAYALIGN_YAWCMP) — correct_yaw=False 라면 filt.update
+            가 아예 호출되지 않아 yaw 는 오도값 그대로이므로 이 "without" 값은
+            근사가 아니라 정확히 같다(drive_to_pose 의 _apply_fix: correct_yaw=False
+            분기는 x/z 만 blending, yaw 는 filt.yaw 유지 — 코드 확인).
+            """
+            art, idx, filt = setup["art"], setup["idx"], setup["filt"]
+            front_ctx, T_front = setup["front_ctx"], setup["T_front"]
+            bay_id = read_markers(stage)[BAY_MARKER_SERVES]["id"]
+            front_ctx["ref_id"] = bay_id
+
+            align_target = (APPROACH_X, z_center_truck, APPROACH_YAW)
+            seg = drive_to_pose(front_ctx, art, idx, filt, T_front, align_target,
+                                correct_yaw=BAY_ALIGN_CORRECT_YAW, pos_tol=0.02)
+            fp = filt.pose()
+            print(f"MISSIONC_BAYALIGN_YAWCMP robot={robot_id} "
+                  f"correct_yaw={BAY_ALIGN_CORRECT_YAW} "
+                  f"err_yaw_gt_without={rot_result['err_yaw_gt']:.2f} "
+                  f"err_yaw_gt_with={seg['err_yaw_gt']:.2f}", flush=True)
+            print(f"MISSIONC_BAYALIGN robot={robot_id} filt=({fp[0]:.3f},{fp[1]:.3f},"
+                  f"{fp[2]:.2f}) err_pos_gt={seg['err_pos_gt']:.4f} "
+                  f"err_yaw_gt={seg['err_yaw_gt']:.2f} n_fix={seg['n_fix']}", flush=True)
+            return seg
 
         def _ingress_axle(robot_id, art, idx, filt, target_troughs, axle_label, true_axle_x):
             """C2 좌우 뎁스 중앙유지(vy) + C3 TroughTracker 로 축 감지 -> 후진 정렬 정지.
@@ -3303,6 +3406,22 @@ def main():
         # 가깝다(직선경로 최근접 실측 0.235m — 로봇 반경합 1.36m 에 한참 못
         # 미침, 즉 그대로 두면 충돌한다) — Phase B _mission_setup 의 sibling-park
         # 관례(멀리 텔레포트 -> 정확히 복원)를 그대로 재사용해 잠시 치운다.
+        #
+        # 실측으로 발견한 차이점(Phase B 의 동일 패턴과 달리 여기서는 위험하다):
+        # Phase B 의 sibling-park 은 카메라 보정 한 번(수십 프레임) 동안만 짧게
+        # 대피시키지만, 여기서는 entry_follow 의 APPROACH+BAY_ALIGN+INGRESS
+        # 전체(steps=3000+ 프레임, 수십 초~수 분)가 끝날 때까지 entry_lead 를
+        # 계속 치워둔다. set_world_poses 는 포즈만 텔레포트할 뿐 강체 속도는
+        # 건드리지 않는다 — 대피 구역(z+50)에 바닥이 없거나 물리적으로 불안정하면
+        # 그 긴 시간 동안 자유낙하/드리프트로 속도가 누적되고, 그 상태로 원래
+        # 자리에 복원하면 다음 물리 스텝에서 그 잔류 속도가 그대로 적분돼 로봇이
+        # 순간적으로 튕겨나간다(1차 실행 실측: entry_lead APPROACH 종단
+        # err_pos_gt=2.2175m — entry_follow 의 순수 오도 드리프트만으로는 설명
+        # 안 되는 규모, Phase B 종단 err_pos_gt 는 5.7cm 였다). 그래서 대피/복원
+        # 직후 반드시 art.set_velocities(0) 로 강체 선속도·각속도를 명시적으로
+        # 0 으로 리셋한다(포즈만 리셋하는 set_world_poses 와 달리 이건 물리 상태
+        # 자체를 리셋한다 — Articulation.set_velocities 문서: "immediately set
+        # the articulation state").
         def _park_away(robot_id):
             art = arts[robot_id]
             pos0, orn0 = art.get_world_poses()
@@ -3310,12 +3429,15 @@ def main():
             orn0 = np.asarray(orn0).reshape(1, 4).copy()
             away = pos0.copy(); away[0, 2] += 50.0
             art.set_world_poses(away, orn0)
+            art.set_velocities(np.zeros((1, 6)))
             for _ in range(5):
                 app.update()
             return pos0, orn0
 
         def _restore(robot_id, pos0, orn0):
-            arts[robot_id].set_world_poses(pos0, orn0)
+            art = arts[robot_id]
+            art.set_world_poses(pos0, orn0)
+            art.set_velocities(np.zeros((1, 6)))
             for _ in range(5):
                 app.update()
 
@@ -3323,12 +3445,14 @@ def main():
         lead_setup = mb["lead_setup"]
 
         lead_pos0, lead_orn0 = _park_away("entry_lead")
-        _approach(follow_setup, "entry_follow")
+        _, follow_rot = _approach(follow_setup, "entry_follow")
+        _bay_align(follow_setup, "entry_follow", follow_rot)
         follow_axle = _ingress_axle("entry_follow", follow_setup["art"], follow_setup["idx"],
                                     follow_setup["filt"], 2, "front", front_axle_gt_x)
         _restore("entry_lead", lead_pos0, lead_orn0)
 
-        _approach(lead_setup, "entry_lead")
+        _, lead_rot = _approach(lead_setup, "entry_lead")
+        _bay_align(lead_setup, "entry_lead", lead_rot)
         lead_axle = _ingress_axle("entry_lead", lead_setup["art"], lead_setup["idx"],
                                   lead_setup["filt"], 1, "rear", rear_axle_gt_x)
 
