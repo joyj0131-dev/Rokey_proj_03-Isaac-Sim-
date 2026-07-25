@@ -62,22 +62,30 @@ from parking_robot_system.formation_driver import (
     POS_TOL, YAW_TOL, body_twist_from_world_error, clamp, formation_heading,
     heading_hold_omega, rigid_body_world_velocity, wrap,
 )
-
-ROBOTS = ("robot_rear", "robot_front")
+# carry_rotate_to(차를 든 채 제자리 회전)의 강체(ω×r) 계산 — 2026-07-24 배선.
+# 예전엔 이 컨트롤러가 테스트만 통과하고 실제 로봇 코드엔 연결된 적이 없었다
+# (두 로봇이 각자 같은 목표각으로 "따로" 도는 단순한 방식만 실사용됐음). 이제
+# 실제로 여기서 가져다 쓴다 — 원리는 pivot_rotate_controller.py docstring 참고.
+from parking_control.core.pivot_rotate_controller import PivotRotateController, Pose2D
 
 # 아래 상수는 dock_lift_handoff_mission.py L28-55 그대로 옮긴 값이다(원본과 대조 완료 —
 # 값이 바뀌면 모션이 달라지므로 원본이 바뀌면 함께 갱신할 것). K_LIN 등 게인류는 이미
 # formation_driver에 추출·대조돼 있어 그쪽에서 임포트해 재사용한다(위 import 참고).
+#
+# 2026-07-24: DOCK_X/WALL_CLEAR_X/NORTH_STAGE_Z/SOUTH_STAGE_Z/DOCK_Z_FRONT/DOCK_Z_REAR는
+# 예전 "인계베이 하나(center_x=-29.6)를 입/출차가 공유" 레이아웃 전용 상수였다. v3
+# 레이아웃(입차 전용 인계지점/도크, 출차 전용 인계지점/도크 물리 분리, 로봇 4대 배치
+# 확정)으로 바뀌면서 이 값들은 FormationMotion 생성자 파라미터(handoff_x/handoff_z/
+# gate_x/dock_rear/dock_front)로 옮겼다 — 아래 STAGE_OFFSET류는 인계지점 "중심 기준
+# 상대 오프셋"이라 위치가 바뀌어도 그대로 재사용한다(차량 규격 자체는 안 바뀌므로).
 STEP_TIMEOUT = 90.0        # L28
 CORNER_TOL = 0.40          # L30 — 중간 웨이포인트 통과 반경(정지 없이 코너를 돎)
 FACE_MZ = math.pi / 2      # L32 — -z 를 향하는 yaw(odom 규약: atan2(-fwd_z, fwd_x))
 FACE_PZ = -math.pi / 2     # +z 를 향하는 yaw — rear가 차량 남쪽에서 뒷축으로 진입할 때 사용
-LANE_Z_REAR = -1.5         # L46 — 개구부 통과 통로(남쪽, rear 전용)
-LANE_Z_FRONT = 1.5         # L47 — 개구부 통과 통로(북쪽, front 전용)
-NORTH_STAGE_Z = 4.0        # L48 — Pickup 차체 북쪽 끝 밖 북쪽 스테이징 지점
-SOUTH_STAGE_Z = -4.0       # Pickup 차체 남쪽 끝 밖 — rear 전용 스테이징 지점
-WALL_CLEAR_X = -20.0       # L51 — 서쪽 벽(-18.1) 서쪽, 인계장 바닥 안
-DOCK_X = -15.3             # L52 — West 도크 x (robot:dockPose)
+LANE_Z_REAR = -1.5         # L46 — 로봇 개별 차로(남쪽, rear 전용) — 인계지점 중심 기준 상대값
+LANE_Z_FRONT = 1.5         # L47 — 로봇 개별 차로(북쪽, front 전용) — 인계지점 중심 기준 상대값
+NORTH_STAGE_OFFSET = 4.0   # L48 — 차체 북쪽 끝 밖 북쪽 스테이징(인계지점 중심 기준 상대값)
+SOUTH_STAGE_OFFSET = -4.0  # 차체 남쪽 끝 밖 — rear 전용 스테이징(인계지점 중심 기준 상대값)
 APPROACH_TIMEOUT = 300.0   # L55
 
 # 신규(원본에 없음) — carry_to 전용 속도/타임아웃.
@@ -94,13 +102,7 @@ CARRY_HEADING_MAX_OMEGA = 0.10
 CARRY_HEADING_DEADBAND = math.radians(0.10)
 CARRY_HEADING_TOL = math.radians(0.50)
 
-# --- 초기 대기 도크(USD robot:dockPose 실측) — 복귀 목표 ---
-# West_A_WaitingDock=(-15.3,0,7.8)=front, West_B_WaitingDock=(-15.3,0,-7.8)=rear.
-# (이전엔 개구부 lane ±1.5로 잘못 복귀했음 — 실제 초기 위치는 ±7.8.)
-DOCK_Z_FRONT = 7.8         # front(West_A) 초기 대기 z
-DOCK_Z_REAR = -7.8         # rear(West_B) 초기 대기 z
-
-# 출차 하차(인계베이) 후 복귀 시 차 길이축(z)으로 빠져나올 거리. 차체 반길이 ≈2.9 + 로봇
+# 인계 후(하차/승차) 복귀 시 차 길이축(z)으로 빠져나올 거리. 차체 반길이 ≈2.9 + 로봇
 # 반길이 + 여유. 사용자 실측: 3.5는 바퀴에 살짝 닿아 4.0으로 상향(좀 더 나온 뒤 이동).
 BAY_CLEAR_Z = 4.0
 
@@ -121,25 +123,50 @@ class FormationMotion:
     (parking_robot_system.frame_transform 참고).
     """
 
-    def __init__(self, node, *, center_x=-29.6, rear_axle_z=-1.93, front_axle_z=1.66,
+    def __init__(self, node, *, rear_id="robot_rear", front_id="robot_front",
+                 handoff_x=-8.5, handoff_z=-5.5, gate_x=-13.0,
+                 dock_rear=(-3.2, -2.2), dock_front=(-1.2, -2.2), lane_z=-5.3,
+                 rear_axle_z=-1.93, front_axle_z=1.66,
                  callback_group=None):
-        # center_x/rear_axle_z/front_axle_z 기본값은 원본 HandoffMission.__init__의 ROS
-        # 파라미터 기본값(L68: center_x=-29.6, rear_axle_z=-1.93, front_axle_z=1.66)과 동일.
+        # rear_id/front_id: 이 편대가 실제로 제어할 물리 로봇 이름(토픽/서비스 네임스페이스에
+        # 그대로 쓰인다) — 입차/출차 전용 로봇쌍을 분리하려면 액션서버 생성 시 다른 이름을
+        # 넘기면 된다(하드코딩 대신 파라미터화, 2026-07-24).
+        #
+        # handoff_x/handoff_z/gate_x/dock_rear/dock_front/lane_z: 2026-07-24 v3
+        # 레이아웃 기본값(입차 전용). v3.usd 실측 좌표(USD 프레임, 이 클래스가 쓰는 것과
+        # 동일 좌표계) 그대로다:
+        #   handoff = vehicle:entryWait(-8.5,-5.5) — 차량이 로봇에게 실제 인계되는 지점
+        #   gate_x  = vehicle:entryGate x(-13.0)   — 인계지점 진입 전 통과하는 게이트
+        #   dock_rear/dock_front = dock_ROBOT_IN/IN_2(-3.2,-2.2)/(-1.2,-2.2) — 로봇 대기 도크
+        #   lane_z  = lane:inboundZ(-5.3) — carry 구간(인계지점↔슬롯)에서 쓰는 전용 차로.
+        #             출차 세트는 lane:outboundZ(+5.3) 등 대칭값을 launch 파라미터로 넘긴다
+        #             (parking_robot_system.launch.py 참고) — 입/출차가 물리적으로 다른
+        #             차로를 쓰게 돼 있어야 두 로봇쌍이 동시에 움직여도 안 부딪힌다.
+        # rear_axle_z/front_axle_z(차체 축 오프셋)는 차량 규격이라 위치와 무관 — 그대로 유지.
         self.node = node
-        self.cx = center_x
+        self.rear_id = rear_id
+        self.front_id = front_id
+        self.robots = (rear_id, front_id)
+        self.handoff_x = handoff_x
+        self.handoff_z = handoff_z
+        self.gate_x = gate_x
+        self.dock_rear = dock_rear
+        self.dock_front = dock_front
+        self.lane_z = lane_z
+        self.cx = handoff_x   # pickup_at_slot 등 "중심선 x" 의미로 재사용(이름 유지)
         self.rear_axle = rear_axle_z
         self.front_axle = front_axle_z
-        self.pose = {r: None for r in ROBOTS}   # rid -> (x, z, yaw), USD
+        self.pose = {r: None for r in self.robots}   # rid -> (x, z, yaw), USD
         self.veh_x = self.veh_y = self.veh_z = None
         self.veh_yaw = None
         grp = callback_group or ReentrantCallbackGroup()
-        for r in ROBOTS:
+        for r in self.robots:
             node.create_subscription(
                 Odometry, f"/{r}/odom",
                 lambda m, rid=r: self._odom(rid, m), 10, callback_group=grp)
         node.create_subscription(
             PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
-        self.cmd = {r: node.create_publisher(Twist, f"/{r}/cmd_vel", 10) for r in ROBOTS}
+        self.cmd = {r: node.create_publisher(Twist, f"/{r}/cmd_vel", 10) for r in self.robots}
 
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
     def _odom(self, rid, m):
@@ -162,7 +189,7 @@ class FormationMotion:
         """차량 직접 heading을 우선하고, 없으면 로봇 baseline으로 폴백한다."""
         if self.veh_yaw is not None:
             return self.veh_yaw
-        rear, front = self.pose.get("robot_rear"), self.pose.get("robot_front")
+        rear, front = self.pose.get(self.rear_id), self.pose.get(self.front_id)
         if rear is None or front is None:
             return None
         return formation_heading(rear, front)
@@ -174,7 +201,7 @@ class FormationMotion:
         self.cmd[rid].publish(t)
 
     def _stop_all(self):
-        for r in ROBOTS:
+        for r in self.robots:
             self._pub(r, 0.0)
 
     def _settle(self, secs=0.5):
@@ -188,10 +215,10 @@ class FormationMotion:
     def wait_data(self, timeout=15.0):
         """두 로봇 odom + 차량 pose 수신 대기(원본 _wait_data, L116-121 그대로)."""
         end = time.time() + timeout
-        while time.time() < end and (any(self.pose[r] is None for r in ROBOTS)
+        while time.time() < end and (any(self.pose[r] is None for r in self.robots)
                                      or self.veh_z is None):
             time.sleep(0.1)
-        return all(self.pose[r] is not None for r in ROBOTS) and self.veh_z is not None
+        return all(self.pose[r] is not None for r in self.robots) and self.veh_z is not None
 
     # ---- 원본 _omni_step (L123-138), 로직 변경 없음 ----
     def _omni_step(self, rid, tx, tz, tol=POS_TOL):
@@ -318,10 +345,11 @@ class FormationMotion:
         """
         if not self.wait_data():
             return False, "데이터 미수신"
-        # 게이트 통과는 병렬(rear 남쪽 통로 -1.5, front 북쪽 통로 +1.5 로 분리 → 벽 서쪽).
+        # 게이트 통과는 병렬(rear 남쪽 차로, front 북쪽 차로로 분리) — 각자 도크에서
+        # 인계지점 앞 게이트(gate_x)까지, 인계지점 중심 기준 상대 차로(LANE_Z_REAR/FRONT)로.
         gate = {
-            "robot_rear":  [(DOCK_X, LANE_Z_REAR), (WALL_CLEAR_X, LANE_Z_REAR)],
-            "robot_front": [(DOCK_X, LANE_Z_FRONT), (WALL_CLEAR_X, LANE_Z_FRONT)],
+            self.rear_id:  [(self.gate_x, self.handoff_z + LANE_Z_REAR)],
+            self.front_id: [(self.gate_x, self.handoff_z + LANE_Z_FRONT)],
         }
         self.node.get_logger().info("접근: 게이트 통과(병렬)")
         if not self.approach_parallel(gate):
@@ -331,8 +359,8 @@ class FormationMotion:
 
         # 차량 양끝 바깥으로 동시에 이동. rear와 front의 진입 경로를 물리적으로 분리한다.
         staging = {
-            "robot_rear": [(self.cx, SOUTH_STAGE_Z)],
-            "robot_front": [(self.cx, NORTH_STAGE_Z)],
+            self.rear_id: [(self.handoff_x, self.handoff_z + SOUTH_STAGE_OFFSET)],
+            self.front_id: [(self.handoff_x, self.handoff_z + NORTH_STAGE_OFFSET)],
         }
         self.node.get_logger().info("인계장 접근: rear 남쪽·front 북쪽 동시 정렬")
         if not self.approach_parallel(staging):
@@ -342,8 +370,8 @@ class FormationMotion:
 
         self.node.get_logger().info("인계장 회전: rear +z·front -z 동시 정렬")
         if not self.rotate_parallel({
-                "robot_rear": FACE_PZ,
-                "robot_front": FACE_MZ,
+                self.rear_id: FACE_PZ,
+                self.front_id: FACE_MZ,
         }):
             self._stop_all()
             return False, "동시 회전 실패"
@@ -351,8 +379,8 @@ class FormationMotion:
 
         self.node.get_logger().info("인계장 픽업: rear 뒷축·front 앞축 동시 진입")
         if not self.ingress_parallel({
-                "robot_rear": (self.cx, self.rear_axle, FACE_PZ),
-                "robot_front": (self.cx, self.front_axle, FACE_MZ),
+                self.rear_id: (self.handoff_x, self.handoff_z + self.rear_axle, FACE_PZ),
+                self.front_id: (self.handoff_x, self.handoff_z + self.front_axle, FACE_MZ),
         }, timeout=140.0, tol=INGRESS_TOL):
             self._stop_all()
             return False, "동시 축 진입 실패"
@@ -396,14 +424,14 @@ class FormationMotion:
             omega = heading_hold_omega(
                 heading_ref, heading, CARRY_HEADING_KP,
                 CARRY_HEADING_MAX_OMEGA, CARRY_HEADING_DEADBAND)
-            rear, front = self.pose.get("robot_rear"), self.pose.get("robot_front")
+            rear, front = self.pose.get(self.rear_id), self.pose.get(self.front_id)
             if rear is None or front is None:
                 self._stop_all()
                 return False
             center_x = 0.5 * (rear[0] + front[0])
             center_z = 0.5 * (rear[1] + front[1])
 
-            for r in ROBOTS:
+            for r in self.robots:
                 rp = self.pose.get(r)
                 if rp is None:
                     self._stop_all()
@@ -432,59 +460,58 @@ class FormationMotion:
     def return_both_to_docks(self):
         """주차·하차 후 두 로봇을 동시에 초기 대기 도크로 복귀(사용자 요구: 동시 + 초기위치).
 
-        초기 위치(USD robot:dockPose 실측): front=West_A(-15.3,+7.8), rear=West_B(-15.3,-7.8).
-        차량을 주차하면 슬롯 안쪽(뒤)은 공간이 없으므로 반드시 앞(통로 쪽)으로 나온다:
-          각 로봇 웨이포인트 체인 ── ① 현재 x 유지한 채 자기 통로 차로(rear −1.5 / front +1.5)로
-          앞(통로)으로 빠져나옴 → ② 도크 x(-15.3)까지 서진 → ③ 자기 도크 z(rear −7.8 / front +7.8)로.
-        approach_parallel로 두 로봇을 '동시에' 웨이포인트 체인 따라 이동한다. rear/front가 서로
-        다른 차로(±1.5)로 이동하고, rear가 처음부터 front보다 남쪽에 있어(픽업 진입 순서상)
-        z 순서가 유지되므로 통로에서 겹치지 않는다.
+        2026-07-24 v3 레이아웃: 각 로봇 웨이포인트 체인 ── ① 현재 x 유지한 채 자기
+        차로(lane_z + LANE_Z_REAR/FRONT)로 통로 쪽으로 빠져나옴 → ② 자기 도크 x로 이동
+        → ③ 자기 도크 z로. approach_parallel로 두 로봇을 '동시에' 이동시킨다. rear/front가
+        서로 다른 차로로 이동해 통로에서 겹치지 않는다.
         """
         routes = {}
-        for rid, lane_z, dock_z in (("robot_rear", LANE_Z_REAR, DOCK_Z_REAR),
-                                    ("robot_front", LANE_Z_FRONT, DOCK_Z_FRONT)):
+        for rid, offset, dock in ((self.rear_id, LANE_Z_REAR, self.dock_rear),
+                                  (self.front_id, LANE_Z_FRONT, self.dock_front)):
             cur = self.pose.get(rid)
             if cur is None:
                 return False
             cur_x = cur[0]
-            routes[rid] = [(cur_x, lane_z), (DOCK_X, lane_z), (DOCK_X, dock_z)]
+            dock_x, dock_z = dock
+            lane_z = self.lane_z + offset
+            routes[rid] = [(cur_x, lane_z), (dock_x, lane_z), (dock_x, dock_z)]
         self.node.get_logger().info("복귀(동시): 두 로봇 앞으로→통로→초기 도크")
         ok = self.approach_parallel(routes)
         self._stop_all()
         return ok
 
     def return_from_bay(self):
-        """출차 하차(인계베이) 후 도크 복귀 — 두 단계(사용자 실측 반영):
+        """출차 하차(인계지점) 후 도크 복귀 — 두 단계(사용자 실측 반영):
 
         ① 백아웃(정밀): 차 밑에서 차 길이축(z)으로 '완전히' 빠져나온다. rear 남(-z)/front 북(+z)
-           으로 |z|=BAY_CLEAR_Z까지(단일 웨이포인트 → CORNER_TOL로 안 자르고 정밀 정지). 이렇게
-           확실히 나온 뒤에 이동해야 좌우 바퀴를 안 스친다(진입 역방향).
-        ② 일직선 전진 후 개구부 통과: 백아웃 위치(x≈-29.6, z=±4.0)에서 곧바로 통로 차로로
-           대각선 이동하면 차 폭 안에 있는 동안 z가 중심으로 당겨져 바퀴를 친다(사용자 실측).
-           그래서 먼저 z를 유지한 채 '일직선으로 동진'해 차 밖(WALL_CLEAR_X)으로 나간 뒤,
-           비로소 통로 차로(rear −1.5 / front +1.5)로 정렬하고 개구부(x≈-18.1, z∈[-4.5,4.5])를
-           지나 각자 초기 도크로 간다. rear/front가 서로 다른 방향/차로라 겹치지 않는다.
+           으로 인계지점 중심에서 BAY_CLEAR_Z만큼(단일 웨이포인트 → CORNER_TOL로 안 자르고
+           정밀 정지). 이렇게 확실히 나온 뒤에 이동해야 좌우 바퀴를 안 스친다(진입 역방향).
+        ② 통로 차로로 복귀: rear/front가 서로 다른 차로(lane_z + LANE_Z_REAR/FRONT)로 각자
+           도크까지 이동한다(return_both_to_docks와 동일 패턴).
         """
         # ① 정밀 백아웃 — 차 밖으로 완전히
         backout = {}
-        for rid, clear_z in (("robot_rear", -BAY_CLEAR_Z), ("robot_front", BAY_CLEAR_Z)):
+        for rid, offset in ((self.rear_id, -BAY_CLEAR_Z), (self.front_id, BAY_CLEAR_Z)):
             cur = self.pose.get(rid)
             if cur is None:
                 return False
-            backout[rid] = [(cur[0], clear_z)]   # 단일 웨이포인트 → 정밀 정지(안 자름)
+            backout[rid] = [(cur[0], self.handoff_z + offset)]   # 단일 웨이포인트 → 정밀 정지
         self.node.get_logger().info("출차 복귀①: 차 길이축으로 완전히 빠져나옴")
         if not self.approach_parallel(backout):
             self._stop_all()
             return False
         self._settle()
-        # ② 일직선 동진(z 유지, 차 밖으로) → 통로 차로 정렬 → 개구부 통과 → 초기 도크
-        transit = {
-            "robot_rear":  [(WALL_CLEAR_X, -BAY_CLEAR_Z), (WALL_CLEAR_X, LANE_Z_REAR),
-                            (DOCK_X, LANE_Z_REAR), (DOCK_X, DOCK_Z_REAR)],
-            "robot_front": [(WALL_CLEAR_X, BAY_CLEAR_Z), (WALL_CLEAR_X, LANE_Z_FRONT),
-                            (DOCK_X, LANE_Z_FRONT), (DOCK_X, DOCK_Z_FRONT)],
-        }
-        self.node.get_logger().info("출차 복귀②: 일직선 동진 → 개구부 통로 지나 초기 도크로")
+        # ② 통로 차로 정렬 → 각자 도크로
+        transit = {}
+        for rid, offset, dock in ((self.rear_id, LANE_Z_REAR, self.dock_rear),
+                                  (self.front_id, LANE_Z_FRONT, self.dock_front)):
+            cur = self.pose.get(rid)
+            if cur is None:
+                return False
+            dock_x, dock_z = dock
+            lane_z = self.lane_z + offset
+            transit[rid] = [(cur[0], lane_z), (dock_x, lane_z), (dock_x, dock_z)]
+        self.node.get_logger().info("출차 복귀②: 통로 차로 지나 초기 도크로")
         ok = self.approach_parallel(transit)
         self._stop_all()
         return ok
@@ -537,7 +564,7 @@ class FormationMotion:
         front_t = slot_z + self.front_axle  # 슬롯 front축 z
         # ① 접근: 두 로봇을 슬롯 열의 통로 차로로(병렬, 서로 다른 차로라 안 겹침)
         approach = {}
-        for rid, lane in (("robot_rear", LANE_Z_REAR), ("robot_front", LANE_Z_FRONT)):
+        for rid, lane in ((self.rear_id, LANE_Z_REAR), (self.front_id, LANE_Z_FRONT)):
             cur = self.pose.get(rid)
             if cur is None:
                 return False, "pose 없음"
@@ -553,37 +580,77 @@ class FormationMotion:
         # ③ 두 로봇 동시에 각자 축으로 진입
         self.node.get_logger().info("출차: 두 로봇 동시 진입")
         self.ingress_parallel({
-            "robot_front": (slot_x, front_t, FACE_MZ),
-            "robot_rear": (slot_x, rear_t, FACE_MZ),
+            self.front_id: (slot_x, front_t, FACE_MZ),
+            self.rear_id: (slot_x, rear_t, FACE_MZ),
         })
         self._settle(INGRESS_SETTLE)
         return True, "슬롯 픽업 완료(동시)"
 
     def carry_to_bay(self, bay_x, bay_z):
-        """출차 운반: 슬롯에서 통로로 나와 통로 따라 인계베이로(입차 carry의 역방향, L자).
-          ① carry_to(현재 veh_x, 0) → 슬롯 밖 통로로,
-          ② carry_to(bay_x, bay_z) → 통로 따라 베이 한가운데로.
+        """출차 운반: 슬롯에서 통로로 나와 통로 따라 인계지점으로(입차 carry의 역방향, L자).
+          ① carry_to(현재 veh_x, 이 세트 전용 차로) → 슬롯 밖 통로로,
+          ② carry_to(bay_x, bay_z) → 통로 따라 인계지점으로.
         """
         if self.veh_x is None or self.veh_z is None:
             return False
         heading_ref = self.carry_heading()
         self.node.get_logger().info("출차 운반: 슬롯→통로")
-        ok = self.carry_to(self.veh_x, 0.0, heading_ref=heading_ref)
+        ok = self.carry_to(self.veh_x, self.lane_z, heading_ref=heading_ref)
         if ok:
-            self.node.get_logger().info(f"출차 운반: 통로→인계베이({bay_x:.1f},{bay_z:.1f})")
+            self.node.get_logger().info(f"출차 운반: 통로→인계지점({bay_x:.1f},{bay_z:.1f})")
             ok = self.carry_to(bay_x, bay_z, heading_ref=heading_ref)
         return ok
 
-    def carry_rotate_to(self, target_yaw, timeout=90.0):
-        """파지 후 두 로봇을 target_yaw로 회전(강체로 잡은 차량이 함께 회전) — best-effort.
+    def carry_rotate_to(self, target_yaw, timeout=90.0, tol_rad=None):
+        """파지 후 두 로봇을 target_yaw로 회전(강체로 잡은 차량이 함께 회전).
 
-        원본에는 파지 후 회전 시퀀스가 아예 없다(원본은 전/후/옆 직선 운반만 함, _omni_carry
-        L226-252). rotate_to와 동일한 게인(K_YAW/MAX_YAW/YAW_TOL)을 재사용하되, 두 로봇을
-        순차 호출(rotate_to 두 번)이 아니라 같은 tick에 동시 명령한다 — 차량을 강체로 잡고
-        있다면 한쪽만 돌고 한쪽이 정지해 있을 때 서로 밀고 당기게 되기 때문이다.
+        2026-07-24: PivotRotateController(core/pivot_rotate_controller.py)로 배선했다.
+        예전 방식(rotate_parallel — 두 로봇이 각자 독립적으로 같은 목표각까지 도는 것)은
+        "차량 중심"이 아니라 "각자 자기 자신"을 축으로 도는 셈이라, 강체로 잡은 차량이
+        있으면 실제로는 원을 그리며 서로 밀고 당겨야 하는데 그 계산이 없었다(테스트만
+        통과하고 실사용된 적 없는 구현이었음 — 이번에 실제로 연결).
 
-        TODO(Task 12, best-effort): 실제로 두 로봇의 각속도가 충분히 동기화되는지, 그립에
-        유격이 있어 순차 회전이 오히려 더 매끄러울 수 있는지는 Isaac GUI 관찰로만 확인
-        가능하다 — 여기서는 "동시 명령"이 더 물리적으로 타당하다는 판단만으로 구현했다.
+        PivotRotateController는 "두 로봇 위치의 중점"(≈ 차량 중심)을 회전축으로 삼아
+        접선속도(ω×r)를 계산한다 — 중심에서 반대편에 있는 두 로봇은 이 식 하나로 자동으로
+        반대 방향 속도가 나오고, 각속도는 항상 동일하다(회전목마 원리). 롤러 미끄러짐을
+        감안해 매 tick 실측 yaw로 "지금까지 실제로 돈 각도"를 피드백한다.
         """
-        return self.rotate_parallel({rid: target_yaw for rid in ROBOTS}, timeout=timeout)
+        rear_p, front_p = self.pose.get(self.rear_id), self.pose.get(self.front_id)
+        if rear_p is None or front_p is None:
+            return False
+        start_rear = Pose2D(x=rear_p[0], y=rear_p[1], yaw=rear_p[2])
+        start_front = Pose2D(x=front_p[0], y=front_p[1], yaw=front_p[2])
+        current_heading = self.carry_heading()
+        if current_heading is None:
+            return False
+        # PivotRotateController.target_angle_rad는 "지금부터 얼마나 돌아야 하는가"
+        # (상대량)다 — carry_rotate_to의 target_yaw(절대각)를 여기서 변환한다.
+        relative_angle = wrap(target_yaw - current_heading)
+        tol = YAW_TOL if tol_rad is None else tol_rad
+        controller = PivotRotateController(
+            target_angle_rad=relative_angle, k_omega=K_YAW,
+            max_omega=MAX_YAW, max_linear=MAX_LIN)
+
+        end = time.time() + timeout
+        while time.time() < end:
+            rear_p, front_p = self.pose.get(self.rear_id), self.pose.get(self.front_id)
+            if rear_p is None or front_p is None:
+                self._stop_all()
+                return False
+            rear_now = Pose2D(x=rear_p[0], y=rear_p[1], yaw=rear_p[2])
+            front_now = Pose2D(x=front_p[0], y=front_p[1], yaw=front_p[2])
+            if controller.is_settled(rear_now, front_now, start_rear, start_front, tol):
+                break
+            rear_cmd = controller.compute(rear_now, front_now, start_rear, start_front)
+            front_cmd = controller.compute(front_now, rear_now, start_front, start_rear)
+            self._pub(self.rear_id, rear_cmd.linear_x, rear_cmd.linear_y, rear_cmd.angular_z)
+            self._pub(self.front_id, front_cmd.linear_x, front_cmd.linear_y, front_cmd.angular_z)
+            time.sleep(1.0 / CONTROL_HZ)
+        self._stop_all()
+
+        rear_p, front_p = self.pose.get(self.rear_id), self.pose.get(self.front_id)
+        if rear_p is None or front_p is None:
+            return False
+        rear_now = Pose2D(x=rear_p[0], y=rear_p[1], yaw=rear_p[2])
+        front_now = Pose2D(x=front_p[0], y=front_p[1], yaw=front_p[2])
+        return controller.is_settled(rear_now, front_now, start_rear, start_front, tol * 3)

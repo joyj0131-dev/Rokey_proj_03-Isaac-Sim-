@@ -10,7 +10,11 @@
     요청자는 robot_id(로봇 개인, 통로 구간용) 또는 task_id(로봇 2대 팀,
     슬롯처럼 함께 점유해야 하는 zone용) 중 정확히 하나를 채운다.
 
-로봇 선택은 Allocator 전략(allocator 파라미터: nearest | hungarian)에 위임한다.
+로봇 선택: 입차 전용 로봇쌍 / 출차 전용 로봇쌍이 물리적으로 고정돼 있어서
+(2026-07-24, 하드웨어 배치 완료) 매 요청마다 "누구를 배정할지" 계산할 필요가
+없다 — request_type(ENTRY/EXIT)에 따라 파라미터로 고정된 쌍(entry_rear_id/
+entry_front_id, exit_rear_id/exit_front_id)을 그대로 쓴다. 각 쌍은 서로 다른
+네임스페이스(entry/, exit/)에 떠 있는 robot_task_orchestrator에 goal을 보낸다.
 
 작업이 시작되면(goal 전송 시점) formation_assignment 토픽으로 리더/팔로워
 로봇 각각에게 역할·파트너를 배정해 formation_gap_controller(간격유지+공동
@@ -30,12 +34,8 @@ from parking_robot_interfaces.msg import FormationAssignment
 from parking_robot_interfaces.srv import AcquireZones, FindEmptySlot, \
     ReleaseZones, RequestParkingTask
 
-from parking_control.core.allocator import (
-    RobotState, TaskRequest, make_allocator, pick_follower,
-)
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
-from parking_control.core.pathfinder import PathFinder
 from parking_control.parking_slot_manager_node import _default_map_yaml
 
 
@@ -49,25 +49,36 @@ class TaskDispatcherNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        self.declare_parameter("allocator", "nearest")
         self.declare_parameter("zone_lock_mode", "stub")   # stub | db
         self.declare_parameter("zone_retry_sec", 1.0)
+        # 입차/출차 전용 로봇쌍(고정) — 2026-07-24 하드웨어 배치 확정.
+        self.declare_parameter("entry_rear_id", "robot_rear")
+        self.declare_parameter("entry_front_id", "robot_front")
+        self.declare_parameter("exit_rear_id", "robot_rear2")
+        self.declare_parameter("exit_front_id", "robot_front2")
 
         p = self.get_parameter
         self._db = ParkingDB(
             host=p("db_host").value, user=p("db_user").value,
             password=p("db_password").value, database=p("db_name").value)
         self._map = ParkingMap.load(p("map_yaml").value)
-        self._pathfinder = PathFinder(self._map)
-        self._allocator = make_allocator(p("allocator").value)
         self._stub_held = {}   # robot_id -> set(zone_ids), stub 모드 전용
+        self._robot_pairs = {
+            "ENTRY": (p("entry_rear_id").value, p("entry_front_id").value),
+            "EXIT": (p("exit_rear_id").value, p("exit_front_id").value),
+        }
 
         group = ReentrantCallbackGroup()
         self._find_slot_client = self.create_client(
             FindEmptySlot, "find_empty_slot", callback_group=group)
-        self._execute_client = ActionClient(
-            self, ExecuteParkingTask, "execute_parking_task",
-            callback_group=group)
+        self._execute_clients = {
+            "ENTRY": ActionClient(
+                self, ExecuteParkingTask, "entry/execute_parking_task",
+                callback_group=group),
+            "EXIT": ActionClient(
+                self, ExecuteParkingTask, "exit/execute_parking_task",
+                callback_group=group),
+        }
         self._formation_pub = self.create_publisher(
             FormationAssignment, "formation_assignment", 10)
 
@@ -79,7 +90,8 @@ class TaskDispatcherNode(Node):
                             self._handle_release, callback_group=group)
 
         self.get_logger().info(
-            f"task_dispatcher 시작 (allocator={p('allocator').value}, "
+            f"task_dispatcher 시작 (entry={self._robot_pairs['ENTRY']}, "
+            f"exit={self._robot_pairs['EXIT']}, "
             f"zone_lock_mode={p('zone_lock_mode').value})")
 
     # ---- 작업 접수 ----
@@ -101,28 +113,15 @@ class TaskDispatcherNode(Node):
                     "(입고 완료된 차량만 출차할 수 있습니다)")
                 return response
 
-        robots = [RobotState(r["robot_id"], float(r["x"] or 0), float(r["y"] or 0))
-                  for r in self._db.idle_robots()]
-        if len(robots) < 2:
+        leader_id, follower_id = self._robot_pairs[request.request_type]
+        idle_ids = {r["robot_id"] for r in self._db.idle_robots()}
+        if leader_id not in idle_ids or follower_id not in idle_ids:
             response.message = (
-                f"가용(IDLE) 로봇 2대 필요 (현재 {len(robots)}대) — "
-                "차량 1대는 로봇 2대(front/rear)가 함께 옮깁니다")
+                f"{request.request_type} 전용 로봇쌍({leader_id}/{follower_id})이 "
+                "사용 중입니다")
             return response
 
         task_id = str(uuid.uuid4())
-        target_node = exit_slot_id or "entrance"
-        task = TaskRequest(task_id=task_id, target_node=target_node)
-        assignments = self._allocator.assign(robots, [task], self._cost)
-        if not assignments:
-            response.message = "도달 가능한 로봇 없음"
-            return response
-        leader_id = assignments[0].robot_id
-        leader = next(r for r in robots if r.robot_id == leader_id)
-        follower = pick_follower(leader, robots)
-        if follower is None:
-            response.message = "팔로워로 배정할 로봇이 없음"
-            return response
-        follower_id = follower.robot_id
 
         self._db.upsert_vehicle(request.vehicle_id)
         self._db.create_task(task_id, request.request_type, request.vehicle_id)
@@ -146,9 +145,7 @@ class TaskDispatcherNode(Node):
 
         response.accepted = True
         response.task_id = task_id
-        response.message = (
-            f"리더 {leader_id}(거리 {assignments[0].cost:.2f}m) / "
-            f"팔로워 {follower_id} 배정")
+        response.message = f"리더 {leader_id} / 팔로워 {follower_id} 배정"
         self.get_logger().info(f"작업 접수 {task_id[:8]}: {response.message}")
         return response
 
@@ -162,11 +159,6 @@ class TaskDispatcherNode(Node):
                 robot_id=robot_id, task_id=task_id if active else "",
                 role=role if active else "", partner_robot_id=partner_id,
                 active=active))
-
-    def _cost(self, robot, task):
-        start = self._map.nearest_node(robot.x, robot.y)
-        path = self._pathfinder.find_path(start, task.target_node)
-        return None if path is None else path.length
 
     def _on_slot_found(self, future, task_id, request, leader_id, follower_id):
         result = future.result()
@@ -195,7 +187,8 @@ class TaskDispatcherNode(Node):
         self.get_logger().info(
             f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송 "
             f"(리더 {leader_id}, 팔로워 {follower_id})")
-        send_future = self._execute_client.send_goal_async(goal)
+        client = self._execute_clients[request.request_type]
+        send_future = client.send_goal_async(goal)
         send_future.add_done_callback(
             lambda f: self._on_goal_response(f, task_id, leader_id, follower_id))
 

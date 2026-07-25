@@ -7,6 +7,8 @@ dock_lift_handoff_mission 폐루프 이식, formation_motion.py 참고)에 위�
     "carry"                     -> FormationMotion.carry_to(tx,tz)        입차 운반(베이→슬롯)
     "carry_bay"                 -> FormationMotion.carry_to_bay(tx,tz)    출차 운반(슬롯→베이)
     "rotate"                    -> FormationMotion.carry_rotate_to(yaw)   편대(둘 다) 회전(정렬)
+    "rotate_ccw90"               -> FormationMotion.carry_rotate_to(heading+90도) 슬롯/출차지점
+                                     중앙 도착 직후 반시계 90도 회전(주차장 구조상 필수, goal.pose 미사용)
     "rear"|"front"              -> FormationMotion.goto_xz(rid, tx, tz)   로봇 1대 개별 직선 이동
     "return_both"               -> FormationMotion.return_both_to_docks() 입차 복귀(슬롯→도크)
     "return_bay"                -> FormationMotion.return_from_bay()       출차 복귀(베이 차밑 z축 탈출→도크)
@@ -36,10 +38,6 @@ from nav2_msgs.action import NavigateToPose
 from parking_robot_system.formation_motion import FormationMotion
 from parking_robot_system.frame_transform import map_to_usd, map_to_usd_yaw_deg
 
-# carry 모드 L자 경로용 통로 z(USD). 중앙 통로 중심이자 서쪽 벽 개구부(z∈[-4.5,4.5]) 중심.
-# 인계베이(x≈-29.6)→슬롯까지 이 z를 따라 동진하면 개구부를 통과해 벽을 관통하지 않는다.
-AISLE_Z = 0.0
-
 
 def _yaw_from_quaternion(q):
     """geometry_msgs/Quaternion -> yaw(rad). formation_motion.FormationMotion._odom과 동일
@@ -52,8 +50,29 @@ class NavigateActionServerNode(Node):
     def __init__(self):
         super().__init__('navigate_action_server')
 
+        # 2026-07-24: 입차/출차 전용 로봇쌍 분리 — 로봇 이름 + 인계지점/게이트/도크/전용
+        # 차로 좌표를 전부 파라미터로 받는다(기본값은 v3 레이아웃의 입차 세트).
+        # parking_robot_system.launch.py가 출차 세트엔 대칭값(gate_z=+5.5 등)을 넘긴다.
+        self.declare_parameter("rear_id", "robot_rear")
+        self.declare_parameter("front_id", "robot_front")
+        self.declare_parameter("handoff_x", -8.5)
+        self.declare_parameter("handoff_z", -5.5)
+        self.declare_parameter("gate_x", -13.0)
+        self.declare_parameter("dock_rear_x", -3.2)
+        self.declare_parameter("dock_rear_z", -2.2)
+        self.declare_parameter("dock_front_x", -1.2)
+        self.declare_parameter("dock_front_z", -2.2)
+        self.declare_parameter("lane_z", -5.3)
+        p = self.get_parameter
+
         grp = ReentrantCallbackGroup()
-        self.formation = FormationMotion(self, callback_group=grp)
+        self.formation = FormationMotion(
+            self, rear_id=p("rear_id").value, front_id=p("front_id").value,
+            handoff_x=p("handoff_x").value, handoff_z=p("handoff_z").value,
+            gate_x=p("gate_x").value,
+            dock_rear=(p("dock_rear_x").value, p("dock_rear_z").value),
+            dock_front=(p("dock_front_x").value, p("dock_front_z").value),
+            lane_z=p("lane_z").value, callback_group=grp)
 
         self._action_server = ActionServer(
             self, NavigateToPose, 'navigate_to_pose', self._on_navigate_to_pose,
@@ -79,19 +98,29 @@ class NavigateActionServerNode(Node):
             ok = self.formation.carry_to_bay(tx_usd, tz_usd)
         elif mode == 'carry':
             # 사용자 보고: 슬롯으로 곧장 직선 이동하면 서쪽 벽(x≈-18.1)을 관통한다.
-            # 픽업하러 갈 때 쓴 통로(중앙 통로 z≈0 + 개구부)를 따라가도록 L자 경로로 나눈다:
-            #   ① 슬롯 x열까지 통로(z=AISLE_Z)를 따라 동진(개구부 통과) → ② 슬롯으로 진입.
+            # 픽업하러 갈 때 쓴 통로(이 세트 전용 차로 lane_z)를 따라가도록 L자 경로로 나눈다:
+            #   ① 슬롯 x열까지 전용 차로(z=lane_z)를 따라 동진 → ② 슬롯으로 진입.
             # (이미 통로에 있으면 ①은 사실상 짧게 끝난다.)
             heading_ref = self.formation.carry_heading()
-            ok = self.formation.carry_to(tx_usd, AISLE_Z, heading_ref=heading_ref)
+            ok = self.formation.carry_to(tx_usd, self.formation.lane_z, heading_ref=heading_ref)
             if ok:
                 ok = self.formation.carry_to(tx_usd, tz_usd, heading_ref=heading_ref)
         elif mode == 'rotate':
             yaw_map_rad = _yaw_from_quaternion(goal.pose.pose.orientation)
             yaw_usd_deg = map_to_usd_yaw_deg(math.degrees(yaw_map_rad))
             ok = self.formation.carry_rotate_to(math.radians(yaw_usd_deg))
+        elif mode == 'rotate_ccw90':
+            # 2026-07-24: 주차장 구조상 슬롯(입차)/출차 완료 지점 중앙에 도착한 직후
+            # 반시계(CCW) 90도 회전이 필요하다(사용자 확인) — goal.pose는 안 쓰고
+            # "지금 방향 기준 +90도"를 여기서 직접 계산한다(호출부가 기하를 몰라도 됨).
+            heading_ref = self.formation.carry_heading()
+            if heading_ref is None:
+                ok = False
+            else:
+                ok = self.formation.carry_rotate_to(heading_ref + math.pi / 2)
         elif mode in ('rear', 'front'):
-            ok = self.formation.goto_xz(f'robot_{mode}', tx_usd, tz_usd)
+            rid = self.formation.rear_id if mode == 'rear' else self.formation.front_id
+            ok = self.formation.goto_xz(rid, tx_usd, tz_usd)
         elif mode == 'return_both':
             # 복귀: 두 로봇 동시에 초기 대기 도크로(슬롯→앞→통로→도크). 도크 좌표는
             # FormationMotion에 내장이라 goal.pose는 사용하지 않는다.

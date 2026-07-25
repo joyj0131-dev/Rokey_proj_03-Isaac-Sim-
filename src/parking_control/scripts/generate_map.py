@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""주차장 환경 파라미터 → config/parking_map.yaml 생성기.
+"""주차장 환경(v3, 3슬롯 A1/A2/A3) → config/parking_map.yaml 생성기.
 
-좌표의 유일한 원천. 주차장 레이아웃이 바뀌면 여기 파라미터만 고치고
-다시 실행한다 — 다른 어떤 코드에도 좌표를 하드코딩하지 않는다.
+좌표의 유일한 원천. 주차장 레이아웃이 바뀌면 여기 상수만 고치고 다시
+실행한다 — 다른 어떤 코드에도 좌표를 하드코딩하지 않는다.
 
-기본값은 Isaac_envo의 build_parking_environment.py 상수 스냅샷(2026-07-19)이며,
-레이아웃 변경 가능성이 있으므로 전부 CLI 인자로 덮어쓸 수 있다.
+2026-07-24: 이전(v2) 16슬롯(A1-A8/B1-B8, 인계장 1개, 통로 공유) 레이아웃을
+버리고, 실제 확정된 물리 배치(~/Downloads/parking_environment_v3.usd)로
+전면 재작성했다. v3는 손으로 설계된 특정 배치라 v2처럼 --space-count 같은
+파라미터로 일반화하지 않는다 — 레이아웃이 다시 바뀌면 아래 상수를 v3.usd에서
+다시 실측해 고친다.
+
+핵심 변경: 입차와 출차가 완전히 분리된 차로를 쓴다(v2는 통로 하나를 공유).
+  - 입차: 인계베이 → 입차 게이트 → 입차 차로(y=+5.3~5.5) → 슬롯(A1/A2/A3, 북쪽에서 진입)
+  - 출차: 슬롯(남쪽으로 진출) → 출차 차로(y=-5.3~-5.5) → 출차 게이트 → 인계베이
+  각 차로에 로봇 대기 도크가 2개씩 있다(입차 전용 2대 / 출차 전용 2대에 대응).
 
 좌표 규약: ROS map 프레임 (x, y). USD(Y-up)와의 변환은 ros_x = usd_x,
-ros_y = -usd_z (Isaac Sim ROS2 브리지 기본 규약, 이식 후 실측 검증 필요).
+ros_y = -usd_z (Isaac Sim ROS2 브리지 기본 규약, generate_map.py 기존 관례
+그대로 유지) — v3.usd의 Navigation/RobotServiceArea/ArucoMarkerPreview
+스코프에 있는 USD 좌표를 이 규약으로 변환해 아래 상수에 그대로 옮겼다.
 
 실행:
-    python3 generate_map.py                      # 기본 파라미터로 생성
-    python3 generate_map.py --space-width 3.2    # 레이아웃 변경 반영 예시
+    python3 generate_map.py
 """
 
-import argparse
 import math
 from pathlib import Path
 
@@ -26,88 +34,127 @@ DEFAULT_OUTPUT = PKG_ROOT / "config" / "parking_map.yaml"
 DEFAULT_SEED_SQL = PKG_ROOT / "db" / "002_seed.sql"
 
 
-def build_map(space_count=10, parking_start=1, parking_end=8,
-              space_width=3.40, space_length=6.60, aisle_width=9.00,
-              border_margin=1.10, handoff_length=23.0):
-    """환경 파라미터에서 노드/엣지/존을 계산한다."""
-    half_w = space_count * space_width * 0.5
-    # 슬롯 중심의 USD z (통로 중심선 기준 거리) → ROS y = -usd_z
-    row_center = aisle_width * 0.5 + space_length * 0.5
+def _usd_to_map(x_usd, z_usd):
+    return round(x_usd, 3), round(-z_usd, 3)
 
+
+# ---- v3.usd 실측 좌표 (USD x,z) — Navigation/RobotServiceArea/ArucoMarkerPreview 스코프 ----
+SLOTS_USD = {"A1": (2.8, 0.0), "A2": (6.2, 0.0), "A3": (9.6, 0.0)}
+# route:inbound (v3.usd Navigation 스코프) — 입차 게이트 밖(-21)에서 슬롯 열까지.
+ROUTE_INBOUND_USD = [(-21, -5.5), (-13, -5.5), (-8.5, -5.5), (-4.2, -5.3)]
+# route:outbound — 슬롯 열에서 출차 게이트 밖(-21)까지.
+ROUTE_OUTBOUND_USD = [(-4.2, 5.3), (-8.5, 5.5), (-13, 5.5), (-21, 5.5)]
+LANE_INBOUND_Z = -5.3    # v3.usd lane:inboundZ — 슬롯 열 옆 입차 차로
+LANE_OUTBOUND_Z = 5.3    # v3.usd lane:outboundZ — 슬롯 열 옆 출차 차로
+ENTRY_GATE_USD = (-13, -5.5)     # vehicle:entryGate
+ENTRY_WAIT_USD = (-8.5, -5.5)    # vehicle:entryWait — 인계(핸드오프) 지점
+EXIT_GATE_USD = (-13, 5.5)       # vehicle:exitGate
+EXIT_WAIT_USD = (-8.5, 5.5)      # vehicle:exitWait — 인계(핸드오프) 지점
+# 입차 전용 로봇 대기 도크 2개(dock_ROBOT_IN/IN_2), 출차 전용 2개(dock_ROBOT_OUT/OUT_2).
+DOCK_ENTRY_1_USD = (-3.2, -2.2)
+DOCK_ENTRY_2_USD = (-1.2, -2.2)
+DOCK_EXIT_1_USD = (-3.2, 2.2)
+DOCK_EXIT_2_USD = (-1.2, 2.2)
+# crossing_S/N(아루코 "통로 분기점") — 입/출차 차로에서 도크 쪽으로 갈라지는 지점.
+CROSSING_ENTRY_USD = (-2.5, -6.875)
+CROSSING_EXIT_USD = (-2.5, 6.875)
+
+
+def build_map():
+    """v3.usd 실측 좌표에서 노드/엣지/존을 만든다(파라미터 없음 — 손으로 설계된 특정 배치)."""
     nodes = {}
     edges = []
     zones = []
 
-    # 중앙 통로 분기점: 슬롯 열 경계마다 하나 (존 경계와 1:1 대응)
-    for k in range(space_count + 1):
-        nodes[f"J{k}"] = dict(x=round(-half_w + k * space_width, 3), y=0.0,
-                              kind="junction")
-    for k in range(space_count):
-        zone_id = f"Z{k + 1:02d}"
-        zones.append(zone_id)
-        edges.append(dict(u=f"J{k}", v=f"J{k + 1}", zone=zone_id))
+    def add_node(node_id, x_usd, z_usd, **attrs):
+        x, y = _usd_to_map(x_usd, z_usd)
+        nodes[node_id] = dict(x=x, y=y, **attrs)
 
-    # 차량 출입구 (서쪽 벽 중앙)
-    nodes["entrance"] = dict(x=round(-half_w - border_margin, 3), y=0.0,
-                             kind="entrance")
-    edges.append(dict(u="entrance", v="J0", zone="Z_ENTRANCE"))
-    zones.append("Z_ENTRANCE")
+    def add_edge(u, v, zone_id=None):
+        if zone_id:
+            zones.append(zone_id)
+        edges.append(dict(u=u, v=v, zone=zone_id))
 
-    # 인계장(서측 실외) — 2026-07-21 재설계: 실내와 같은 단면(중앙 통로+양쪽 베이).
-    # 정션 x는 ArUco 인계장 차선 마커 열(중심 ±k*3.4)과 동일 — 마커가 곧 보정점.
-    handoff_center_x = -half_w - border_margin - handoff_length * 0.5   # -29.6
-    hj_xs = [round(handoff_center_x + k * space_width, 3)
-             for k in range(3, -4, -1)]                                 # -19.4 … -39.8
-    for i, x in enumerate(hj_xs):
-        nodes[f"HJ{i}"] = dict(x=x, y=0.0, kind="junction")
-    edges.append(dict(u="entrance", v="HJ0", zone="ZH_GATE"))
-    zones.append("ZH_GATE")
-    for i in range(len(hj_xs) - 1):
-        zone_id = f"ZH{i + 1:02d}"
-        zones.append(zone_id)
-        edges.append(dict(u=f"HJ{i}", v=f"HJ{i + 1}", zone=zone_id))
-    # 인계 베이 2개. H_A: usd z=+7.8(A쪽)→ros y=-7.8 / H_B: 반대.
-    for name, usd_z_sign in (("H_A", 1.0), ("H_B", -1.0)):
-        nodes[name] = dict(x=round(handoff_center_x, 3),
-                           y=round(-usd_z_sign * row_center, 3),
-                           kind="handoff_bay")
-        edges.append(dict(u=name, v="HJ3"))   # HJ3 = 베이 열 정션(-29.6)
+    # ---- 슬롯 3개(단일 열, A1/A2/A3) ----
+    for slot_id, (x_usd, z_usd) in SLOTS_USD.items():
+        add_node(slot_id, x_usd, z_usd, kind="slot")
 
-    # 주차 슬롯 + 로봇 대기/충전 도크. A행 usd z=+row_center → ros y=-row_center.
-    special = {0: ("dock_wait", "waiting"),
-               space_count - 1: ("dock_charge", "charging")}
-    for row_name, usd_z_sign in (("A", 1.0), ("B", -1.0)):
-        y = round(-usd_z_sign * row_center, 3)
-        for index in range(space_count):
-            x = round(-half_w + (index + 0.5) * space_width, 3)
-            if index in special:
-                prefix, role = special[index]
-                node_id = f"{prefix}_{row_name}"
-                nodes[node_id] = dict(x=x, y=y, kind="dock", role=role)
-            elif parking_start <= index <= parking_end:
-                node_id = f"{row_name}{index}"
-                nodes[node_id] = dict(x=x, y=y, kind="slot",
-                                      accessible=node_id in ("A1", "A2"))
-            else:
-                continue
-            # 슬롯/도크는 양옆 분기점 두 곳에 연결한다. 통로 엣지를 쪼개지
-            # 않아야 존(통로 구간)과 엣지의 1:1 대응이 유지된다.
-            edges.append(dict(u=node_id, v=f"J{index}"))
-            edges.append(dict(u=node_id, v=f"J{index + 1}"))
+    # ---- 입차 차로: entrance(=인계베이 인접 게이트) → 슬롯 열 ----
+    entry_chain = ["entry_gate", "entry_wait", "EJ0", "EJ1"]
+    entry_coords = [ENTRY_GATE_USD, ENTRY_WAIT_USD, *ROUTE_INBOUND_USD[2:]]
+    # ROUTE_INBOUND_USD = [(-21,-5.5), (-13,-5.5)=게이트, (-8.5,-5.5)=대기, (-4.2,-5.3)]
+    # 게이트/대기는 위에서 이미 별도 이름으로 넣었으므로 나머지(-21과 -4.2)만 체인에 쓴다.
+    entry_chain = ["entry_outer", "entry_gate", "entry_wait", "entry_j0"]
+    entry_coords = [ROUTE_INBOUND_USD[0], ENTRY_GATE_USD, ENTRY_WAIT_USD,
+                    ROUTE_INBOUND_USD[3]]
+    for node_id, (x_usd, z_usd) in zip(entry_chain, entry_coords):
+        add_node(node_id, x_usd, z_usd, kind="junction")
+    for i in range(len(entry_chain) - 1):
+        add_edge(entry_chain[i], entry_chain[i + 1], f"ZIN{i + 1:02d}")
+    # entry_j0(-4.2,-5.3)에서 슬롯 열마다 갈라지는 진입 분기점 → 각 슬롯.
+    for slot_id, (slot_x, _) in SLOTS_USD.items():
+        junction_id = f"entry_{slot_id.lower()}"
+        add_node(junction_id, slot_x, LANE_INBOUND_Z, kind="junction")
+        add_edge("entry_j0", junction_id, f"ZIN_{slot_id}")
+        add_edge(junction_id, slot_id, f"ZIN_{slot_id}_dock")
+
+    # ---- 출차 차로: 슬롯 열 → exit(=인계베이 인접 게이트) ----
+    exit_chain = ["exit_j0", "exit_wait", "exit_gate", "exit_outer"]
+    exit_coords = [ROUTE_OUTBOUND_USD[0], EXIT_WAIT_USD, EXIT_GATE_USD,
+                   ROUTE_OUTBOUND_USD[3]]
+    for node_id, (x_usd, z_usd) in zip(exit_chain, exit_coords):
+        add_node(node_id, x_usd, z_usd, kind="junction")
+    for i in range(len(exit_chain) - 1):
+        add_edge(exit_chain[i], exit_chain[i + 1], f"ZOUT{i + 1:02d}")
+    for slot_id, (slot_x, _) in SLOTS_USD.items():
+        junction_id = f"exit_{slot_id.lower()}"
+        add_node(junction_id, slot_x, LANE_OUTBOUND_Z, kind="junction")
+        add_edge("exit_j0", junction_id, f"ZOUT_{slot_id}")
+        add_edge(junction_id, slot_id, f"ZOUT_{slot_id}_dock")
+
+    # ---- 로봇 대기 도크 4개(입차 전용 2, 출차 전용 2) — 통로 분기점(crossing)을 통해 연결 ----
+    add_node("crossing_entry", *CROSSING_ENTRY_USD, kind="junction")
+    add_edge("entry_wait", "crossing_entry", "ZIN_CROSS")
+    add_node("dock_entry_1", *DOCK_ENTRY_1_USD, kind="dock", role="entry")
+    add_node("dock_entry_2", *DOCK_ENTRY_2_USD, kind="dock", role="entry")
+    add_edge("crossing_entry", "dock_entry_1")
+    add_edge("crossing_entry", "dock_entry_2")
+
+    add_node("crossing_exit", *CROSSING_EXIT_USD, kind="junction")
+    add_edge("exit_wait", "crossing_exit", "ZOUT_CROSS")
+    add_node("dock_exit_1", *DOCK_EXIT_1_USD, kind="dock", role="exit")
+    add_node("dock_exit_2", *DOCK_EXIT_2_USD, kind="dock", role="exit")
+    add_edge("crossing_exit", "dock_exit_1")
+    add_edge("crossing_exit", "dock_exit_2")
 
     return dict(
         meta=dict(
             generated_by="generate_map.py",
             frame="ros_map",
-            usd_to_ros="ros_x = usd_x, ros_y = -usd_z (이식 후 실측 검증 필요)",
-            params=dict(space_count=space_count, parking_start=parking_start,
-                        parking_end=parking_end, space_width=space_width,
-                        space_length=space_length, aisle_width=aisle_width,
-                        border_margin=border_margin),
+            usd_to_ros="ros_x = usd_x, ros_y = -usd_z (v3.usd 실측 기반, 2026-07-24)",
+            source="~/Downloads/parking_environment_v3.usd (Navigation/"
+                   "RobotServiceArea/ArucoMarkerPreview 스코프)",
+            # space_length/space_width: v3.usd Spaces 스코프의 parking:length/width
+            # (A1/A2/A3 전부 동일, 6.6x3.4 — v2와 슬롯 규격 자체는 안 바뀜).
+            # aisle_width: v2 값(9.0)을 임시로 유지 — v3는 통로가 y=0 수평선이
+            # 아니라 core/obstacle_detector.py의 zone_boxes()가 이 값을 쓰는
+            # "모든 통로가 수평"이라는 전제 자체가 안 맞는다(2026-07-24 확인,
+            # 아래 obstacle_detector.py 주석 참고). 로봇 물리 경로 재설계(B) 때
+            # zone_boxes도 같이 다시 설계해야 한다.
+            # half_w_m: safety_monitor_node.py가 천장 LiDAR 2대(서/동)의 실제
+            # 설치 위치를 계산하는 데 쓰는 값(core/lidar_frame_transform.py의
+            # sensor_offsets) — v2는 "주차장 중심 기준 절반 폭"(17.0m)이라는
+            # 대칭 구조였지만, v3는 슬롯 열(x=2.8~9.6)과 인계장(x=-21~-8.5)이
+            # 비대칭으로 떨어져 있어 같은 개념이 안 맞는다. ⚠ 여기 값은 죽는 것만
+            # 막으려고 옛 v2 값을 그대로 둔 자리표시자다 — LiDAR 센서가 v3
+            # 레이아웃에 맞게 실제로 재설치/재측량된 뒤에 반드시 갱신할 것
+            # (지금 값으로는 서쪽/동쪽 LiDAR 위치 계산이 부정확할 가능성이 높음).
+            params=dict(slot_count=3, layout="v3", space_length=6.6,
+                        space_width=3.4, aisle_width=9.0, half_w_m=17.0),
         ),
         nodes=nodes,
         edges=edges,
-        zones=sorted(zones),
+        zones=sorted(set(zones)),
     )
 
 
@@ -127,10 +174,9 @@ def write_seed_sql(data, path):
     for node_id, attrs in data["nodes"].items():
         if attrs["kind"] != "slot":
             continue
-        accessible = "TRUE" if attrs.get("accessible") else "FALSE"
         lines.append(
             "INSERT INTO parking_slots (slot_id, x, y, is_accessible)"
-            f" VALUES ('{node_id}', {attrs['x']}, {attrs['y']}, {accessible})"
+            f" VALUES ('{node_id}', {attrs['x']}, {attrs['y']}, FALSE)"
             " ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y),"
             " is_accessible = VALUES(is_accessible);"
         )
@@ -151,31 +197,17 @@ def write_seed_sql(data, path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--space-count", type=int, default=10)
-    parser.add_argument("--space-width", type=float, default=3.40)
-    parser.add_argument("--space-length", type=float, default=6.60)
-    parser.add_argument("--aisle-width", type=float, default=9.00)
-    parser.add_argument("--border-margin", type=float, default=1.10)
-    parser.add_argument("--handoff-length", type=float, default=23.0)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--seed-sql", type=Path, default=DEFAULT_SEED_SQL)
-    args = parser.parse_args()
+    data = build_map()
 
-    data = build_map(space_count=args.space_count, space_width=args.space_width,
-                     space_length=args.space_length, aisle_width=args.aisle_width,
-                     border_margin=args.border_margin,
-                     handoff_length=args.handoff_length)
-
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w") as f:
+    DEFAULT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    with open(DEFAULT_OUTPUT, "w") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
-    write_seed_sql(data, args.seed_sql)
+    write_seed_sql(data, DEFAULT_SEED_SQL)
 
     slots = {k: v for k, v in data["nodes"].items() if v["kind"] == "slot"}
-    print(f"생성 완료: {args.output}")
-    print(f"시드 SQL: {args.seed_sql}")
+    print(f"생성 완료: {DEFAULT_OUTPUT}")
+    print(f"시드 SQL: {DEFAULT_SEED_SQL}")
     print(f"노드 {len(data['nodes'])}개, 엣지 {len(data['edges'])}개, "
           f"존 {len(data['zones'])}개, 슬롯 {len(slots)}개")
     for name in sorted(slots):

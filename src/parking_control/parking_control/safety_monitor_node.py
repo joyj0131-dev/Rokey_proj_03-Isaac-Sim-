@@ -24,12 +24,19 @@ ObstacleAlert.msg가 불리언 하나뿐이고, 주차 목적에도 있다/없�
 
 실제 LiDAR 2대 (rokey님의 run_ceiling_lidar_ros2.py, 2026-07-20 커밋
 35617de 기준):
-  서쪽(A1~A4/B1~B4) /parking/lidar/ceiling_01/points
-  동쪽(A5~A8/B5~B8) /parking/lidar/ceiling_02/points
+  서쪽 /parking/lidar/ceiling_01/points
+  동쪽 /parking/lidar/ceiling_02/points
 둘 다 센서 로컬 좌표로 발행되므로(아직 TF 없음), core/lidar_frame_transform.py로
 저희 월드 좌표로 변환한 뒤에야 기존 판정 로직에 넣을 수 있다. ★이 변환의
 축 가정은 실측 검증이 안 됐다 — 파일 상단 경고 참고, 반드시 실제
 데이터로 verify_with_known_point() 등으로 확인할 것.★
+
+⚠ 2026-07-24: v2(16슬롯, A1~A4/B1~B4 서쪽·A5~A8/B5~B8 동쪽으로 좌우 대칭 분담)
+레이아웃 기준 담당 구역 설명은 v3(3슬롯, 슬롯 열과 인계장이 비대칭으로 떨어진
+구조)에는 안 맞는다. 센서 위치 계산(core/lidar_frame_transform.sensor_offsets)에
+쓰는 parking_map.yaml의 half_w_m 값도 v2 값을 임시로 그대로 쓰고 있어(죽는 것만
+막은 상태) 실제 LiDAR 설치가 v3에 맞게 재측량되기 전까지는 좌표 변환 결과를
+믿지 말 것 — generate_map.py의 half_w_m 주석 참고.
 
 주의: 브릿지가 안 떠 있으면 두 토픽 다 데이터가 안 들어와서 이 노드는
 그냥 조용히 대기만 한다 (에러는 안 남).
@@ -76,8 +83,10 @@ class SafetyMonitorNode(Node):
         self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
-        half_w = (self._map.meta["params"]["space_count"]
-                 * self._map.meta["params"]["space_width"] / 2)
+        # 2026-07-24: v2는 half_w = space_count*space_width/2(중심 대칭)로 계산했지만,
+        # v3 지도엔 그 전제가 안 맞아 generate_map.py가 half_w_m을 직접 meta에 싣는다
+        # (아직 v2 값 그대로인 자리표시자 — 위 클래스 docstring 경고 참고).
+        half_w = self._map.meta["params"]["half_w_m"]
         west_x, east_x, height = sensor_offsets(half_w)
         # 센서별 최신 변환 결과를 들고 있다가, 어느 한쪽이 갱신될 때마다
         # 둘을 합쳐서 판정한다 — 두 토픽이 동기화되어 오지 않으므로.

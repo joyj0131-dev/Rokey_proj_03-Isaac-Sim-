@@ -10,9 +10,9 @@ align_vehicle/control_lift/navigate_to_pose(nav2))를 순차 호출하고, 매 �
     APPROACHING  align_vehicle(target_pose=탐지된 차량 pose)       → 두 로봇 차 밑 진입(픽업)
     PICKED_UP    control_lift(command="UP")                      → 리프트 상승
     MOVING       navigate_to_pose(goal.slot_pose, "carry")        → 슬롯으로 편대 운반
-    ARRIVED      (동작 없음)                                       → 슬롯 도착. 운반이 순수
-                                                                    병진이라 픽업 방향(A열
-                                                                    180°)이 유지돼 이미 정렬됨
+    ARRIVED      navigate_to_pose(더미, "rotate_ccw90")             → 목적지 중앙 도착, 반시계
+                                                                    90도 회전(주차장 구조상
+                                                                    필수, 2026-07-24 확인)
     PARKED       control_lift(command="DOWN")                    → 안착(하차)
     RETURNING    navigate_to_pose(도크, "rear") → ("front")       → West 도크로 개별 복귀
     DONE         result.success=True
@@ -118,7 +118,7 @@ _STEP_MESSAGES = {
     "APPROACHING": "차량 하부 진입 중(픽업 정렬)",
     "PICKED_UP": "리프트 상승 완료(픽업)",
     "MOVING": "슬롯으로 이동 중",
-    "ARRIVED": "슬롯 도착(방향 정렬됨 — 운반이 방향 유지)",
+    "ARRIVED": "목적지 중앙 도착 — 반시계 90도 회전 중",
     "PARKED": "안착 완료(리프트 하강)",
     "RETURNING": "대기 도크로 복귀 중",
 }
@@ -159,16 +159,15 @@ def _dock_pose(y_map):
     return pose
 
 
-# ---- 출차(EXIT) 하차 목표: 인계장 한가운데(map 프레임) ----
-# 인계베이 Pickup 위치 USD(-29.6, 0) → map(x=-29.6, y=-0=0). 입차가 픽업하는 그 지점이다.
-BAY_X_MAP = -29.6
-BAY_Y_MAP = 0.0
-
-
-def _bay_pose():
+# ---- 출차(EXIT) 하차 목표: 인계지점(map 프레임) ----
+# 2026-07-24: v3 레이아웃에서는 입차/출차 인계지점이 물리적으로 분리돼 있어서(예전엔
+# 인계베이 하나 USD(-29.6,0)를 공유) 고정 상수 대신 노드 파라미터(bay_x_map/bay_y_map)로
+# 받는다 — parking_robot_system.launch.py가 출차 세트에 exit 인계지점 map 좌표를 넘긴다.
+# 기본값은 출차 인계지점(vehicle:exitWait USD(-8.5,5.5) → map(-8.5,-5.5)).
+def _bay_pose(x_map, y_map):
     pose = Pose()
-    pose.position.x = BAY_X_MAP
-    pose.position.y = BAY_Y_MAP
+    pose.position.x = x_map
+    pose.position.y = y_map
     pose.orientation.w = 1.0
     return pose
 
@@ -177,6 +176,13 @@ class RobotTaskOrchestratorNode(Node):
 
     def __init__(self):
         super().__init__('robot_task_orchestrator')
+
+        # 출차 세트에서만 실제로 쓰인다(MOVING 단계 carry_bay 목적지) — 입차 세트는
+        # 이 파라미터를 launch에서 안 넘겨도 무해(그 경로 자체를 안 타므로).
+        self.declare_parameter("bay_x_map", -8.5)
+        self.declare_parameter("bay_y_map", -5.5)
+        self._bay_x_map = self.get_parameter("bay_x_map").value
+        self._bay_y_map = self.get_parameter("bay_y_map").value
 
         grp = ReentrantCallbackGroup()
 
@@ -355,15 +361,20 @@ class RobotTaskOrchestratorNode(Node):
         # request_type로 입차(ENTRY)/출차(EXIT) 분기. 차이는 SEARCHING(입차=탐지 / 출차=슬롯
         # 좌표 사용)과 MOVING(입차=슬롯으로 carry / 출차=인계베이로 carry_bay) 두 단계뿐이고,
         # APPROACHING(align)은 target_pose 위치로 align_action_server가 자동으로 베이/슬롯
-        # 픽업을 가른다. ARRIVED는 회전 없음(운반이 방향 유지). PARKED=하차, RETURNING=복귀.
+        # 픽업을 가른다.
+        # ARRIVED(2026-07-24, 사용자 확인): 주차장 구조상 슬롯(입차)/출차 완료 지점 중앙에
+        # 로봇 두 대 중심이 도착한 직후 반시계(CCW) 90도 회전이 필요하다 — 입차/출차 둘 다
+        # 같은 방향(CCW)으로 돈다. 'rotate_ccw90'(navigate_action_server.py)이 이 회전을
+        # 담당한다. PARKED=하차, RETURNING=복귀.
         is_exit = goal.request_type == 'EXIT'
         if is_exit:
             handlers = {
                 "SEARCHING": lambda: (True, goal.slot_pose, None),   # 차는 슬롯에 있음
                 "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 슬롯 픽업
                 "PICKED_UP": lambda: self._call_control_lift('UP'),
-                "MOVING": lambda: self._call_navigate(_bay_pose(), 'carry_bay'),  # 인계베이로
-                "ARRIVED": lambda: (True, None, None),
+                "MOVING": lambda: self._call_navigate(
+                    _bay_pose(self._bay_x_map, self._bay_y_map), 'carry_bay'),  # 인계지점으로
+                "ARRIVED": lambda: self._call_navigate(Pose(), 'rotate_ccw90'),
                 "PARKED": lambda: self._call_control_lift('DOWN'),   # 인계베이에 하차
                 "RETURNING": self._call_return_from_bay,   # 베이 차밑 z축 탈출→도크
             }
@@ -373,7 +384,7 @@ class RobotTaskOrchestratorNode(Node):
                 "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 인계베이 픽업
                 "PICKED_UP": lambda: self._call_control_lift('UP'),
                 "MOVING": lambda: self._call_navigate(goal.slot_pose, 'carry'),  # 슬롯으로
-                "ARRIVED": lambda: (True, None, None),
+                "ARRIVED": lambda: self._call_navigate(Pose(), 'rotate_ccw90'),
                 "PARKED": lambda: self._call_control_lift('DOWN'),
                 "RETURNING": self._call_return_to_dock,
             }

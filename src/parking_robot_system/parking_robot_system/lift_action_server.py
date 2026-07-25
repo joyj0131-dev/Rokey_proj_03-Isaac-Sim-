@@ -27,7 +27,6 @@ from std_srvs.srv import SetBool
 
 from parking_robot_interfaces.action import ControlLift
 
-ROBOTS = ("robot_rear", "robot_front")
 ARM_SERVICE_WAIT_TIMEOUT = 5.0   # 원본 _call_arms의 wait_for_service(timeout_sec=5.0) 그대로
 ARM_CALL_DEADLINE = 6.0          # 원본 _call_arms의 future 대기 상한(6.0s) 그대로
 
@@ -50,9 +49,14 @@ class LiftActionServerNode(Node):
     def __init__(self):
         super().__init__('lift_action_server')
 
+        self.declare_parameter("rear_id", "robot_rear")
+        self.declare_parameter("front_id", "robot_front")
+        self.robots = (self.get_parameter("rear_id").value,
+                       self.get_parameter("front_id").value)
+
         grp = ReentrantCallbackGroup()
         self.arm = {r: self.create_client(SetBool, f'/{r}/arm_control', callback_group=grp)
-                    for r in ROBOTS}
+                    for r in self.robots}
 
         # 차량 높이(Y) 관찰용 — 물리 리프트 완료 판정에 사용(같은 ReentrantCallbackGroup이라
         # 블로킹 대기 도중에도 다른 스레드가 이 콜백을 돌려 self.veh_y를 갱신한다).
@@ -125,10 +129,10 @@ class LiftActionServerNode(Node):
         robot_rear/robot_front 양쪽 arm_control(SetBool)에 opening을 비동기 호출.
         두 서비스 모두 기동 확인 + 두 응답 모두 success=True 여야 전체 True.
         """
-        for r in ROBOTS:
+        for r in self.robots:
             if not self.arm[r].wait_for_service(timeout_sec=ARM_SERVICE_WAIT_TIMEOUT):
                 return False
-        futs = [self.arm[r].call_async(SetBool.Request(data=opening)) for r in ROBOTS]
+        futs = [self.arm[r].call_async(SetBool.Request(data=opening)) for r in self.robots]
         deadline = time.monotonic() + ARM_CALL_DEADLINE
         while time.monotonic() < deadline and not all(f.done() for f in futs):
             time.sleep(0.02)

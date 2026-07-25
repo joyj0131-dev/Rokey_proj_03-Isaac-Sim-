@@ -27,17 +27,39 @@ from parking_robot_interfaces.action import AlignVehicle
 from parking_robot_system.formation_motion import FormationMotion
 from parking_robot_system.frame_transform import map_to_usd
 
-# 인계베이 픽업 판정 임계 x(USD). 베이 Pickup은 x≈-29.6, 슬롯은 x≥-15.3이라 그 사이로 가른다.
-BAY_X_THRESHOLD = -25.0
-
 
 class AlignActionServerNode(Node):
 
     def __init__(self):
         super().__init__('align_action_server')
 
+        # 2026-07-24: 입차/출차 전용 로봇쌍 분리(navigate_action_server.py와 동일 패턴).
+        # site_role: 이 세트가 "entry"(인계지점 픽업, pickup_sequence)인지
+        # "exit"(슬롯 픽업, pickup_at_slot)인지 — 예전엔 target_pose의 x좌표로 베이/슬롯을
+        # 구분했지만(BAY_X_THRESHOLD), v3 레이아웃에서는 세트 자체가 이미 입차/출차 전용으로
+        # 고정돼 있어서 좌표로 추측할 필요가 없다(추측하면 새 좌표계에서 틀릴 위험도 있었음).
+        self.declare_parameter("rear_id", "robot_rear")
+        self.declare_parameter("front_id", "robot_front")
+        self.declare_parameter("handoff_x", -8.5)
+        self.declare_parameter("handoff_z", -5.5)
+        self.declare_parameter("gate_x", -13.0)
+        self.declare_parameter("dock_rear_x", -3.2)
+        self.declare_parameter("dock_rear_z", -2.2)
+        self.declare_parameter("dock_front_x", -1.2)
+        self.declare_parameter("dock_front_z", -2.2)
+        self.declare_parameter("lane_z", -5.3)
+        self.declare_parameter("site_role", "entry")   # entry | exit
+        p = self.get_parameter
+        self._site_role = p("site_role").value
+
         grp = ReentrantCallbackGroup()
-        self.formation = FormationMotion(self, callback_group=grp)
+        self.formation = FormationMotion(
+            self, rear_id=p("rear_id").value, front_id=p("front_id").value,
+            handoff_x=p("handoff_x").value, handoff_z=p("handoff_z").value,
+            gate_x=p("gate_x").value,
+            dock_rear=(p("dock_rear_x").value, p("dock_rear_z").value),
+            dock_front=(p("dock_front_x").value, p("dock_front_z").value),
+            lane_z=p("lane_z").value, callback_group=grp)
 
         self._action_server = ActionServer(
             self, AlignVehicle, 'align_vehicle', self._on_align_vehicle, callback_group=grp)
@@ -49,8 +71,8 @@ class AlignActionServerNode(Node):
         대조). odom이 아직 없으면 -1.0(관측 불가) 센티널을 반환한다."""
         errors = []
         axle_targets = (
-            ('robot_rear', self.formation.rear_axle),
-            ('robot_front', self.formation.front_axle),
+            (self.formation.rear_id, self.formation.rear_axle),
+            (self.formation.front_id, self.formation.front_axle),
         )
         for rid, target_z in axle_targets:
             pose = self.formation.pose.get(rid)
@@ -60,11 +82,12 @@ class AlignActionServerNode(Node):
         return max(errors)
 
     def _on_align_vehicle(self, goal_handle):
-        # target_pose(map)로 픽업 위치를 판단: 인계베이(x≈-29.6)면 입차 픽업(검증된
-        # pickup_sequence), 그 외(슬롯)면 출차 픽업(pickup_at_slot). 좌표 변환은 frame_transform.
+        # 이 세트가 입차 전용이면 인계지점 픽업(검증된 pickup_sequence), 출차 전용이면
+        # 슬롯 픽업(pickup_at_slot) — site_role 파라미터로 고정(2026-07-24, 세트 자체가
+        # 이미 입차/출차 전용이라 target_pose 좌표로 추측할 필요가 없다).
         p = goal_handle.request.target_pose.position
         tx_usd, tz_usd = map_to_usd(p.x, p.y)
-        if tx_usd <= BAY_X_THRESHOLD:
+        if self._site_role == "entry":
             ok, message = self.formation.pickup_sequence()             # 입차: 인계베이 픽업
         else:
             ok, message = self.formation.pickup_at_slot(tx_usd, tz_usd)  # 출차: 슬롯 픽업
