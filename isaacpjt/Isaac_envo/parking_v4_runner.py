@@ -2257,7 +2257,15 @@ def main():
             app.update()
         app.close(); return
 
-    if probe is None and mission == "B":
+    def _run_mission_b_choreo():
+        """Mission Phase B 안무 본체(entry_lead/entry_follow 완주) — 함수로 추출.
+
+        Task C4(Mission Phase C)가 "Phase B 종단 자세"에서 시작해야 해서(브리프
+        지시: reuse, don't rebuild) mission=="B" 분기가 하던 일을 그대로 함수로
+        옮겼다 — 동작·순서·값은 전혀 바꾸지 않았다(순수 리팩터, app.close()/return
+        만 호출부로 옮겼다: mission B 는 여기서 끝내지만 mission C 는 이어서
+        APPROACH/INGRESS 를 계속해야 하므로).
+        """
         # Mission Phase B, Task 3b-2(→ redo): 입차팀 두 대(entry_lead=후축, entry_follow=전축)
         # 완주 + 스태거 + 합산 결과. Task 3b-1(entry_follow 단독: 도크체크(후방캠)->
         # 90도 회전->XN정렬(전방캠))의 인라인 로직을 Part 1 에서 재사용 가능한 헬퍼
@@ -2830,7 +2838,263 @@ def main():
         ok = bool(lead_result["xn_locked"] and lead_result["reached"]
                   and follow_result["xn_locked"] and follow_result["reached"])
         print(f"MISSIONB_RESULT ok={ok}", flush=True)
+        return {"ok": ok, "lead_setup": lead_setup, "follow_setup": follow_setup,
+                "lead_result": lead_result, "follow_result": follow_result}
 
+    def _run_mission_c_choreo(run_mission_b_choreo):
+        """Mission Phase C, Task C4: 베이 접근 -> 순차 진입(entry_follow=앞축 먼저,
+        entry_lead=뒷축) -> 뎁스 축감지 정지.
+
+        "Phase B 종단 자세에서 시작"(브리프 지시)하므로 먼저 mission B 안무를
+        그대로 재사용해 그 자세를 만든다(run_mission_b_choreo — mission=="B" 와
+        동일 함수, MISSIONB_* 토큰도 그대로 같이 찍힌다 — 진단에 유용하고 브리프가
+        금지하지 않는다). GT 는 리포팅 전용으로만 쓰고(err_vs_gt_axle 등), 제어는
+        전부 filt.pose()(오도 예측, 축 밑에는 아루코 마커가 없어 보정 fix 는 사실상
+        없다)와 C2 검증 좌우 뎁스 중앙유지로만 한다.
+        """
+        from mecanum_drive import wheel_velocities_from_cmd_vel, slew_twist, cmd_vel_from_wheel_velocities
+        from axle_center import TroughTracker
+        from pxr import UsdGeom as _UsdGeomC
+
+        mb = run_mission_b_choreo()
+        if not mb["ok"]:
+            print("MISSIONC_RESULT ok=False reason=phase_b_setup_failed", flush=True)
+            return
+
+        # ---- 트럭 실측 상수(짐작 금지 — C1/C2 관례: 실제 휠 좌표에서 매번 계산) ----
+        _tcC = timeline.get_current_time()
+
+        def _wheel_world(name, axis):
+            v = _UsdGeomC.Xformable(stage.GetPrimAtPath(
+                f"{HANDOFF_VEHICLE_ROOT}/{name}")).ComputeLocalToWorldTransform(_tcC).ExtractTranslation()
+            return float(v[axis])
+
+        front_axle_gt_x = 0.5 * (_wheel_world("FrontLeftWheel", 0) + _wheel_world("FrontRightWheel", 0))
+        rear_axle_gt_x = 0.5 * (_wheel_world("RearLeftWheel", 0) + _wheel_world("RearRightWheel", 0))
+        front_center_z = 0.5 * (_wheel_world("FrontLeftWheel", 2) + _wheel_world("FrontRightWheel", 2))
+        rear_center_z = 0.5 * (_wheel_world("RearLeftWheel", 2) + _wheel_world("RearRightWheel", 2))
+        z_center_truck = 0.5 * (front_center_z + rear_center_z)
+        print(f"MISSIONC_TRUCK front_axle_gt_x={front_axle_gt_x:.3f} "
+              f"rear_axle_gt_x={rear_axle_gt_x:.3f} z_center_truck={z_center_truck:.4f}",
+              flush=True)
+
+        # ---- APPROACH 목표(nominal, --probe=DEPTH(C2)가 이미 검증한 x_start=-4.5
+        # 재사용 — 트럭 후미 x≈-5.585 밖 0.9m 여유). z 는 위에서 실측한 트럭
+        # 중심선, yaw 는 -x 를 향하는 -90도. ----
+        APPROACH_X = -4.5
+        APPROACH_YAW = -90.0
+        FWD_SPEED = 0.4
+        RETURN_SPEED = 0.15
+        for a in sys.argv[1:]:
+            if a.startswith("--approach-x="):
+                APPROACH_X = float(a.split("=", 1)[1])
+            elif a.startswith("--ingress-speed="):
+                FWD_SPEED = float(a.split("=", 1)[1])
+            elif a.startswith("--return-speed="):
+                RETURN_SPEED = float(a.split("=", 1)[1])
+
+        LAT_KP, LAT_VY_MAX, LAT_DEADBAND = 1.2, 0.15, 0.01   # C2(--probe=DEPTH) 검증값 재사용
+
+        def _approach(setup, robot_id):
+            """Phase-B 종단자세 -> 베이 진입선(APPROACH_X, z_center_truck, -x).
+
+            Phase B 관례(회전과 이동을 분리)를 그대로 따른다: 먼저 현재 yaw 를
+            유지한 채 위치만 옮기고(대각 이동은 홀로노믹이라 허용), 그 다음
+            제자리 회전으로 -x 를 보게 한다. 근처에 아루코 마커가 없어(베이는
+            도크/XN 에서 멀다) 사실상 순수 오도 주행이다 — drive_to_pose/
+            rotate_in_place 는 그래도 그대로 재사용한다(ctx 에 fix 가 안 잡히면
+            조용히 예측만 한다, 기존 동작 그대로).
+            """
+            art, idx, filt = setup["art"], setup["idx"], setup["filt"]
+            front_ctx, T_front = setup["front_ctx"], setup["T_front"]
+            fp0 = filt.pose()
+            seg = drive_to_pose(front_ctx, art, idx, filt, T_front,
+                                (APPROACH_X, z_center_truck, fp0[2]),
+                                correct_yaw=False, pos_tol=0.05)
+            rot = rotate_in_place(front_ctx, art, idx, filt, T_front, APPROACH_YAW,
+                                  pos_tol=0.05)
+            fp = filt.pose()
+            gx, gz, gyaw = gt_pose_xz_yaw(art)
+            err_pos_gt = math.hypot(fp[0] - gx, fp[1] - gz)
+            print(f"MISSIONC_APPROACH robot={robot_id} filt=({fp[0]:.3f},{fp[1]:.3f},"
+                  f"{fp[2]:.2f}) target=({APPROACH_X:.3f},{z_center_truck:.3f},"
+                  f"{APPROACH_YAW:.1f}) drive_reached={seg['reached']} "
+                  f"rot_reached={rot['reached']} err_pos_gt={err_pos_gt:.4f}", flush=True)
+            return seg, rot
+
+        def _ingress_axle(robot_id, art, idx, filt, target_troughs, axle_label, true_axle_x):
+            """C2 좌우 뎁스 중앙유지(vy) + C3 TroughTracker 로 축 감지 -> 후진 정렬 정지.
+
+            매 스텝 filt.predict_body 로 융합 x 를 갱신하고(트럭 밑에는 마커가
+            없어 보정 fix 는 사실상 없다 — 정직하게 순수 오도) 그 융합 x 를
+            TroughTracker 의 주행좌표로 쓴다(브리프 지시: GT 를 제어에 쓰지 않는다).
+            GT 로 병행 트래커(gt_tracker)를 똑같이 돌려 리포팅에서만 비교한다 —
+            정직성 게이트: fused 드리프트가 트로프 위치 추정에 얼마나 새는지
+            드러낸다. target_troughs 번째(1-index) 트로프가 완료되면(=이미 그
+            지점을 지나쳤다는 뜻, C3 설계 제약) 후진해 그 중간값에서 멈춘다.
+            """
+            ctx_left = depth_setup(stage, timeline, app, robot_id, side="left")
+            ctx_right = depth_setup(stage, timeline, app, robot_id, side="right")
+            for _ in range(10):
+                app.update()
+
+            tracker = TroughTracker(baseline_frames=30, drop_margin=0.05, confirm_frames=3)
+            gt_tracker = TroughTracker(baseline_frames=30, drop_margin=0.05, confirm_frames=3)
+
+            vel_buf = np.zeros(np.asarray(art.get_joint_positions()).reshape(-1).shape,
+                               dtype=np.float32)
+            cur_tw = (0.0, 0.0, 0.0)
+            prev = timeline.get_current_time()
+            phase = "seek"
+            target_x = None
+            max_forward_steps, max_return_steps = 3000, 1200
+            pos_tol = 0.02
+            gz0 = gt_pose_xz_yaw(art)[1]
+            max_lat_dev_m = 0.0
+            collided = False
+            steps = 0
+            while steps < max_forward_steps + max_return_steps:
+                app.update()
+                steps += 1
+                now = timeline.get_current_time()
+                dt = min(0.1, max(0.0, now - prev)); prev = now
+
+                vel = np.asarray(art.get_joint_velocities()).reshape(-1)
+                wv = {w: float(vel[i]) for w, i in idx.items()}
+                pvx, pvy, pwz = cmd_vel_from_wheel_velocities(wv)
+                filt.predict_body(pvx, pvy, pwz * YAW_ODOM_SCALE, dt)
+                fx = filt.pose()[0]
+                gx, gz, _ = gt_pose_xz_yaw(art)
+                max_lat_dev_m = max(max_lat_dev_m, abs(gz - gz0))
+                if abs(gz - z_center_truck) > 0.30:
+                    collided = True
+
+                left_v = depth_roi_min(ctx_left, roi_frac=DEPTH_ROI_FRAC)
+                right_v = depth_roi_min(ctx_right, roi_frac=DEPTH_ROI_FRAC)
+                if left_v is not None and right_v is not None:
+                    err = left_v - right_v
+                    vy_cmd = 0.0 if abs(err) < LAT_DEADBAND else \
+                        max(-LAT_VY_MAX, min(LAT_VY_MAX, LAT_KP * err))
+                    combined = 0.5 * (left_v + right_v)
+                elif left_v is not None:
+                    vy_cmd, combined = 0.0, left_v
+                elif right_v is not None:
+                    vy_cmd, combined = 0.0, right_v
+                else:
+                    vy_cmd, combined = 0.0, math.inf
+
+                tracker.update(fx, combined)
+                gt_tracker.update(gx, combined)
+
+                if phase == "seek":
+                    if len(tracker.troughs) >= target_troughs:
+                        phase = "return"
+                        target_x = tracker.axle_center(target_troughs - 1)
+                        tgt = (0.0, 0.0, 0.0)
+                    elif steps >= max_forward_steps:
+                        tgt = (0.0, 0.0, 0.0)
+                    else:
+                        tgt = (FWD_SPEED, vy_cmd, 0.0)
+                else:
+                    remaining = target_x - fx
+                    if abs(remaining) <= pos_tol:
+                        tgt = (0.0, 0.0, 0.0)
+                    else:
+                        spd = max(-RETURN_SPEED, min(RETURN_SPEED, -1.0 * remaining))
+                        tgt = (spd, vy_cmd, 0.0)
+
+                cur_tw = slew_twist(cur_tw, tgt, dt, linear_accel=LINEAR_ACCEL,
+                                    linear_decel=LINEAR_DECEL, angular_accel=ANGULAR_ACCEL)
+                omegas = wheel_velocities_from_cmd_vel(*cur_tw)
+                vel_buf[...] = 0.0
+                for w, om in omegas.items():
+                    vel_buf[idx[w]] = om
+                art.set_joint_velocity_targets(vel_buf)
+
+                if (phase == "return" and target_x is not None
+                        and abs(target_x - filt.pose()[0]) <= pos_tol
+                        and cur_tw == (0.0, 0.0, 0.0)):
+                    for _ in range(20):
+                        app.update()
+                    break
+                if phase == "seek" and steps >= max_forward_steps and cur_tw == (0.0, 0.0, 0.0):
+                    break
+
+            n_troughs = len(tracker.troughs)
+            detected = n_troughs >= target_troughs
+            fp = filt.pose()
+            gx, gz, _ = gt_pose_xz_yaw(art)
+            if detected:
+                tr = tracker.troughs[target_troughs - 1]
+                enter_x, exit_x, center_x = tr["enter"], tr["exit"], tr["center"]
+            else:
+                enter_x = exit_x = center_x = float("nan")
+            gt_center_x = (gt_tracker.axle_center(target_troughs - 1)
+                           if len(gt_tracker.troughs) >= target_troughs else float("nan"))
+            stop_x_gt = gx
+            err_vs_gt_axle = abs(stop_x_gt - true_axle_x) if detected else float("nan")
+            fused_drift = (abs(center_x - gt_center_x)
+                           if detected and math.isfinite(gt_center_x) else float("nan"))
+            print(f"MISSIONC_AXLE robot={robot_id} axle={axle_label} "
+                  f"enter_x={enter_x:.3f} exit_x={exit_x:.3f} center_x={center_x:.3f} "
+                  f"stop_x={stop_x_gt:.3f} err_vs_gt_axle={err_vs_gt_axle:.4f} "
+                  f"filt_stop_x={fp[0]:.3f} center_x_gt={gt_center_x:.3f} "
+                  f"fused_drift_m={fused_drift:.4f} n_troughs={n_troughs} "
+                  f"detected={detected} steps={steps} max_lat_dev_m={max_lat_dev_m:.4f} "
+                  f"collision_suspected={collided}", flush=True)
+            return {"detected": detected, "err_vs_gt_axle": err_vs_gt_axle,
+                    "max_lat_dev_m": max_lat_dev_m, "collided": collided}
+
+        # ---- entry_follow 먼저(더 깊은 목표=앞축). entry_lead 는 Phase B 종단
+        # 자세(x=-4.20,z=6.875)가 entry_follow 의 접근 대각선 경로에 너무
+        # 가깝다(직선경로 최근접 실측 0.235m — 로봇 반경합 1.36m 에 한참 못
+        # 미침, 즉 그대로 두면 충돌한다) — Phase B _mission_setup 의 sibling-park
+        # 관례(멀리 텔레포트 -> 정확히 복원)를 그대로 재사용해 잠시 치운다.
+        def _park_away(robot_id):
+            art = arts[robot_id]
+            pos0, orn0 = art.get_world_poses()
+            pos0 = np.asarray(pos0).reshape(1, 3).copy()
+            orn0 = np.asarray(orn0).reshape(1, 4).copy()
+            away = pos0.copy(); away[0, 2] += 50.0
+            art.set_world_poses(away, orn0)
+            for _ in range(5):
+                app.update()
+            return pos0, orn0
+
+        def _restore(robot_id, pos0, orn0):
+            arts[robot_id].set_world_poses(pos0, orn0)
+            for _ in range(5):
+                app.update()
+
+        follow_setup = mb["follow_setup"]
+        lead_setup = mb["lead_setup"]
+
+        lead_pos0, lead_orn0 = _park_away("entry_lead")
+        _approach(follow_setup, "entry_follow")
+        follow_axle = _ingress_axle("entry_follow", follow_setup["art"], follow_setup["idx"],
+                                    follow_setup["filt"], 2, "front", front_axle_gt_x)
+        _restore("entry_lead", lead_pos0, lead_orn0)
+
+        _approach(lead_setup, "entry_lead")
+        lead_axle = _ingress_axle("entry_lead", lead_setup["art"], lead_setup["idx"],
+                                  lead_setup["filt"], 1, "rear", rear_axle_gt_x)
+
+        ok = bool(follow_axle["detected"] and follow_axle["err_vs_gt_axle"] <= 0.05
+                  and not follow_axle["collided"] and follow_axle["max_lat_dev_m"] < 0.165
+                  and lead_axle["detected"] and lead_axle["err_vs_gt_axle"] <= 0.05
+                  and not lead_axle["collided"] and lead_axle["max_lat_dev_m"] < 0.165)
+        print(f"MISSIONC_RESULT ok={ok}", flush=True)
+
+    if probe is None and mission == "B":
+        _run_mission_b_choreo()
+        if headless:
+            app.close(); return
+        while app.is_running():
+            app.update()
+        app.close(); return
+
+    if probe is None and mission == "C":
+        _run_mission_c_choreo(_run_mission_b_choreo)
         if headless:
             app.close(); return
         while app.is_running():
