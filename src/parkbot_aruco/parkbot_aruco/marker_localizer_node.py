@@ -67,6 +67,10 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("odom_topic", "/robot_entry_lead/odom")  # fuse=True 일 때 구독
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
         self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
+        # R3c: 다중 로봇이 각자 노드 인스턴스를 띄울 때 서로 다른 /robot_pose 를
+        # 내야 하므로 토픽명을 파라미터화한다(기본값은 기존 하드코딩 값 그대로 —
+        # 기존 호출부와 하위호환). 예: -p pose_topic:=/robot_entry_lead/pose
+        self.declare_parameter("pose_topic", "/robot_pose")
 
         image_topic = self.get_parameter("image_topic").value
         info_topic = self.get_parameter("camera_info_topic").value
@@ -95,7 +99,8 @@ class MarkerLocalizerNode(Node):
             CameraInfo, info_topic, self._on_info, qos_profile_sensor_data)
         self.create_subscription(
             Image, image_topic, self._on_image, qos_profile_sensor_data)
-        self.pub_pose = self.create_publisher(PoseStamped, "/robot_pose", 10)
+        self.pose_topic = self.get_parameter("pose_topic").value
+        self.pub_pose = self.create_publisher(PoseStamped, self.pose_topic, 10)
 
         # fuse=True 면 상보 필터를 만들고 오도메트리를 구독해 예측에 쓴다.
         # fuse=False 면 self.filt 가 None 으로 남아 기존 마커 단독 경로를 그대로 탄다.
@@ -109,7 +114,8 @@ class MarkerLocalizerNode(Node):
 
         self.get_logger().info(
             f"marker_localizer_node 시작 | image={image_topic} info={info_topic} "
-            f"| 지도 {len(self.marker_map.by_id)}개 마커 | 카메라 마운트 파라미터 로드")
+            f"pose_topic={self.pose_topic} | 지도 {len(self.marker_map.by_id)}개 마커 "
+            f"| 카메라 마운트 파라미터 로드")
 
     def _on_info(self, msg: CameraInfo):
         self.K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
@@ -185,6 +191,19 @@ class MarkerLocalizerNode(Node):
                 ps.pose.position.x = px
                 ps.pose.position.y = 0.0
                 ps.pose.position.z = pz
+                # R3c 수정: 이전에는 이 usd 분기가 orientation 을 전혀 채우지
+                # 않아(geometry_msgs 기본값 x=y=z=0,w=1) yaw 가 항상 0 으로
+                # 발행됐다(pose_controller_node 같은 소비자가 회전 피드백을
+                # 아예 못 받는 버그). /robot_<id>/odom 과 같은 규약(R2 계약,
+                # parking_v4_runner.publish_odom): 이 프로젝트 yaw(yaw=0→+Z)를
+                # 메시지의 z축 회전 슬롯에 그대로 인코딩한다 — 그래야
+                # pose_controller_node.odom_quat_to_yaw_deg 를 Odometry/
+                # PoseStamped 양쪽에 그대로 재사용할 수 있다(같은 인코딩).
+                yaw_rad = math.radians(pyaw)
+                ps.pose.orientation.x = 0.0
+                ps.pose.orientation.y = 0.0
+                ps.pose.orientation.z = math.sin(yaw_rad * 0.5)
+                ps.pose.orientation.w = math.cos(yaw_rad * 0.5)
             self.pub_pose.publish(ps)
 
 

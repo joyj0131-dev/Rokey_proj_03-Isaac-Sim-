@@ -9,10 +9,17 @@
 ``/robot_<id>/cmd_vel`` 로 명령한다.
 
 범위(정직하게, R3b 지시사항 그대로):
-- 이 노드는 ``filt``(PoseFilter, 마커 융합)를 모른다 — ``/odom`` 이 이미 실어온
-  자세(기본은 R2 브리지의 휠 오도, ``--odom=gt`` 로 바꾸지 않는 한)를 그대로
-  ``PoseController`` 에 먹인다. ``marker_localizer_node`` 구독으로 자세 소스를
-  바꾸는 것은 이 스테이지 범위 밖(다음 스테이지 몫).
+- R3b 원안: 이 노드는 ``filt``(PoseFilter, 마커 융합)를 모른다 — ``/odom`` 이
+  이미 실어온 자세(기본은 R2 브리지의 휠 오도, ``--odom=gt`` 로 바꾸지 않는 한)를
+  그대로 ``PoseController`` 에 먹인다.
+- **R3c 갱신**: 그 한계를 닫았다. ``pose_topic``/``pose_msg_type`` 파라미터로
+  자세 소스를 ``nav_msgs/Odometry``(R2 브리지의 ``/robot_<id>/odom``, 기본값 —
+  하위호환) 또는 ``geometry_msgs/PoseStamped``(``marker_localizer_node`` 가
+  ``fuse:=true`` 로 낸 마커+오도 융합 자세, 보통 ``/robot_<id>/pose``) 중
+  아무거나 구독할 수 있다. 이 노드 자신은 여전히 ``PoseFilter`` 를 모른다 —
+  그저 두 메시지 타입 중 하나에서 ``(x, z, yaw_deg)`` 를 뽑아낼 뿐이고, 마커
+  융합 자체는 ``marker_localizer_node`` 가 이미 끝내놓은 결과를 받는다(§ 아래
+  ``odom_quat_to_yaw_deg``/``_on_pose_stamped`` 근처 상세).
 - ``NavigateToPose`` 목표의 ``PoseStamped`` 는 ``map`` 이 아니라 **USD 월드
   프레임 그대로** 해석한다(``position.x/z`` 직접 사용, yaw 는 월드 Y축 회전으로
   해석). ``parking_robot_system.frame_transform`` 의 map<->USD 변환은 존재하지만
@@ -32,7 +39,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateToPose
 
@@ -54,8 +61,43 @@ def odom_quat_to_yaw_deg(x, y, z, w):
     정확히 역산된다 — 인코딩 공식의 항등식 역변환이다(마커/카메라 쿼터니언이
     아니라 순수하게 이 프로젝트가 만든 슬롯이므로 x,y 항이 실제로 0 이라는
     전제가 성립한다).
+
+    R3c: ``marker_localizer_node`` 가 ``frame="usd"``(기본값)로 내는
+    ``geometry_msgs/PoseStamped`` 도 **같은 인코딩**을 쓴다(taskR3c 수정 —
+    이전에는 이 분기가 orientation 을 아예 채우지 않는 버그가 있었다). 그래서
+    이 함수 하나를 ``Odometry``/``PoseStamped`` 양쪽에 그대로 재사용한다 —
+    아래 ``_on_odom``/``_on_pose_stamped`` 참고.
     """
     return math.degrees(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+
+
+def resolve_pose_msg_type(declared, topic, topic_names_and_types):
+    """``pose_msg_type`` 파라미터 -> 실제 구독할 메시지 타입('odometry'|
+    'posestamped') + 판정 근거 문자열. 순수 함수(rclpy 노드 불필요) — 호출부가
+    ``Node.get_topic_names_and_types()`` 결과를 그대로 넘겨준다.
+
+    - 명시값('odometry'/'posestamped')이면 그대로 쓴다.
+    - 'auto' 면: (1) ``topic`` 을 이미 발행 중인 퍼블리셔가 있으면
+      ``topic_names_and_types``(``[(name, [type_str, ...]), ...]``)에서 실제
+      타입을 판정한다(마커 로컬라이저/브리지를 먼저 띄우는 이 스테이지의 통상
+      실행 순서에서 유효). (2) 아무도 아직 안 냈으면(예: 이 노드를 먼저 띄운
+      경우, 또는 DDS 디스커버리가 아직 안 끝난 경우) 토픽명 휴리스틱으로
+      추정한다: 이름에 'odom' 이 들어 있으면 Odometry, 그 외(예: 마커
+      로컬라이저의 기본 '/robot_pose' 류)는 PoseStamped 로 본다.
+    """
+    if declared in ('odometry', 'posestamped'):
+        return declared, 'explicit'
+    if declared != 'auto':
+        raise ValueError(
+            f"pose_msg_type 은 'odometry'|'posestamped'|'auto' 여야 합니다: {declared!r}")
+    for name, types in topic_names_and_types:
+        if name == topic:
+            if 'nav_msgs/msg/Odometry' in types:
+                return 'odometry', 'auto-detected(발행중)'
+            if 'geometry_msgs/msg/PoseStamped' in types:
+                return 'posestamped', 'auto-detected(발행중)'
+    guess = 'odometry' if 'odom' in topic.lower() else 'posestamped'
+    return guess, 'auto-heuristic(토픽 미발행, 이름으로 추정)'
 
 
 def goal_quat_to_yaw_deg(x, y, z, w):
@@ -119,6 +161,14 @@ class PoseControllerNode(Node):
         self.declare_parameter('pose_topic', f'/robot_{robot_id}/odom')
         self.declare_parameter('cmd_vel_topic', f'/robot_{robot_id}/cmd_vel')
         self.declare_parameter('action_name', f'/robot_{robot_id}/navigate_to_pose')
+        # R3c: 자세 소스 메시지 타입. 'odometry'|'posestamped'|'auto'(기본).
+        # 'auto' 는 (1) pose_topic 이 이미 발행 중이면 실제 타입으로 판정하고,
+        # (2) 아직 아무도 안 냈으면 토픽명 휴리스틱('odom' 포함 여부)으로
+        # 추정한다. 기본 pose_topic(=/robot_<id>/odom, 위)과 'auto' 조합은
+        # 항상 Odometry 로 판정돼 R3b 와 동일하게 동작한다(하위호환) —
+        # marker_localizer_node 의 융합 PoseStamped 를 쓰려면 pose_topic 을
+        # 그 토픽(예: /robot_<id>/pose)으로 바꾸면 된다(§ 클래스 docstring).
+        self.declare_parameter('pose_msg_type', 'auto')
 
         # PoseController 게인/허용오차 — "미션이 오늘 쓰는 기본값"과 동일
         # (isaacpjt/Isaac_envo/parking_v4_runner.py: drive_to_pose 시그니처
@@ -142,10 +192,26 @@ class PoseControllerNode(Node):
         self.declare_parameter('max_dt', 0.5)
         self.declare_parameter('goal_timeout_sec', 90.0)
         self.declare_parameter('pose_stale_timeout_sec', 5.0)
+        # R3c: 코스팅 방지 워치독(실측으로 발견 — taskR3c-report.md). cmd_vel 은
+        # 포즈 콜백(_handle_pose)에서만 발행되므로, 포즈가 끊기면(예: 단일
+        # 전방캠 융합에서 회전 중 마커가 FOV 밖으로 나가는 경우) 마지막
+        # 발행값이 그대로 유지된 채 로봇이 "관성 주행"한다 — pose_stale_timeout_sec
+        # (기본 5.0s) 이 끝나야 비로소 0 이 발행된다. 실측: 회전 중 마커를
+        # 놓친 뒤 5초간 미보정 회전이 이어져 GT 가 목표(90°)를 훨씬 넘어
+        # ~85°(우연히 근사값)까지 무통제로 쓸었다. cmd_watchdog_sec(기본 0.5s,
+        # pose_stale_timeout_sec 보다 훨씬 짧게)를 넘겨 포즈가 안 오면 즉시
+        # (0,0,0) 을 발행해 코스팅을 최소화한다 — 목표 자체는 여전히
+        # pose_stale_timeout_sec 까지 기다렸다가(포즈가 복구되면 계속 진행)
+        # 그래도 안 오면 abort 한다(기존 동작 유지, 이 워치독은 그 사이의
+        # "무엇을 하고 있나"만 안전하게 바꾼다).
+        self.declare_parameter('cmd_watchdog_sec', 0.5)
 
         self.robot_id = robot_id
         gp = self.get_parameter
         self.pose_topic = gp('pose_topic').value
+        pose_msg_type_param = str(gp('pose_msg_type').value)
+        self.pose_msg_type, pose_msg_type_how = resolve_pose_msg_type(
+            pose_msg_type_param, self.pose_topic, self.get_topic_names_and_types())
         self.cmd_vel_topic = gp('cmd_vel_topic').value
         self.action_name = gp('action_name').value
         self.pos_gain = float(gp('pos_gain').value)
@@ -161,6 +227,7 @@ class PoseControllerNode(Node):
         self.max_dt = float(gp('max_dt').value)
         self.goal_timeout_sec = float(gp('goal_timeout_sec').value)
         self.pose_stale_timeout_sec = float(gp('pose_stale_timeout_sec').value)
+        self.cmd_watchdog_sec = float(gp('cmd_watchdog_sec').value)
 
         self._last_stamp_sec = None
         self._last_pose_wall_time = None
@@ -171,12 +238,17 @@ class PoseControllerNode(Node):
 
         cbg = ReentrantCallbackGroup()
         self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.create_subscription(Odometry, self.pose_topic, self._on_pose, 10,
-                                  callback_group=cbg)
+        if self.pose_msg_type == 'odometry':
+            self.create_subscription(Odometry, self.pose_topic, self._on_odom, 10,
+                                      callback_group=cbg)
+        else:
+            self.create_subscription(PoseStamped, self.pose_topic, self._on_pose_stamped, 10,
+                                      callback_group=cbg)
         # ★동시성 패턴(navigate_action_server.py 와 동일 교정 패턴): _execute
         # 콜백은 목표 완료까지 폴링 대기하며 블로킹된다(수십 초 단위) — 구독
-        # 콜백(_on_pose)이 같은 그룹에서 계속 돌아야 그 사이 self._active 를
-        # 갱신할 수 있다. MultiThreadedExecutor 로 스핀해야 한다(main() 참고).
+        # 콜백(_on_odom/_on_pose_stamped)이 같은 그룹에서 계속 돌아야 그 사이
+        # self._active 를 갱신할 수 있다. MultiThreadedExecutor 로 스핀해야
+        # 한다(main() 참고).
         self._action_server = ActionServer(
             self, NavigateToPose, self.action_name, self._execute,
             goal_callback=self._on_goal, cancel_callback=self._on_cancel,
@@ -184,23 +256,41 @@ class PoseControllerNode(Node):
 
         self.get_logger().info(
             f'pose_controller_node 시작: robot_id={robot_id} pose_topic={self.pose_topic} '
+            f'pose_msg_type={self.pose_msg_type}({pose_msg_type_how}) '
             f'cmd_vel_topic={self.cmd_vel_topic} action={self.action_name} '
             f'gains=(pos={self.pos_gain},yaw={self.yaw_gain}) '
             f'tol=(pos={self.pos_tol},yaw={self.yaw_tol})')
 
     # ---- 구독 콜백: 매 포즈 관측마다 정확히 한 번 제어 스텝 ----
+    #
+    # R3c: 자세 소스 두 종류를 지원한다. 메시지 레이아웃 차이(핵심 차이 하나뿐):
+    #   - ``nav_msgs/Odometry``: position/orientation 이 ``msg.pose.pose`` 아래
+    #     (즉 pose 필드가 한 번 더 감싸여 있다 — nav_msgs 의 ``PoseWithCovariance``
+    #     때문).
+    #   - ``geometry_msgs/PoseStamped``: position/orientation 이 바로 ``msg.pose``
+    #     아래(한 겹만).
+    #   둘 다 ``header.stamp`` 는 최상위에 있고, orientation 인코딩은 R3c 에서
+    #   맞춰 놓은 덕에 동일(§ ``odom_quat_to_yaw_deg`` docstring) — 그래서 얇은
+    #   두 콜백이 필드 경로만 다르게 뽑아 공용 ``_handle_pose`` 로 넘긴다.
 
-    def _on_pose(self, msg):
-        x = float(msg.pose.pose.position.x)
-        z = float(msg.pose.pose.position.z)
-        q = msg.pose.pose.orientation
-        yaw_deg = odom_quat_to_yaw_deg(float(q.x), float(q.y), float(q.z), float(q.w))
+    def _on_odom(self, msg):
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        self._handle_pose(p.x, p.z, q.x, q.y, q.z, q.w, msg.header.stamp)
+
+    def _on_pose_stamped(self, msg):
+        p, q = msg.pose.position, msg.pose.orientation
+        self._handle_pose(p.x, p.z, q.x, q.y, q.z, q.w, msg.header.stamp)
+
+    def _handle_pose(self, x, z, qx, qy, qz, qw, stamp):
+        x = float(x)
+        z = float(z)
+        yaw_deg = odom_quat_to_yaw_deg(float(qx), float(qy), float(qz), float(qw))
         pose = (x, z, yaw_deg)
 
         now_wall = time.monotonic()
         self._last_pose_wall_time = now_wall
 
-        stamp_sec = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        stamp_sec = stamp.sec + stamp.nanosec * 1e-9
         if self._last_stamp_sec is None:
             # 첫 메시지: 이전 표본이 없어 dt 를 낼 수 없다 — 이번 콜백은
             # 스텝하지 않고 다음 콜백부터 dt 를 갖는다(원본 drive_to_pose 의
@@ -317,6 +407,12 @@ class PoseControllerNode(Node):
                     pose_age = math.inf
                 else:
                     pose_age = time.monotonic() - self._last_pose_wall_time
+                if pose_age > self.cmd_watchdog_sec:
+                    # 코스팅 방지(위 cmd_watchdog_sec 선언부 설명 참고): 포즈가
+                    # 잠깐이라도 끊기면 마지막 명령이 무기한 유지되지 않도록
+                    # 즉시 0 을 발행한다. 포즈가 회복되면 _handle_pose 가 다시
+                    # 정상 명령을 낸다 — 여기서는 반복 발행해도 무해(멱등)하다.
+                    self._publish_twist(0.0, 0.0, 0.0)
                 if pose_age > self.pose_stale_timeout_sec:
                     outcome = 'stale_pose'
                     break

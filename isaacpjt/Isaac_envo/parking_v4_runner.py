@@ -3652,11 +3652,29 @@ def main():
             odom_pub[r].publish(msg)
 
     def step_odometry(dt):
-        """휠 각속도를 읽어 각 로봇 오도메트리를 적분하고, 측정 twist 를 남긴다."""
+        """휠 각속도를 읽어 각 로봇 오도메트리를 적분하고, 측정 twist 를 남긴다.
+
+        R3c(taskR3c-report.md): 적분(``odom[r].update``)에는 ``YAW_ODOM_SCALE``
+        을 곱한다 — 인프로세스 미션의 ``filt.predict_body(pvx, pvy,
+        pwz*YAW_ODOM_SCALE, dt)``(1252/3366행)와 동일한 보정을 휠→물리 회전
+        스케일에 적용하는 것이다. 이 보정이 빠져 있던 게 R3b(taskR3b-report.md
+        §7.2)가 실측한 "명령 90° → GT 스윕 ≈103°(+14%)" 오버슈트의 원인이었다.
+        ``last_twist``(=/odom 의 ``twist`` 필드, 리포팅/측정값 전용)는 보정하지
+        않는다 — 원본도 "측정된 바디 속도"와 "적분에 넣는 보정된 값"을 분리해서
+        다루고(YAW_ODOM_SCALE 정의부 주석), 현재 이 twist 필드를 예측에 쓰는
+        구독자가 없다(marker_localizer_node._on_odom 은 twist 가 아니라 pose
+        델타로 predict 한다).
+
+        이중적용 방지: 이 함수(브리지 경로)와 인프로세스 미션의 두 호출부
+        (1252행 ``drive_to_pose``, 3366행 DOCKSWEEP류)는 서로 다른 실행
+        경로(브리지 vs 인프로세스 미션)라 같은 스텝에서 동시에 돌지 않는다 —
+        브리지 모드(``--bridge``)는 미션 코드를 전혀 거치지 않는다(§ "if
+        bridge:" 블록은 미션 진입점 이후에 도달).
+        """
         for r in _active_robots():
             vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])
             last_twist[r] = (vx, vy, wz)
-            odom[r].update(vx, vy, wz, dt)
+            odom[r].update(vx, vy, wz * YAW_ODOM_SCALE, dt)
 
     if "--headless-test" in sys.argv[1:]:
         def _p(a):
@@ -3784,6 +3802,93 @@ def main():
         from sensor_msgs.msg import JointState
         from std_msgs.msg import Float32
         from geometry_msgs.msg import Twist
+
+        # ---- R3c 검증용(선택): 로봇을 자기 도크마커 접근선 위로 재배치 ----
+        # 기본은 no-op(기존 스폰 좌표 그대로 — 하위호환, R2/R3b 수치와 계속
+        # 비교 가능). 로봇의 원래 스폰 자세(entry_lead: x=-3.2,z=2.2,yaw=90)는
+        # 도크 마커(z=2.9, marker_visual_center 기준 — read_markers() 의 z 와
+        # 0.7m 어긋난다, 211행 marker_visual_center docstring)와 z 가 달라
+        # 카메라 정면에 마커가 들어오지 않는다(마커가 진행방향과 수직으로
+        # 어긋나 있음). --bridge-marker-pose=<robot_id>:<d> 로 지정하면 그
+        # 로봇을 자기 도크 마커에서 d[m] 떨어진 접근선 위(마커와 같은 z, 스폰
+        # yaw 유지)로 옮긴다 — --probe=FUSE(1734행)가 검증한 것과 동일한
+        # 배치 관례(d_start=2.1~d_end=1.25 구간에서 검출 안정적임, taskR3c
+        # 실측 재사용). 재배치 후에는 odom 도 새 GT 로 재시딩한다(오도는
+        # "초기 자세만 GT로 정렬"하는 기존 관례, 1358행과 동일 취지).
+        for a in sys.argv[1:]:
+            if a.startswith("--bridge-marker-pose="):
+                _rid, _dstr = a.split("=", 1)[1].split(":")
+                if _rid not in arts:
+                    raise SystemExit(f"--bridge-marker-pose: 알 수 없는 로봇 {_rid!r}")
+                _d = float(_dstr)
+                _ref_serves = sm.ROBOT_DOCK_MARKER[_rid]
+                _mx, _mz = marker_visual_center(stage, _ref_serves)
+                _, _spawn_orn = arts[_rid].get_world_poses()
+                _spawn_orn = np.asarray(_spawn_orn).reshape(-1)[:4].copy()
+                arts[_rid].set_world_poses(
+                    np.array([[_mx - _d, ROBOT_SPAWN_Y, _mz]]), np.array([_spawn_orn]))
+                for _ in range(30):
+                    app.update()
+                _gx, _gz, _gyaw = gt_pose_xz_yaw(arts[_rid])
+                odom[_rid] = WheelOdometry(x=_gx, z=_gz, yaw=_gyaw)
+                print(f"BRIDGE_TELEPORT robot={_rid} d={_d} "
+                      f"pose=({_gx:.3f},{_gz:.3f},{math.degrees(_gyaw):.1f})", flush=True)
+
+        # ---- R3c gap2-1: 전방카메라 발행(marker_localizer_node 용) ----
+        # attach_camera_graph(700행)는 OmniGraph 로 image_raw+camera_info 를 낸다
+        # (순수 rclpy 이미지 발행은 Isaac 루프를 죽인다, 그 함수 docstring 참고).
+        # 기본은 브리지가 관리하는 로봇 전부(arts, 통상 4대)에 전방캠을 붙인다
+        # (R2 의 "4개 로봇 전부 대칭 취급" 관례와 동일) — "--bridge 는 자신이
+        # 다루는 로봇(들)의 전방캠을 낸다"를 플래그 없이도 만족시키기 위함.
+        # 카메라 렌더 비용 때문에 RTF 가 떨어진다(참고: --probe=C 실측,
+        # probe_reports/probe_c_rtf_*cam.json — 0캠 rtf≈8.0, 2캠 rtf≈1.55,
+        # 4캠 rtf≈1.12, 그 자체가 다른 부하 조건 실측이라 브리지 루프에 그대로
+        # 대입은 못하지만 카메라가 늘수록 RTF 가 준다는 방향은 같다). 한 로봇만
+        # 검증할 때 불필요한 렌더 비용을 피하려면 --bridge-cameras=<id[,id...]>
+        # (또는 "none")로 부착 대상을 좁힐 수 있다(기본="all").
+        #
+        # 카메라 높이 보정: marker_localizer_node 의 기본 T_base_cam
+        # (_DEFAULT_T_BASE_CAM)은 원시 카메라 마운트가 아니라 cam_h=0.15m 로
+        # 높이를 올린 상태에서 자동보정됐다(memory aruco-v4-fusion.md: "T_base_cam
+        # 자동보정=X180 6.2mm(카메라 0.15m)", fuse_camera_setup 의 M5/FUSE 계열
+        # 프로브가 전부 이 값을 씀, 746행 근처). 브리지가 원시 마운트(0.09m) 그대로
+        # 카메라를 붙이면 그 6cm 불일치가 측위에 체계적 편향을 만든다 — 그래서
+        # fuse_camera_setup(776-782행)과 동일한 높이 오버셋 로직만 떼어와 재사용한다
+        # (그 함수의 나머지: 마커지도/검출기/K 계산은 브리지엔 필요 없다 — 검출은
+        # 이 프로세스가 아니라 marker_localizer_node 가 발행된 image_raw 로 한다).
+        cam_robots_bridge = list(arts)
+        for a in sys.argv[1:]:
+            if a.startswith("--bridge-cameras="):
+                spec = a.split("=", 1)[1]
+                if spec == "all":
+                    cam_robots_bridge = list(arts)
+                elif spec == "none":
+                    cam_robots_bridge = []
+                else:
+                    cam_robots_bridge = [s for s in spec.split(",") if s]
+                    unknown = [s for s in cam_robots_bridge if s not in arts]
+                    if unknown:
+                        raise SystemExit(f"--bridge-cameras: 알 수 없는 로봇 {unknown}")
+        if cam_robots_bridge:
+            from pxr import Gf as _bridge_cam_gf, UsdGeom as _bridge_cam_usdgeom
+            BRIDGE_CAM_H = 0.15
+            for r in cam_robots_bridge:
+                cam_path = find_front_camera(stage, r)
+                cam_prim = stage.GetPrimAtPath(cam_path)
+                cam_xf = _bridge_cam_usdgeom.Xformable(cam_prim)
+                dy_world = BRIDGE_CAM_H - 0.09
+                if abs(dy_world) > 1e-9:
+                    mb = cam_xf.ComputeLocalToWorldTransform(timeline.get_current_time())
+                    local_delta = mb.GetInverse().TransformDir(
+                        _bridge_cam_gf.Vec3d(0.0, dy_world, 0.0))
+                    cam_xf.AddTranslateOp(_bridge_cam_usdgeom.XformOp.PrecisionDouble,
+                                          "camHeightBridge").Set(local_delta)
+                attach_camera_graph(r, cam_path, role="front")
+            for _ in range(30):
+                app.update()
+        cam_topics = [f"/robot_{r}/front/image_raw" for r in cam_robots_bridge]
+        print(f"BRIDGE_CAMERAS robots={cam_robots_bridge} cam_h=0.15 "
+              f"topics={cam_topics}", flush=True)
 
         joint_pub = {r: ros_node.create_publisher(JointState, f"/robot_{r}/joint_states", 10)
                      for r in arts}

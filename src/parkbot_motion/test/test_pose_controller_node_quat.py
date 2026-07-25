@@ -12,7 +12,8 @@ import math
 
 import pytest
 
-from parkbot_motion.pose_controller_node import goal_quat_to_yaw_deg, odom_quat_to_yaw_deg
+from parkbot_motion.pose_controller_node import (
+    goal_quat_to_yaw_deg, odom_quat_to_yaw_deg, resolve_pose_msg_type)
 
 
 def _odom_quat_for_yaw_deg(yaw_deg):
@@ -58,3 +59,57 @@ def test_odom_and_goal_conventions_agree_on_same_project_yaw(yaw_deg):
     gx, gy, gz, gw = _goal_quat_for_yaw_deg(yaw_deg)
     assert odom_quat_to_yaw_deg(ox, oy, oz, ow) == pytest.approx(
         goal_quat_to_yaw_deg(gx, gy, gz, gw), abs=1e-6)
+
+
+# ---- R3c: resolve_pose_msg_type (pose_msg_type 파라미터 -> 실제 구독 타입) ----
+
+@pytest.mark.parametrize("declared", ["odometry", "posestamped"])
+def test_resolve_pose_msg_type_explicit_passthrough(declared):
+    """명시값은 topic_names_and_types 를 전혀 안 보고 그대로 통과한다."""
+    resolved, how = resolve_pose_msg_type(declared, "/whatever", [])
+    assert resolved == declared
+    assert how == "explicit"
+
+
+def test_resolve_pose_msg_type_auto_detects_odometry():
+    resolved, how = resolve_pose_msg_type(
+        "auto", "/robot_entry_lead/odom",
+        [("/robot_entry_lead/odom", ["nav_msgs/msg/Odometry"])])
+    assert resolved == "odometry"
+    assert "detect" in how
+
+
+def test_resolve_pose_msg_type_auto_detects_posestamped():
+    resolved, how = resolve_pose_msg_type(
+        "auto", "/robot_entry_lead/pose",
+        [("/robot_entry_lead/pose", ["geometry_msgs/msg/PoseStamped"])])
+    assert resolved == "posestamped"
+    assert "detect" in how
+
+
+def test_resolve_pose_msg_type_auto_ignores_unrelated_topics():
+    """토픽 목록에 다른 토픽만 있으면(대상 토픽 자체는 아직 안 보이면)
+    휴리스틱으로 폴백해야 한다 — 엉뚱한 토픽의 타입을 빌려오면 안 된다."""
+    resolved, how = resolve_pose_msg_type(
+        "auto", "/robot_entry_lead/pose",
+        [("/robot_entry_lead/odom", ["nav_msgs/msg/Odometry"])])
+    assert resolved == "posestamped"
+    assert "heuristic" in how
+
+
+@pytest.mark.parametrize("topic,expected", [
+    ("/robot_entry_lead/odom", "odometry"),
+    ("/odom", "odometry"),
+    ("/robot_entry_lead/pose", "posestamped"),
+    ("/robot_pose", "posestamped"),
+])
+def test_resolve_pose_msg_type_auto_heuristic_by_topic_name(topic, expected):
+    """토픽이 아직 아무도 안 낸 상태(빈 그래프)면 이름 휴리스틱으로 추정한다."""
+    resolved, how = resolve_pose_msg_type("auto", topic, [])
+    assert resolved == expected
+    assert "heuristic" in how
+
+
+def test_resolve_pose_msg_type_invalid_declared_raises():
+    with pytest.raises(ValueError):
+        resolve_pose_msg_type("bogus", "/robot_entry_lead/odom", [])
