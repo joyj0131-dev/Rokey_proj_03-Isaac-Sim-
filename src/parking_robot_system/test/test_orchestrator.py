@@ -1,4 +1,19 @@
-from parking_robot_system.robot_task_orchestrator import next_state, plan_steps, TRANSITIONS
+from types import SimpleNamespace
+
+from parking_robot_system.robot_task_orchestrator import (
+    RobotTaskOrchestratorNode,
+    TRANSITIONS,
+    next_state,
+    plan_steps,
+)
+
+
+class _Logger:
+    def info(self, _message):
+        pass
+
+    def warn(self, _message):
+        pass
 
 
 def test_full_sequence():
@@ -29,3 +44,27 @@ def test_plan_steps_matches_full_sequence():
     seq = ["SEARCHING", "APPROACHING", "PICKED_UP", "MOVING", "ARRIVED",
            "PARKED", "RETURNING", "DONE"]
     assert plan_steps(None) == seq
+
+
+def test_orchestrator_obstacle_scope_is_team_specific():
+    message = SimpleNamespace(
+        obstacle_detected=True,
+        description="통로 막힘: ZOUT02",
+        location=SimpleNamespace(y=7.075),
+    )
+    entry = SimpleNamespace(
+        _team_role="entry",
+        _obstacle_paused=False,
+        get_logger=lambda: _Logger(),
+    )
+    exit_team = SimpleNamespace(
+        _team_role="exit",
+        _obstacle_paused=False,
+        get_logger=lambda: _Logger(),
+    )
+
+    RobotTaskOrchestratorNode._on_obstacle_alert(entry, message)
+    RobotTaskOrchestratorNode._on_obstacle_alert(exit_team, message)
+
+    assert entry._obstacle_paused is False
+    assert exit_team._obstacle_paused is True

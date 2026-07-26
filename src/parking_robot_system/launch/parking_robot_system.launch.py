@@ -92,7 +92,11 @@ def _set_group(set_name, site):
     }
     align_params = dict(formation_params, site_role=site['site_role'])
     lift_params = {'rear_id': site['rear_id'], 'front_id': site['front_id']}
-    orchestrator_params = {'bay_x_map': site['bay_x_map'], 'bay_y_map': site['bay_y_map']}
+    orchestrator_params = {
+        'bay_x_map': site['bay_x_map'],
+        'bay_y_map': site['bay_y_map'],
+        'team_role': set_name,
+    }
     detection_params = {'pickup_x_usd': site['pickup_x_usd'], 'pickup_z_usd': site['pickup_z_usd']}
 
     nodes = [

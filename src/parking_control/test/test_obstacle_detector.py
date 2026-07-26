@@ -1,11 +1,4 @@
-"""통로 장애물 감지 검증 (Isaac Sim·ROS 불필요, 가짜 좌표만 사용).
-
-⚠ 2026-07-24: v3 레이아웃(3슬롯, 입/출차 차로 분리)에서는 zone_boxes()의
-"모든 통로가 y=0 수평선" 전제가 깨졌다(core/obstacle_detector.py 주석 참고).
-이 파일의 테스트는 v2 좌표(Z03 구간 등) 기준이라 v3에서는 의미가 없어져서
-전부 skip 처리한다 — zone_boxes()를 v3 통로 방향(수평/수직)에 맞게 다시
-설계한 뒤(로봇 물리 경로 재설계와 같이 할 작업) 여기도 다시 써야 한다.
-"""
+"""v4 통로 장애물 감지 검증 (Isaac Sim·ROS 불필요, 가짜 좌표만 사용)."""
 
 from pathlib import Path
 
@@ -16,10 +9,6 @@ from parking_control.core.graph import ParkingMap
 from parking_control.core.obstacle_detector import (
     HEIGHT_THRESHOLD_M, detect_blocked_zones, zone_boxes,
 )
-
-pytestmark = pytest.mark.skip(
-    reason="v3 레이아웃 대응 전까지 보류 — zone_boxes()가 v2 수평 통로 전제라 "
-           "v3(차로 분리, 수직 진입로)에 안 맞음. core/obstacle_detector.py 참고.")
 
 MAP_YAML = Path(__file__).resolve().parent.parent / "config" / "parking_map.yaml"
 
@@ -46,11 +35,30 @@ def test_all_zones_clear_when_no_points(boxes):
 
 
 def test_person_blocks_only_the_zone_they_stand_in(boxes):
-    # Z03 구간(J2~J3, x=-10.2~-6.8)의 한가운데(x=-8.5, y=0)에 사람 하나
-    points = _cluster(-8.5, 0.0)
+    # 입차 외곽 차로 ZIN01의 가운데. 출차 차로와 y축으로 분리돼야 한다.
+    points = _cluster(-16.8, -7.075)
     results = detect_blocked_zones(points, boxes)
-    assert results["Z03"] is True
-    assert all(not blocked for zid, blocked in results.items() if zid != "Z03")
+    assert results["ZIN01"] is True
+    assert not any(
+        blocked for zid, blocked in results.items() if zid.startswith("ZOUT")
+    )
+
+
+def test_entry_and_exit_lanes_keep_their_real_y_coordinates(boxes):
+    zin = boxes["ZIN01"]
+    zout = boxes["ZOUT03"]
+    assert (zin[2] + zin[3]) / 2 == pytest.approx(-7.075)
+    assert (zout[2] + zout[3]) / 2 == pytest.approx(7.075)
+    assert zin[3] < zout[2]
+
+
+def test_vertical_slot_connector_is_centered_on_slot(boxes):
+    x0, x1, y0, y1 = boxes["ZIN_A1_dock"]
+    assert (x0 + x1) / 2 == pytest.approx(2.8)
+    assert y0 == pytest.approx(-6.875)
+    assert y1 == pytest.approx(0.0)
+    # A1 진입로가 A2 중심(6.2m)까지 침범하면 안 된다.
+    assert x1 < 6.2
 
 
 def test_floor_noise_alone_does_not_trigger(boxes):
@@ -67,20 +75,23 @@ def test_robot_at_own_position_is_excluded():
     from parking_control.core.obstacle_detector import ROBOT_EXCLUDE_RADIUS_M
     parking_map = ParkingMap.load(MAP_YAML)
     boxes_ = zone_boxes(parking_map)
-    robot_xy = (-8.5, 0.0)
+    robot_xy = (-16.8, -7.075)
     points = _cluster(*robot_xy)  # 로봇 자신의 몸체가 만드는 점들
 
     without_exclusion = detect_blocked_zones(points, boxes_)
-    assert without_exclusion["Z03"] is True  # 제외 안 하면 스스로를 장애물로 봄
+    assert without_exclusion["ZIN01"] is True  # 제외 안 하면 스스로를 장애물로 봄
 
     with_exclusion = detect_blocked_zones(points, boxes_, robot_positions=[robot_xy])
-    assert with_exclusion["Z03"] is False  # 제외하면 정상적으로 clear
+    assert with_exclusion["ZIN01"] is False  # 제외하면 정상적으로 clear
 
     assert ROBOT_EXCLUDE_RADIUS_M > 0  # 반경 상수가 실제로 쓰이고 있다는 방증
 
 
 def test_two_people_block_two_different_zones(boxes):
-    points = np.vstack([_cluster(-8.5, 0.0), _cluster(5.1, 0.0)])
+    points = np.vstack([
+        _cluster(-16.8, -7.075),
+        _cluster(-16.8, 7.075),
+    ])
     results = detect_blocked_zones(points, boxes)
-    blocked = {zid for zid, v in results.items() if v}
-    assert blocked == {"Z03", "Z07"}
+    assert results["ZIN01"] is True
+    assert results["ZOUT03"] is True

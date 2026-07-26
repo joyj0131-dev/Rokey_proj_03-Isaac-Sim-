@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 
 from core.datasource import DataSource, DataSourceError
+from core.obstacle_scope import blocking_obstacle, blocking_request_message
 from core.models import (
     STATUS_TRANSITIONS,
     TERMINAL_STATUSES,
@@ -205,6 +206,14 @@ class MockDataSource(DataSource):
                 raise DataSourceError(
                     "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
                     status_code=423,
+                )
+            obstacle = blocking_obstacle(
+                self.store.alerts, payload.request_type
+            )
+            if obstacle is not None:
+                raise DataSourceError(
+                    blocking_request_message(obstacle, payload.request_type),
+                    status_code=409,
                 )
             if payload.request_type == RequestType.PARK_IN:
                 already_parked = next(
@@ -541,9 +550,27 @@ class MockDataSource(DataSource):
     def trigger_obstacle(self) -> Alert:
         """장애물 감지 이벤트를 발생시킨다. 작업 중 로봇이 있으면 해당 로봇 기준."""
         with self.store.lock:
-            robot = next(
+            busy_robot = next(
                 (r for r in self.store.robots if r.status == "BUSY"), None
-            ) or (self.store.robots[0] if self.store.robots else None)
+            )
+            robot = busy_robot or (
+                self.store.robots[0] if self.store.robots else None
+            )
+            location_x = (
+                busy_robot.x + 1.0
+                if busy_robot and busy_robot.x is not None
+                else _CROSSING_X
+            )
+            location_y = (
+                busy_robot.y
+                if busy_robot and busy_robot.y is not None
+                else _ENTRY_LANE_Y
+            )
+            zone_id = (
+                "ZOUT01"
+                if busy_robot and busy_robot.id.startswith("exit")
+                else "ZIN03"
+            )
 
             alert = Alert(
                 id=self.store.next_alert_id(),
@@ -554,7 +581,11 @@ class MockDataSource(DataSource):
                     if robot
                     else "주행 경로에서 장애물이 감지되었습니다."
                 ),
-                robot_id=robot.id if robot else None,
+                robot_id=busy_robot.id if busy_robot else None,
+                sensor_id="L1",
+                zone_id=zone_id,
+                location_x=location_x,
+                location_y=location_y,
                 created_at=_now(),
             )
             self.store.alerts.append(alert)

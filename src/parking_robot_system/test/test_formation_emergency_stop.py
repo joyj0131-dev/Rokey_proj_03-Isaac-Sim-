@@ -41,6 +41,8 @@ def _motion():
     motion = FormationMotion.__new__(FormationMotion)
     motion.node = _Node()
     motion._emergency_stop = False
+    motion._team_role = "entry"
+    motion._obstacle_paused = False
     motion._operation_cancelled = False
     motion._last_safety_state_at = time.monotonic()
     motion.robots = ("robot",)
@@ -165,3 +167,40 @@ def test_missing_safety_heartbeat_forces_zero_velocity():
     assert command.linear.x == 0.0
     assert command.linear.y == 0.0
     assert command.angular.z == 0.0
+
+
+def test_entry_obstacle_pauses_and_clear_resumes_only_entry_motion():
+    entry_motion = _motion()
+    exit_motion = _motion()
+    exit_motion._team_role = "exit"
+    detected = SimpleNamespace(
+        obstacle_detected=True,
+        description="통로 막힘: ZIN03",
+        location=SimpleNamespace(y=-6.875),
+    )
+
+    entry_motion._on_obstacle_alert(detected)
+    exit_motion._on_obstacle_alert(detected)
+
+    assert entry_motion._obstacle_paused is True
+    assert exit_motion._obstacle_paused is False
+    assert entry_motion.cmd["robot"].messages[-1].linear.x == 0.0
+
+    worker = threading.Thread(
+        target=lambda: entry_motion._pub("robot", 1.0)
+    )
+    worker.start()
+    time.sleep(0.03)
+    assert worker.is_alive() is True
+
+    cleared = SimpleNamespace(
+        obstacle_detected=False,
+        description="",
+        location=SimpleNamespace(y=0.0),
+    )
+    entry_motion._on_obstacle_alert(cleared)
+    worker.join(timeout=0.5)
+
+    assert worker.is_alive() is False
+    assert entry_motion._obstacle_paused is False
+    assert entry_motion.cmd["robot"].messages[-1].linear.x == 1.0

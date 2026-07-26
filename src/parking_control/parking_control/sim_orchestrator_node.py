@@ -31,10 +31,19 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from parking_robot_interfaces.action import ExecuteParkingTask
-from parking_robot_interfaces.msg import FormationStop, SafetyState, TaskState
+from parking_robot_interfaces.msg import (
+    FormationStop,
+    ObstacleAlert,
+    SafetyState,
+    TaskState,
+)
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
+from parking_control.core.obstacle_scope import (
+    obstacle_affects_team,
+    robot_team_role,
+)
 from parking_control.core.pathfinder import PathFinder
 from parking_control.parking_slot_manager_node import _default_map_yaml
 
@@ -98,6 +107,8 @@ class SimOrchestratorNode(Node):
         self._map = ParkingMap.load(p("map_yaml").value)
         self._pathfinder = PathFinder(self._map)
         self._robot_id = p("robot_id").value
+        self._team_role = robot_team_role(self._robot_id)
+        self._obstacle_paused = False
         self._emergency_stop = True
         self._operation_cancelled = True
         self._safety_state = "UNKNOWN"
@@ -106,6 +117,9 @@ class SimOrchestratorNode(Node):
         self._task_state_pub = self.create_publisher(TaskState, "task_state", 10)
         self.create_subscription(
             FormationStop, "/formation_stop", self._on_emergency_stop, 10
+        )
+        self.create_subscription(
+            ObstacleAlert, "/obstacle_alert", self._on_obstacle_alert, 10
         )
         safety_qos = QoSProfile(
             depth=1,
@@ -134,6 +148,28 @@ class SimOrchestratorNode(Node):
                 f"관제탑 비상정지 수신: {msg.reason or '사유 없음'}"
             )
 
+    def _on_obstacle_alert(self, msg):
+        previous = self._obstacle_paused
+        self._obstacle_paused = bool(
+            msg.obstacle_detected
+            and obstacle_affects_team(
+                self._team_role,
+                msg.description,
+                msg.location.y,
+            )
+        )
+        if previous != self._obstacle_paused:
+            log = (
+                self.get_logger().warn
+                if self._obstacle_paused
+                else self.get_logger().info
+            )
+            log(
+                "팀 장애물 일시정지"
+                if self._obstacle_paused
+                else "팀 장애물 해소 · 작업 재개"
+            )
+
     def _on_safety_state(self, msg):
         previous = self._safety_state
         self._safety_state = msg.state
@@ -147,6 +183,12 @@ class SimOrchestratorNode(Node):
             )
 
     def _raise_if_emergency_stopped(self):
+        while getattr(self, "_obstacle_paused", False):
+            SimOrchestratorNode._raise_if_central_safety_stopped(self)
+            time.sleep(0.05)
+        SimOrchestratorNode._raise_if_central_safety_stopped(self)
+
+    def _raise_if_central_safety_stopped(self):
         heartbeat_stale = (
             self._last_safety_state_at is None
             or time.monotonic() - self._last_safety_state_at > 3.0

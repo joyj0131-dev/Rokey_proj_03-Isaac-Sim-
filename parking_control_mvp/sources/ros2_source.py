@@ -47,6 +47,7 @@ from parking_control.parking_slot_manager_node import _default_map_yaml
 
 import config
 from core.datasource import DataSource, DataSourceError
+from core.obstacle_scope import blocking_obstacle, blocking_request_message
 from core.models import (
     TERMINAL_STATUSES,
     Alert,
@@ -547,15 +548,78 @@ class Ros2DataSource(DataSource):
     # ------------------------------------------------------------------
     def _on_obstacle_alert(self, msg: ObstacleAlert) -> None:
         if not msg.obstacle_detected:
+            # safety_monitor는 PointCloud 프레임마다 현재 판정값을 발행한다.
+            # clear 프레임을 받으면 수동 해제 없이 지도/경고를 즉시 정리한다.
+            with self.store.lock:
+                for alert in self.store.alerts:
+                    if (
+                        alert.active
+                        and alert.category == AlertCategory.OBSTACLE
+                    ):
+                        alert.active = False
             return
+        description = msg.description or "주행 경로에서 장애물이 감지되었습니다."
+        zone_ids = []
+        if description.startswith("통로 막힘:"):
+            zone_ids = [
+                zone.strip()
+                for zone in description.split(":", 1)[1].split(",")
+                if zone.strip()
+            ]
+        zone_id = ", ".join(zone_ids) or None
+        # ObstacleAlert.msg에는 위치 유효성 플래그가 없다. 현재 실제
+        # safety_monitor는 통로 막힘 설명과 함께 location을 항상 채운다.
+        # 다른 구형 발행자의 기본값 (0, 0)은 실제 위치로 오인하지 않는다.
+        has_location = bool(zone_ids) or any(
+            abs(value) > 1e-6
+            for value in (float(msg.location.x), float(msg.location.y))
+        )
+        sensor_id = _LIDAR_CONTRACTS[0][0] if len(_LIDAR_CONTRACTS) == 1 else None
         with self.store.lock:
+            # safety_monitor 메시지는 특정 이벤트 추가가 아니라 현재 프레임의
+            # 전체 장애물 상태다. 감지 구역이 바뀌었으면 이전 프레임의 경보를
+            # 남겨 두지 않는다.
+            for alert in self.store.alerts:
+                if (
+                    alert.active
+                    and alert.category == AlertCategory.OBSTACLE
+                    and (
+                        alert.sensor_id != sensor_id
+                        or alert.zone_id != zone_id
+                    )
+                ):
+                    alert.active = False
+            existing = next(
+                (
+                    alert
+                    for alert in self.store.alerts
+                    if alert.active
+                    and alert.category == AlertCategory.OBSTACLE
+                    and alert.sensor_id == sensor_id
+                    and alert.zone_id == zone_id
+                ),
+                None,
+            )
+            if existing is not None:
+                existing.message = description
+                existing.location_x = (
+                    float(msg.location.x) if has_location else None
+                )
+                existing.location_y = (
+                    float(msg.location.y) if has_location else None
+                )
+                return
             self.store.alerts.append(
                 Alert(
                     id=self.store.next_alert_id(),
                     level=AlertLevel.WARNING,
                     category=AlertCategory.OBSTACLE,
-                    message=msg.description or "주행 경로에서 장애물이 감지되었습니다.",
+                    message=description,
                     robot_id=None,
+                    sensor_id=sensor_id,
+                    zone_id=zone_id,
+                    location_x=float(msg.location.x) if has_location else None,
+                    location_y=float(msg.location.y) if has_location else None,
                     created_at=_now(),
                 )
             )
@@ -674,6 +738,15 @@ class Ros2DataSource(DataSource):
             raise DataSourceError(
                 "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
                 status_code=423,
+            )
+        with self.store.lock:
+            obstacle = blocking_obstacle(
+                self.store.alerts, payload.request_type
+            )
+        if obstacle is not None:
+            raise DataSourceError(
+                blocking_request_message(obstacle, payload.request_type),
+                status_code=409,
             )
 
         if not self._dispatch_client.wait_for_service(

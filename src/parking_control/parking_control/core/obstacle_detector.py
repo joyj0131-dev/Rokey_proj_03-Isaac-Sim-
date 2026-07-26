@@ -17,25 +17,40 @@ ROBOT_EXCLUDE_RADIUS_M = 0.8      # 로봇 풋프린트보다 넉넉하게
 
 
 def zone_boxes(parking_map):
-    """존 id -> (x_min, x_max, y_min, y_max).
+    """존 id -> 월드 좌표의 축 정렬 감지 영역 ``(x0, x1, y0, y1)``.
 
-    ⚠ v2(16슬롯, 통로 하나) 레이아웃 전제로 단순화된 함수다 — "모든 통로
-    구간이 y=0을 지나는 수평선"이라고 가정하는데, v3 레이아웃(2026-07-24,
-    3슬롯 + 입/출차 차로 분리)은 이 전제가 안 맞는다: 입차 차로는 y≈5.3~5.5,
-    출차 차로는 y≈-5.3~-5.5에 있고, 슬롯 진입 엣지는 아예 수평이 아니라
-    수직(x 고정, y 가변)이다. 지금은 KeyError만 안 나도록 aisle_width를
-    임시로 살려뒀을 뿐, 실제 반환되는 박스 좌표는 v3에서 부정확하다 —
-    로봇 물리 경로 재설계(이 프로젝트의 "B" 작업) 때 이 함수도 통로
-    방향(수평/수직)을 구분하도록 다시 설계해야 한다.
+    v4 지도는 입·출차 수평 차로와 슬롯으로 이어지는 수직 진입로가 섞여
+    있다. 엣지의 실제 두 끝점을 기준으로 박스를 만들고 진행 방향의
+    수직축에만 통로 폭을 더한다. 슬롯 직전 ``*_dock`` 구간은 전체 차로
+    폭을 적용하면 인접 주차면까지 겹치므로 주차면 폭을 기준으로 제한한다.
     """
     aisle_half = parking_map.meta["params"]["aisle_width"] / 2
+    slot_half = parking_map.meta["params"].get(
+        "space_width", parking_map.meta["params"]["aisle_width"]
+    ) * 0.45
     boxes = {}
     for u, v, data in parking_map.graph.edges(data=True):
         zone_id = data.get("zone")
         if not zone_id:
             continue
         (x1, y1), (x2, y2) = parking_map.node_pos(u), parking_map.node_pos(v)
-        boxes[zone_id] = (min(x1, x2), max(x1, x2), -aisle_half, aisle_half)
+        half_width = slot_half if zone_id.endswith("_dock") else aisle_half
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        if dx >= dy:
+            boxes[zone_id] = (
+                min(x1, x2),
+                max(x1, x2),
+                min(y1, y2) - half_width,
+                max(y1, y2) + half_width,
+            )
+        else:
+            boxes[zone_id] = (
+                min(x1, x2) - half_width,
+                max(x1, x2) + half_width,
+                min(y1, y2),
+                max(y1, y2),
+            )
     return boxes
 
 

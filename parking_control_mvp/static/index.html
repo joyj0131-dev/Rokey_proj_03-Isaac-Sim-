@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260726-v13-control-readability" />
+  <link rel="stylesheet" href="/static/style.css?v=20260727-v19-map-clarity" />
 </head>
 <body>
   <div class="app-shell">
@@ -77,15 +77,12 @@
       </nav>
 
       <main class="dashboard">
-        <section id="alertPanel" class="panel alert-panel hidden" aria-live="polite">
-          <div class="panel-header">
-            <div>
-              <h2>안전 · 시스템 알림</h2>
-              <p class="panel-description">
-                중요 알림은 항상 표시되며, 센서 연결 알림은 필요할 때 숨길 수 있습니다.
-              </p>
-            </div>
-          </div>
+        <section
+          id="alertPanel"
+          class="panel alert-panel hidden"
+          aria-label="안전 및 시스템 알림"
+          aria-live="polite"
+        >
           <div id="alertList" class="alert-list"></div>
         </section>
 
@@ -96,8 +93,6 @@
           data-panel="live"
         >
           <section id="summaryCards" class="status-overview" aria-label="주차장 상태 요약"></section>
-          <section id="activeTaskBanner" class="active-task-banner hidden" aria-live="polite"></section>
-
           <section class="panel live-floor-panel">
             <div class="panel-header live-panel-header">
               <div class="live-title-group">
@@ -111,6 +106,13 @@
                   <span><i class="legend-dot occupied"></i>주차 중</span>
                 </div>
               </div>
+
+              <section
+                id="activeTaskBanner"
+                class="active-task-banner hidden"
+                aria-label="현재 작업 진행 상태"
+                aria-live="polite"
+              ></section>
 
               <div class="map-header-status">
                 <button
@@ -185,7 +187,19 @@
                       />
                     </label>
                   </div>
-                  <button type="submit" class="primary-button">요청 등록</button>
+                  <div
+                    id="requestSafetyHint"
+                    class="request-safety-hint hidden"
+                    role="status"
+                    aria-live="polite"
+                  ></div>
+                  <button
+                    id="requestSubmitButton"
+                    type="submit"
+                    class="primary-button"
+                  >
+                    요청 등록
+                  </button>
                 </form>
 
                 <div id="mockVehicleGuide" class="test-guide">
@@ -414,6 +428,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=20260726-v13-control-readability"></script>
+  <script src="/static/app.js?v=20260727-v19-map-clarity"></script>
 </body>
 </html>

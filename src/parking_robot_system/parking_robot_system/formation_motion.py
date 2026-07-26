@@ -57,7 +57,11 @@ from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from parking_robot_interfaces.msg import FormationStop, SafetyState
+from parking_robot_interfaces.msg import FormationStop, ObstacleAlert, SafetyState
+from parking_control.core.obstacle_scope import (
+    obstacle_affects_team,
+    robot_team_role,
+)
 
 from parking_robot_system.formation_driver import (
     CONTROL_HZ, INGRESS_SPEED, K_LIN, K_STRAFE, K_YAW, MAX_LIN, MAX_YAW,
@@ -172,6 +176,8 @@ class FormationMotion:
         self.veh_yaw = None
         # 중앙 안전 상태를 받기 전에는 fail-safe 정지.
         self._emergency_stop = True
+        self._team_role = robot_team_role(self.rear_id)
+        self._obstacle_paused = False
         self._last_safety_state_at = None
         # 비상정지가 한 번이라도 들어온 현재 액션은 운영 복귀 승인 뒤에도
         # 이어서 실행하면 안 된다. 새 액션 콜백이 begin_operation()을 호출할
@@ -192,6 +198,9 @@ class FormationMotion:
             PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
         node.create_subscription(
             FormationStop, "/formation_stop", self._on_emergency_stop,
+            10, callback_group=grp)
+        node.create_subscription(
+            ObstacleAlert, "/obstacle_alert", self._on_obstacle_alert,
             10, callback_group=grp)
         safety_qos = QoSProfile(
             depth=1,
@@ -231,6 +240,30 @@ class FormationMotion:
                     f"관제탑 비상정지 수신: {msg.reason or '사유 없음'}"
                 )
 
+    def _on_obstacle_alert(self, msg):
+        previous = self._obstacle_paused
+        self._obstacle_paused = bool(
+            msg.obstacle_detected
+            and obstacle_affects_team(
+                self._team_role,
+                msg.description,
+                msg.location.y,
+            )
+        )
+        if self._obstacle_paused:
+            self._publish_zero_now()
+        if previous != self._obstacle_paused:
+            log = (
+                self.node.get_logger().warn
+                if self._obstacle_paused
+                else self.node.get_logger().info
+            )
+            log(
+                "지역 장애물 감지 · 편대 일시정지"
+                if self._obstacle_paused
+                else "지역 장애물 해소 · 편대 모션 재개"
+            )
+
     def _on_safety_state(self, msg):
         """중앙 상태만 정지 래치를 해제할 수 있다.
 
@@ -254,6 +287,14 @@ class FormationMotion:
             )
 
     def _motion_blocked(self):
+        while self._obstacle_paused:
+            if self._central_motion_blocked():
+                return True
+            self._publish_zero_now()
+            time.sleep(1.0 / CONTROL_HZ)
+        return self._central_motion_blocked()
+
+    def _central_motion_blocked(self):
         heartbeat_stale = (
             self._last_safety_state_at is None
             or time.monotonic() - self._last_safety_state_at > 3.0
@@ -275,8 +316,9 @@ class FormationMotion:
             self._last_safety_state_at is None
             or time.monotonic() - self._last_safety_state_at > 3.0
         )
-        if self._emergency_stop or heartbeat_stale:
-            self._operation_cancelled = True
+        if self._emergency_stop or heartbeat_stale or self._obstacle_paused:
+            if self._emergency_stop or heartbeat_stale:
+                self._operation_cancelled = True
             return False
         self._operation_cancelled = False
         return True
@@ -291,6 +333,12 @@ class FormationMotion:
         return formation_heading(rear, front)
 
     # ---- 발행/정지 헬퍼 (원본 L96-111 그대로) ----
+    def _publish_zero_now(self):
+        """장애물 콜백에서도 블로킹 검사 없이 두 로봇에 즉시 0속도를 보낸다."""
+        for robot_id in self.robots:
+            twist = Twist()
+            self.cmd[robot_id].publish(twist)
+
     def _pub(self, rid, vx, vy=0.0, wz=0.0):
         if self._motion_blocked():
             vx = vy = wz = 0.0

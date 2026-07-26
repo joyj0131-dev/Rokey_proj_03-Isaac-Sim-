@@ -125,5 +125,11 @@ class Alert(BaseModel):
     category: AlertCategory
     message: str
     robot_id: str | None = None
+    #: 감지 이벤트를 발행한 센서/영역과 ROS map 기준 위치.
+    #: 기존 알림 생산자는 값을 생략할 수 있도록 모두 선택 필드로 둔다.
+    sensor_id: str | None = None
+    zone_id: str | None = None
+    location_x: float | None = None
+    location_y: float | None = None
     created_at: str
     active: bool = True

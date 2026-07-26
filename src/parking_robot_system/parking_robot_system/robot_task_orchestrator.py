@@ -85,6 +85,7 @@ from parking_robot_interfaces.action import (
     AlignVehicle, ControlLift, DetectVehicle, ExecuteParkingTask,
 )
 from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
+from parking_control.core.obstacle_scope import obstacle_affects_team
 
 # ---- 순수 전이 테이블(TDD 대상) ----------------------------------------------------
 TRANSITIONS = {
@@ -179,18 +180,26 @@ class RobotTaskOrchestratorNode(Node):
     def __init__(self):
         super().__init__('robot_task_orchestrator')
 
+        self.declare_parameter("team_role", "")
         # 출차 세트에서만 실제로 쓰인다(MOVING 단계 carry_bay 목적지) — 입차 세트는
         # 이 파라미터를 launch에서 안 넘겨도 무해(그 경로 자체를 안 타므로).
         self.declare_parameter("bay_x_map", -8.5)
         self.declare_parameter("bay_y_map", 7.075)
         self._bay_x_map = self.get_parameter("bay_x_map").value
         self._bay_y_map = self.get_parameter("bay_y_map").value
+        configured_role = self.get_parameter("team_role").value.strip().lower()
+        namespace_role = self.get_namespace().strip("/").split("/")[-1].lower()
+        self._team_role = (
+            configured_role
+            if configured_role in {"entry", "exit"}
+            else namespace_role if namespace_role in {"entry", "exit"} else None
+        )
 
         grp = ReentrantCallbackGroup()
 
         self._task_state_pub = self.create_publisher(TaskState, 'task_state', 10)
         self._obstacle_alert_sub = self.create_subscription(
-            ObstacleAlert, 'obstacle_alert', self._on_obstacle_alert, 10, callback_group=grp)
+            ObstacleAlert, '/obstacle_alert', self._on_obstacle_alert, 10, callback_group=grp)
 
         self._execute_task_server = ActionServer(
             self, ExecuteParkingTask, 'execute_parking_task', self._on_execute_parking_task,
@@ -206,6 +215,7 @@ class RobotTaskOrchestratorNode(Node):
             self, ControlLift, 'control_lift', callback_group=grp)
 
         self._emergency_stop = True
+        self._obstacle_paused = False
         self._safety_state = "UNKNOWN"
         self._last_safety_state_at = None
         safety_qos = QoSProfile(
@@ -220,9 +230,26 @@ class RobotTaskOrchestratorNode(Node):
         self.get_logger().info('robot_task_orchestrator node started')
 
     def _on_obstacle_alert(self, msg):
-        # TODO(SR-10/P4): 긴급정지 상태 반영, 장애물 해소 시 작업 재개 신호 처리는
-        # safety_monitor 정식화(P4) 범위 — 이번 태스크(P1 상태머신 골격)는 플래그 보관만.
-        self._emergency_stop = msg.obstacle_detected
+        previous = self._obstacle_paused
+        self._obstacle_paused = bool(
+            msg.obstacle_detected
+            and obstacle_affects_team(
+                self._team_role,
+                msg.description,
+                msg.location.y,
+            )
+        )
+        if previous != self._obstacle_paused:
+            log = (
+                self.get_logger().warn
+                if self._obstacle_paused
+                else self.get_logger().info
+            )
+            log(
+                f"{self._team_role or '미확인'} 팀 장애물 일시정지"
+                if self._obstacle_paused
+                else f"{self._team_role or '미확인'} 팀 장애물 해소"
+            )
 
     def _on_safety_state(self, msg):
         self._safety_state = msg.state
@@ -235,6 +262,14 @@ class RobotTaskOrchestratorNode(Node):
             or self._last_safety_state_at is None
             or time.monotonic() - self._last_safety_state_at > 3.0
         )
+
+    def _wait_while_obstacle(self):
+        """지역 장애물은 작업을 실패시키지 않고 해소될 때까지 일시정지한다."""
+        while self._obstacle_paused:
+            if self._safety_stopped():
+                return False
+            time.sleep(POLL_INTERVAL)
+        return not self._safety_stopped()
 
     # ---- ★동시성 패턴 핵심: 재진입 spin 없는 액션 호출 ----
     def _call_action(self, client, goal, *, label, wait_timeout, result_timeout):
@@ -377,14 +412,22 @@ class RobotTaskOrchestratorNode(Node):
         idx = 0
         state = steps[0]                     # "SEARCHING"
 
-        if self._safety_stopped():
+        if self._safety_stopped() or self._obstacle_paused:
             self._publish_task_state(
                 robot_id, goal.task_id, "FAILED",
-                f"중앙 안전 상태({self._safety_state})로 작업 거부")
+                (
+                    f"중앙 안전 상태({self._safety_state})로 작업 거부"
+                    if self._safety_stopped()
+                    else f"{self._team_role or '해당'} 팀 통로 장애물로 작업 거부"
+                ))
             goal_handle.abort()
             result = ExecuteParkingTask.Result()
             result.success = False
-            result.message = f"중앙 안전 상태({self._safety_state})"
+            result.message = (
+                f"중앙 안전 상태({self._safety_state})"
+                if self._safety_stopped()
+                else "팀 통로 장애물 감지"
+            )
             return result
 
         self.get_logger().info(
@@ -429,10 +472,17 @@ class RobotTaskOrchestratorNode(Node):
                 fail_reason = f"중앙 안전 상태({self._safety_state})로 작업 중단"
                 state = "FAILED"
                 break
+            if not self._wait_while_obstacle():
+                fail_reason = f"중앙 안전 상태({self._safety_state})로 작업 중단"
+                state = "FAILED"
+                break
             self._publish_task_state(robot_id, goal.task_id, state, _STEP_MESSAGES[state])
             self._publish_feedback(goal_handle, state, idx, total)
 
             ok, payload, reason = handlers[state]()
+            if not self._wait_while_obstacle():
+                ok = False
+                reason = f"중앙 안전 상태({self._safety_state})"
             if self._safety_stopped():
                 ok = False
                 reason = f"중앙 안전 상태({self._safety_state})"

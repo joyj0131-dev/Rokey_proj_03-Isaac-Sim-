@@ -75,7 +75,9 @@ class SafetyMonitorNode(Node):
         self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
-        self._alert_pub = self.create_publisher(ObstacleAlert, "obstacle_alert", 10)
+        self._alert_pub = self.create_publisher(
+            ObstacleAlert, "/obstacle_alert", 10
+        )
         self._marker_pub = self.create_publisher(
             MarkerArray, "parking_status_markers", 10)
         self.create_subscription(
