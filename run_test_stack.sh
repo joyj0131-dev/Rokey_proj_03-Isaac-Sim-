@@ -2,6 +2,7 @@
 # 관제 노드 4개(입·출차 테스트용 가짜 로봇 포함) + 주차장 도면 대시보드 + 웹 UI를
 # 한 번에 띄우는 스크립트. 더미 데이터로 입고/출차 전체 흐름을 눈으로
 # 확인하기 위한 테스트 전용 도구다 (실제 로봇 동작은 아직 B/C 미구현).
+# 안전 복구 운영 절차: docs/safety-recovery-runbook.md
 #
 # 실행:  bash run_test_stack.sh     (cobot3_ws 루트에서)
 # 종료:  Ctrl+C  (노드/서버 전부 정리. DB 데이터는 남겨둔다)
@@ -57,6 +58,9 @@ if ! $DB -Nse \
     $DB < "$WS/src/parking_control/db/004_dual_robot_zone_owner.sql"
 fi
 
+# 중앙 비상정지 상태/관제 승인 감사 테이블(멱등).
+$DB < "$WS/src/parking_control/db/005_safety_supervisor.sql"
+
 # 현재 parking_map.yaml(V4)의 슬롯/존 좌표를 DB의 단일 기준으로 맞춘다.
 $DB < "$WS/src/parking_control/db/002_seed.sql"
 $DB -e "
@@ -83,10 +87,13 @@ cd "$WS"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
-echo "=== 2/4: 관제 노드 4개 실행 (입·출차 가짜 로봇 포함) ==="
+echo "=== 2/4: 중앙 안전 관리자 + 관제 노드 실행 (입·출차 가짜 로봇 포함) ==="
 # task_dispatcher가 사용하는 액션 이름은 /entry/execute_parking_task와
 # /exit/execute_parking_task다. 각 시뮬레이터를 같은 네임스페이스로 띄우고,
 # 진행 상태는 웹 UI가 구독하는 공용 /task_state로 모은다.
+ros2 run parking_control safety_supervisor \
+    > "$LOG_DIR/safety_supervisor.log" 2>&1 &
+sleep 1
 ros2 run parking_control sim_orchestrator --ros-args \
     -r __ns:=/entry -r __node:=entry_sim_orchestrator \
     -r task_state:=/task_state -p robot_id:=entry_lead \
@@ -124,7 +131,7 @@ cat <<'BANNER'
 
   테스트 방법
   -----------
-  - UI에서 차량번호를 입력해 "입고 요청" 등록
+  - UI에서 차량번호를 입력해 "입차 요청" 등록
       → 대시보드에서 입차 리더 로봇이 입구까지 갔다가 배정된 칸으로 이동하는
         모습이 실시간으로 보입니다. 도착하면 그 칸이 채워집니다.
   - 같은 차량번호로 "출차 요청" 등록
@@ -134,6 +141,9 @@ cat <<'BANNER'
   - 현재 V4 도면의 주차면은 A1~A3 총 3칸입니다.
   - 입차/출차는 각 전용 로봇쌍이 담당하므로 서로 동시에 요청할 수 있습니다.
     시뮬레이터는 각 쌍의 리더와 팔로워 좌표를 편대 간격으로 함께 움직입니다.
+  - 비상정지 후에는 "현장 점검·해제 요청"과 "운영 복귀 승인"을 순서대로
+    완료해야 하며, 중단된 작업은 자동 재개되지 않습니다.
+  - 테스트 스택을 종료했다가 다시 실행해도 비상정지 상태는 DB에 유지됩니다.
 
   Ctrl+C 를 누르면 전부 종료됩니다.
 =====================================================================

@@ -31,6 +31,7 @@ setup(
             'sim_orchestrator = parking_control.sim_orchestrator_node:main',
             'robot_position_bridge = parking_control.robot_position_bridge_node:main',
             'safety_monitor = parking_control.safety_monitor_node:main',
+            'safety_supervisor = parking_control.safety_supervisor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',
             'lidar_occupancy_grid = parking_control.lidar_occupancy_grid_node:main',
         ],

@@ -4,6 +4,8 @@
 커넥션이 끊겨도 다음 호출에서 자동 재접속한다.
 """
 
+import json
+
 import mysql.connector
 
 DUPLICATE_KEY_ERRNO = 1062  # zone lock 획득 실패 판정에 사용
@@ -189,6 +191,134 @@ class ParkingDB:
     def get_task(self, task_id):
         rows = self._query("SELECT * FROM tasks WHERE task_id = %s", (task_id,))
         return rows[0] if rows else None
+
+    def active_task_ids(self):
+        """비상정지 복구를 막는 미종결 작업 ID 목록."""
+        rows = self._query(
+            "SELECT task_id FROM tasks"
+            " WHERE state IN ('WAITING', 'PROCESSING')"
+            " ORDER BY created_at"
+        )
+        return [row["task_id"] for row in rows]
+
+    def unsafe_robot_statuses(self):
+        """운영 복귀를 막는 로봇 상태. IDLE/CHARGING만 안전 대기로 본다."""
+        return self._query(
+            "SELECT robot_id, status FROM robots"
+            " WHERE status NOT IN ('IDLE', 'CHARGING')"
+            " ORDER BY robot_id"
+        )
+
+    # ---- 중앙 안전 상태 / 감사 이력 ----
+
+    def ensure_safety_schema(self):
+        """기존 설치에서도 supervisor 단독 기동이 가능하도록 멱등 생성한다."""
+        self._query(
+            """
+            CREATE TABLE IF NOT EXISTS safety_state (
+                singleton_id TINYINT PRIMARY KEY,
+                state VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+                stop_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                reason VARCHAR(500) NOT NULL DEFAULT '',
+                operator_id VARCHAR(64) NOT NULL DEFAULT '',
+                inspection_note VARCHAR(1000) NOT NULL DEFAULT '',
+                affected_task_ids JSON NOT NULL,
+                blockers JSON NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ON UPDATE CURRENT_TIMESTAMP,
+                CONSTRAINT chk_safety_singleton CHECK (singleton_id = 1)
+            )
+            """
+        )
+        self._query(
+            """
+            CREATE TABLE IF NOT EXISTS safety_events (
+                event_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                stop_epoch BIGINT UNSIGNED NOT NULL,
+                event_type VARCHAR(32) NOT NULL,
+                state VARCHAR(32) NOT NULL,
+                operator_id VARCHAR(64) NOT NULL DEFAULT '',
+                note VARCHAR(1000) NOT NULL DEFAULT '',
+                details JSON NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self._query(
+            """
+            INSERT INTO safety_state (
+                singleton_id, state, affected_task_ids, blockers
+            ) VALUES (1, 'NORMAL', JSON_ARRAY(), JSON_ARRAY())
+            ON DUPLICATE KEY UPDATE singleton_id = singleton_id
+            """
+        )
+
+    def get_safety_state(self):
+        rows = self._query(
+            "SELECT state, stop_epoch, reason, operator_id, inspection_note,"
+            " affected_task_ids, blockers,"
+            " DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s') AS updated_at"
+            " FROM safety_state WHERE singleton_id = 1"
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        for field in ("affected_task_ids", "blockers"):
+            value = row.get(field)
+            if isinstance(value, str):
+                row[field] = json.loads(value)
+            elif value is None:
+                row[field] = []
+        return row
+
+    def set_safety_state(
+        self,
+        *,
+        state,
+        stop_epoch,
+        reason,
+        operator_id,
+        inspection_note,
+        affected_task_ids,
+        blockers,
+    ):
+        self._query(
+            """
+            UPDATE safety_state
+            SET state = %s, stop_epoch = %s, reason = %s,
+                operator_id = %s, inspection_note = %s,
+                affected_task_ids = %s, blockers = %s
+            WHERE singleton_id = 1
+            """,
+            (
+                state,
+                stop_epoch,
+                reason,
+                operator_id,
+                inspection_note,
+                json.dumps(list(affected_task_ids), ensure_ascii=False),
+                json.dumps(list(blockers), ensure_ascii=False),
+            ),
+        )
+
+    def add_safety_event(
+        self, *, stop_epoch, event_type, state, operator_id, note, details=None
+    ):
+        self._query(
+            """
+            INSERT INTO safety_events (
+                stop_epoch, event_type, state, operator_id, note, details
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                stop_epoch,
+                event_type,
+                state,
+                operator_id,
+                note,
+                json.dumps(details or {}, ensure_ascii=False),
+            ),
+        )
 
     # ---- zone_locks ----
 

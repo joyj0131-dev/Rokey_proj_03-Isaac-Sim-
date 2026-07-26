@@ -22,15 +22,17 @@ entry_front_id, exit_rear_id/exit_front_id)을 그대로 쓴다. 각 쌍은 서�
 해제한다(각 로봇은 idle로 복귀).
 """
 
+import time
 import uuid
 
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from parking_robot_interfaces.action import ExecuteParkingTask
-from parking_robot_interfaces.msg import FormationAssignment
+from parking_robot_interfaces.msg import FormationAssignment, SafetyState
 from parking_robot_interfaces.srv import AcquireZones, FindEmptySlot, \
     ReleaseZones, RequestParkingTask
 
@@ -68,6 +70,9 @@ class TaskDispatcherNode(Node):
             password=p("db_password").value, database=p("db_name").value)
         self._map = ParkingMap.load(p("map_yaml").value)
         self._stub_held = {}   # robot_id -> set(zone_ids), stub 모드 전용
+        # supervisor 상태를 받기 전에는 fail-safe로 요청을 막는다.
+        self._safety_state = "UNKNOWN"
+        self._last_safety_state_at = None
         self._robot_pairs = {
             "ENTRY": (p("entry_rear_id").value, p("entry_front_id").value),
             "EXIT": (p("exit_rear_id").value, p("exit_front_id").value),
@@ -86,6 +91,15 @@ class TaskDispatcherNode(Node):
         }
         self._formation_pub = self.create_publisher(
             FormationAssignment, "formation_assignment", 10)
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state, safety_qos
+        )
+        self.create_timer(1.0, self._check_safety_heartbeat)
 
         self.create_service(RequestParkingTask, "dispatch_parking_task",
                             self._handle_dispatch, callback_group=group)
@@ -101,9 +115,34 @@ class TaskDispatcherNode(Node):
 
     # ---- 작업 접수 ----
 
+    def _on_safety_state(self, msg):
+        previous = self._safety_state
+        self._safety_state = msg.state
+        self._last_safety_state_at = time.monotonic()
+        if previous != msg.state:
+            self.get_logger().info(
+                f"중앙 안전 상태: {previous} → {msg.state}"
+            )
+
+    def _check_safety_heartbeat(self):
+        if (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        ):
+            if self._safety_state != "UNKNOWN":
+                self.get_logger().error(
+                    "safety_supervisor heartbeat 두절 — 새 작업 접수 차단"
+                )
+            self._safety_state = "UNKNOWN"
+
     def _handle_dispatch(self, request, response):
         response.accepted = False
         response.task_id = ""
+        if self._safety_state != "NORMAL":
+            response.message = (
+                f"중앙 안전 상태({self._safety_state})에서는 새 작업을 접수할 수 없습니다."
+            )
+            return response
         if request.request_type not in ("ENTRY", "EXIT"):
             response.message = f"알 수 없는 request_type: {request.request_type}"
             return response

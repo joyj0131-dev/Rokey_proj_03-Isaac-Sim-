@@ -78,12 +78,13 @@ from rclpy.action import ActionClient, ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from nav2_msgs.action import NavigateToPose
 
 from parking_robot_interfaces.action import (
     AlignVehicle, ControlLift, DetectVehicle, ExecuteParkingTask,
 )
-from parking_robot_interfaces.msg import ObstacleAlert, TaskState
+from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
 
 # ---- 순수 전이 테이블(TDD 대상) ----------------------------------------------------
 TRANSITIONS = {
@@ -204,7 +205,17 @@ class RobotTaskOrchestratorNode(Node):
         self._lift_client = ActionClient(
             self, ControlLift, 'control_lift', callback_group=grp)
 
-        self._emergency_stop = False
+        self._emergency_stop = True
+        self._safety_state = "UNKNOWN"
+        self._last_safety_state_at = None
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state,
+            safety_qos, callback_group=grp)
 
         self.get_logger().info('robot_task_orchestrator node started')
 
@@ -212,6 +223,18 @@ class RobotTaskOrchestratorNode(Node):
         # TODO(SR-10/P4): 긴급정지 상태 반영, 장애물 해소 시 작업 재개 신호 처리는
         # safety_monitor 정식화(P4) 범위 — 이번 태스크(P1 상태머신 골격)는 플래그 보관만.
         self._emergency_stop = msg.obstacle_detected
+
+    def _on_safety_state(self, msg):
+        self._safety_state = msg.state
+        self._last_safety_state_at = time.monotonic()
+        self._emergency_stop = not msg.motion_allowed
+
+    def _safety_stopped(self):
+        return (
+            self._emergency_stop
+            or self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
 
     # ---- ★동시성 패턴 핵심: 재진입 spin 없는 액션 호출 ----
     def _call_action(self, client, goal, *, label, wait_timeout, result_timeout):
@@ -354,6 +377,16 @@ class RobotTaskOrchestratorNode(Node):
         idx = 0
         state = steps[0]                     # "SEARCHING"
 
+        if self._safety_stopped():
+            self._publish_task_state(
+                robot_id, goal.task_id, "FAILED",
+                f"중앙 안전 상태({self._safety_state})로 작업 거부")
+            goal_handle.abort()
+            result = ExecuteParkingTask.Result()
+            result.success = False
+            result.message = f"중앙 안전 상태({self._safety_state})"
+            return result
+
         self.get_logger().info(
             f'execute_parking_task 시작: task_id={goal.task_id} slot_id={goal.slot_id}')
 
@@ -392,10 +425,17 @@ class RobotTaskOrchestratorNode(Node):
 
         fail_reason = ''
         while state not in ('DONE', 'FAILED'):
+            if self._safety_stopped():
+                fail_reason = f"중앙 안전 상태({self._safety_state})로 작업 중단"
+                state = "FAILED"
+                break
             self._publish_task_state(robot_id, goal.task_id, state, _STEP_MESSAGES[state])
             self._publish_feedback(goal_handle, state, idx, total)
 
             ok, payload, reason = handlers[state]()
+            if self._safety_stopped():
+                ok = False
+                reason = f"중앙 안전 상태({self._safety_state})"
             if state == 'SEARCHING' and ok:
                 vehicle_pose = payload
 

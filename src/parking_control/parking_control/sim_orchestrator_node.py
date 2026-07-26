@@ -28,9 +28,10 @@ from rclpy.action import ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from parking_robot_interfaces.action import ExecuteParkingTask
-from parking_robot_interfaces.msg import TaskState
+from parking_robot_interfaces.msg import FormationStop, SafetyState, TaskState
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
@@ -41,6 +42,10 @@ from parking_control.parking_slot_manager_node import _default_map_yaml
 # 실제 formation_gap_controller의 기본 편대 간격과 맞춘다. UI에서도 92px
 # 로봇 카드 두 장이 한 아이콘처럼 겹치지 않고 리더/팔로워가 구분된다.
 SIM_FORMATION_GAP_M = 2.9
+
+
+class EmergencyStopTriggered(RuntimeError):
+    """관제탑 비상정지로 테스트 이동을 즉시 중단한다."""
 
 
 def formation_positions(previous_center, center, robot_count=2,
@@ -93,8 +98,23 @@ class SimOrchestratorNode(Node):
         self._map = ParkingMap.load(p("map_yaml").value)
         self._pathfinder = PathFinder(self._map)
         self._robot_id = p("robot_id").value
+        self._emergency_stop = True
+        self._operation_cancelled = True
+        self._safety_state = "UNKNOWN"
+        self._last_safety_state_at = None
 
         self._task_state_pub = self.create_publisher(TaskState, "task_state", 10)
+        self.create_subscription(
+            FormationStop, "/formation_stop", self._on_emergency_stop, 10
+        )
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state, safety_qos
+        )
         self._server = ActionServer(
             self, ExecuteParkingTask, "execute_parking_task",
             execute_callback=self._execute,
@@ -105,6 +125,39 @@ class SimOrchestratorNode(Node):
             "테스트 전용: 실제 로봇 대신 좌표만 흉내 내어 이동합니다")
 
     # ---- 이동 시뮬레이션 ----
+
+    def _on_emergency_stop(self, msg):
+        if msg.stop and msg.source_robot_id == "control_tower":
+            self._emergency_stop = True
+            self._operation_cancelled = True
+            self.get_logger().error(
+                f"관제탑 비상정지 수신: {msg.reason or '사유 없음'}"
+            )
+
+    def _on_safety_state(self, msg):
+        previous = self._safety_state
+        self._safety_state = msg.state
+        self._last_safety_state_at = time.monotonic()
+        self._emergency_stop = not msg.motion_allowed
+        if self._emergency_stop:
+            self._operation_cancelled = True
+        if previous != msg.state:
+            self.get_logger().info(
+                f"중앙 안전 상태={msg.state}, motion_allowed={msg.motion_allowed}"
+            )
+
+    def _raise_if_emergency_stopped(self):
+        heartbeat_stale = (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
+        if self._emergency_stop or self._operation_cancelled or heartbeat_stale:
+            reason = (
+                "중앙 안전 관리자 heartbeat 두절"
+                if heartbeat_stale
+                else "관제 UI 전체 비상정지"
+            )
+            raise EmergencyStopTriggered(reason)
 
     def _current_node(self, robot_id=None):
         pos = self._db.get_robot_position(robot_id or self._robot_id)
@@ -132,6 +185,7 @@ class SimOrchestratorNode(Node):
         delay = self.get_parameter("move_step_sec").value
         previous = path.waypoints[0]
         for center in path.waypoints[1:]:
+            self._raise_if_emergency_stopped()
             positions = formation_positions(
                 previous, center, robot_count=len(robot_ids))
             self._db.update_robot_positions(
@@ -165,7 +219,10 @@ class SimOrchestratorNode(Node):
         self.get_logger().info(f"[{task_id[:8]}] {state}: {step}")
 
     def _pause(self):
-        time.sleep(self.get_parameter("stage_pause_sec").value)
+        end = time.monotonic() + self.get_parameter("stage_pause_sec").value
+        while time.monotonic() < end:
+            self._raise_if_emergency_stopped()
+            time.sleep(0.05)
 
     def _return_to_dock(self, task_id, robot_ids):
         dock, role = self._nearest_dock(robot_ids[0])
@@ -192,6 +249,39 @@ class SimOrchestratorNode(Node):
     # ---- 액션 콜백 ----
 
     def _execute(self, goal_handle):
+        heartbeat_stale = (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
+        if self._emergency_stop or heartbeat_stale:
+            goal_handle.abort()
+            result = ExecuteParkingTask.Result()
+            result.success = False
+            result.message = (
+                "중앙 안전 상태로 새 작업을 시작할 수 없습니다."
+            )
+            return result
+        # 새 goal만 이전 작업 취소 래치를 해제할 수 있다. 비상정지 뒤
+        # NORMAL이 오더라도 현재 실행 중인 goal은 계속 취소 상태다.
+        self._operation_cancelled = False
+        try:
+            return self._execute_task(goal_handle)
+        except EmergencyStopTriggered as exc:
+            goal = goal_handle.request
+            for robot_id in {
+                goal.leader_robot_id or self._robot_id,
+                goal.follower_robot_id,
+            }:
+                if robot_id:
+                    self._db.update_robot_target(robot_id, None)
+            self._publish_state(goal.task_id, "FAILED", str(exc))
+            goal_handle.abort()
+            result = ExecuteParkingTask.Result()
+            result.success = False
+            result.message = str(exc)
+            return result
+
+    def _execute_task(self, goal_handle):
         goal = goal_handle.request
         task_id, slot_id = goal.task_id, goal.slot_id
         leader_id = goal.leader_robot_id or self._robot_id

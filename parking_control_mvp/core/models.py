@@ -94,7 +94,29 @@ class AlertLevel(str, Enum):
 class AlertCategory(str, Enum):
     OBSTACLE = "OBSTACLE"        # 장애물 감지
     ROBOT_ERROR = "ROBOT_ERROR"  # 로봇 오류
+    EMERGENCY_STOP = "EMERGENCY_STOP"  # 운영자 비상정지
     SYSTEM = "SYSTEM"            # 기타 시스템 이벤트
+
+
+class SafetyStatus(str, Enum):
+    NORMAL = "NORMAL"
+    STOPPED_LATCHED = "STOPPED_LATCHED"
+    READY_FOR_OPERATION = "READY_FOR_OPERATION"
+    UNKNOWN = "UNKNOWN"
+
+
+class SafetyResetRequest(BaseModel):
+    operator_id: str = Field(min_length=1, max_length=64)
+    inspection_note: str = Field(min_length=5, max_length=1000)
+    area_clear: bool
+    robots_stopped: bool
+    load_secured: bool
+    sensors_checked: bool
+
+
+class OperationApprovalRequest(BaseModel):
+    operator_id: str = Field(min_length=1, max_length=64)
+    approval_note: str = Field(min_length=5, max_length=1000)
 
 
 class Alert(BaseModel):

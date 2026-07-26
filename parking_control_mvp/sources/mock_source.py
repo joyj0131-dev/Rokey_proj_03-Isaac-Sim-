@@ -16,12 +16,14 @@ from core.models import (
     Alert,
     AlertCategory,
     AlertLevel,
+    OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
     ParkingSlot,
     RequestStatus,
     RequestType,
     Robot,
+    SafetyResetRequest,
 )
 from core.state_store import StateStore
 
@@ -182,6 +184,11 @@ class MockDataSource(DataSource):
         ]
 
     def reset(self) -> None:
+        if self._emergency_stop_active:
+            raise DataSourceError(
+                "비상정지 상태에서는 화면 초기화를 사용할 수 없습니다. 시스템을 재기동해주세요.",
+                status_code=423,
+            )
         self._load_defaults(clear_counters=True)
 
     # ------------------------------------------------------------------
@@ -194,6 +201,11 @@ class MockDataSource(DataSource):
             raise DataSourceError("차량 번호를 입력해주세요.", status_code=400)
 
         with self.store.lock:
+            if self._emergency_stop_active:
+                raise DataSourceError(
+                    "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
+                    status_code=423,
+                )
             if payload.request_type == RequestType.PARK_IN:
                 already_parked = next(
                     (
@@ -206,7 +218,7 @@ class MockDataSource(DataSource):
                 )
                 if already_parked:
                     raise DataSourceError(
-                        "이미 입고 또는 예약된 차량입니다.", status_code=409
+                        "이미 입차 또는 예약된 차량입니다.", status_code=409
                     )
 
                 slot = next(
@@ -277,6 +289,11 @@ class MockDataSource(DataSource):
     # ------------------------------------------------------------------
     def advance_request(self, request_id: int) -> ParkingRequest:
         with self.store.lock:
+            if self._emergency_stop_active:
+                raise DataSourceError(
+                    "비상정지 상태에서는 작업을 진행할 수 없습니다.",
+                    status_code=423,
+                )
             request = self.store.find_request(request_id)
 
             if request is None:
@@ -461,6 +478,8 @@ class MockDataSource(DataSource):
             advance_ids: list[int] = []
 
             with self.store.lock:
+                if self._emergency_stop_active:
+                    continue
                 for request in self.store.requests:
                     if request.status in TERMINAL_STATUSES:
                         continue
@@ -541,6 +560,114 @@ class MockDataSource(DataSource):
             self.store.alerts.append(alert)
             return alert.model_copy(deep=True)
 
+    def emergency_stop(self) -> int:
+        """Mock 이동을 중단하고 중앙 안전 복구 절차와 같은 상태를 만든다."""
+        with self.store.lock:
+            if self.emergency_stop_active:
+                return sum(
+                    request.status not in TERMINAL_STATUSES
+                    for request in self.store.requests
+                )
+
+            self._emergency_stop_active = True
+            active_requests = [
+                request
+                for request in self.store.requests
+                if request.status not in TERMINAL_STATUSES
+            ]
+            active_count = len(active_requests)
+            for request in active_requests:
+                request.status = RequestStatus.CANCELLED
+                if request.request_type == RequestType.PARK_IN and request.slot_id:
+                    slot = self.store.find_slot(request.slot_id)
+                    if slot and slot.status == "RESERVED":
+                        slot.status = "EMPTY"
+            for robot in self.store.robots:
+                if robot.current_task_id is not None:
+                    robot.current_task_id = None
+                    robot.status = "IDLE"
+            self._safety_state = {
+                "state": "STOPPED_LATCHED",
+                "motion_allowed": False,
+                "stop_epoch": self._safety_state["stop_epoch"] + 1,
+                "reason": "관제 UI 전체 비상정지",
+                "operator_id": "control_ui",
+                "inspection_note": "",
+                "affected_task_ids": [str(request.id) for request in active_requests],
+                "blockers": ["현장 안전 점검 및 관제 해제 승인 필요"],
+                "updated_at": _now(),
+            }
+            self.store.alerts.append(
+                Alert(
+                    id=self.store.next_alert_id(),
+                    level=AlertLevel.ERROR,
+                    category=AlertCategory.EMERGENCY_STOP,
+                    message=(
+                        "운영자가 비상정지를 실행했습니다. "
+                        "장비 점검 후 관제 해제 요청을 진행해주세요."
+                    ),
+                    robot_id=None,
+                    created_at=_now(),
+                )
+            )
+            return active_count
+
+    def request_safety_reset(self, payload: SafetyResetRequest) -> dict:
+        with self.store.lock:
+            if self._safety_state["state"] != "STOPPED_LATCHED":
+                raise DataSourceError(
+                    "현재 상태에서는 안전 해제 요청을 접수할 수 없습니다.",
+                    status_code=409,
+                )
+            checks = {
+                "작업 구역 안전": payload.area_clear,
+                "전체 로봇 정지": payload.robots_stopped,
+                "차량·리프트 상태": payload.load_secured,
+                "센서·통신 상태": payload.sensors_checked,
+            }
+            missing = [label for label, checked in checks.items() if not checked]
+            if missing:
+                raise DataSourceError(
+                    f"확인하지 않은 점검 항목: {', '.join(missing)}",
+                    status_code=409,
+                )
+            self._safety_state.update(
+                state="READY_FOR_OPERATION",
+                motion_allowed=False,
+                operator_id=payload.operator_id.strip(),
+                inspection_note=payload.inspection_note.strip(),
+                blockers=[],
+                updated_at=_now(),
+            )
+            for alert in self.store.alerts:
+                if alert.active and alert.category == AlertCategory.EMERGENCY_STOP:
+                    alert.message = (
+                        "안전 점검이 승인되었습니다. 로봇은 계속 정지 상태이며 "
+                        "별도의 운영 복귀 승인이 필요합니다."
+                    )
+            return self.safety_state
+
+    def approve_operation(self, payload: OperationApprovalRequest) -> dict:
+        with self.store.lock:
+            if self._safety_state["state"] != "READY_FOR_OPERATION":
+                raise DataSourceError(
+                    "안전 점검 승인 후에만 운영 복귀할 수 있습니다.",
+                    status_code=409,
+                )
+            self._safety_state.update(
+                state="NORMAL",
+                motion_allowed=True,
+                operator_id=payload.operator_id.strip(),
+                affected_task_ids=[],
+                blockers=[],
+                updated_at=_now(),
+            )
+            self._emergency_stop_active = False
+            for alert in self.store.alerts:
+                if alert.active and alert.category == AlertCategory.EMERGENCY_STOP:
+                    alert.active = False
+            return self.safety_state
+
     def trigger_robot_error(self) -> Alert:
         """로봇 오류 이벤트를 발생시킨다. 작업 중 로봇 우선, 없으면 첫 정상 로봇."""
         with self.store.lock:
@@ -574,6 +701,11 @@ class MockDataSource(DataSource):
             alert = self.store.find_alert(alert_id)
             if alert is None:
                 raise DataSourceError("알림을 찾을 수 없습니다.", status_code=404)
+            if alert.category == AlertCategory.EMERGENCY_STOP:
+                raise DataSourceError(
+                    "비상정지는 알림 해제로 복구할 수 없습니다. 안전 복구 절차를 진행해주세요.",
+                    status_code=409,
+                )
 
             alert.active = False
 

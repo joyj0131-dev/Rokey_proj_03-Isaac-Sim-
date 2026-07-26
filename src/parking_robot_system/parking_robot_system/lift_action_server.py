@@ -22,10 +22,12 @@ from rclpy.action import ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import SetBool
 
 from parking_robot_interfaces.action import ControlLift
+from parking_robot_interfaces.msg import SafetyState
 
 ARM_SERVICE_WAIT_TIMEOUT = 5.0   # 원본 _call_arms의 wait_for_service(timeout_sec=5.0) 그대로
 ARM_CALL_DEADLINE = 6.0          # 원본 _call_arms의 future 대기 상한(6.0s) 그대로
@@ -53,6 +55,8 @@ class LiftActionServerNode(Node):
         self.declare_parameter("front_id", "entry_follow")
         self.robots = (self.get_parameter("rear_id").value,
                        self.get_parameter("front_id").value)
+        self._motion_allowed = False
+        self._last_safety_state_at = None
 
         grp = ReentrantCallbackGroup()
         self.arm = {r: self.create_client(SetBool, f'/{r}/arm_control', callback_group=grp)
@@ -63,6 +67,14 @@ class LiftActionServerNode(Node):
         self.veh_y = None
         self.create_subscription(
             PoseStamped, '/vehicle/pose', self._veh, 10, callback_group=grp)
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state,
+            safety_qos, callback_group=grp)
 
         self._action_server = ActionServer(
             self, ControlLift, 'control_lift', self._on_control_lift, callback_group=grp)
@@ -72,19 +84,36 @@ class LiftActionServerNode(Node):
     def _veh(self, m):
         self.veh_y = m.pose.position.y
 
+    def _on_safety_state(self, msg):
+        self._motion_allowed = msg.motion_allowed
+        self._last_safety_state_at = time.monotonic()
+
+    def _safety_allows_motion(self):
+        return (
+            self._motion_allowed
+            and self._last_safety_state_at is not None
+            and time.monotonic() - self._last_safety_state_at <= 3.0
+        )
+
     def _wait_lift_complete(self):
         """arm UP 지령 후 /vehicle/pose Y가 실제로 상승·안정될 때까지 대기.
         이게 있어야 orchestrator가 '차가 다 들린 뒤'에 운반을 시작한다(사용자 요구:
         완벽 정렬 → 바퀴 다 리프트 → 그다음 이동). 상승 미검출 시 False(리프트 실패)."""
         t0 = time.monotonic()
-        while self.veh_y is None and time.monotonic() - t0 < 3.0:
+        while (
+            self._safety_allows_motion()
+            and self.veh_y is None
+            and time.monotonic() - t0 < 3.0
+        ):
             time.sleep(0.05)
-        if self.veh_y is None:
+        if not self._safety_allows_motion() or self.veh_y is None:
             return False
         y0 = self.veh_y
         deadline = time.monotonic() + LIFT_WAIT_TIMEOUT
         risen_at = None
         while time.monotonic() < deadline:
+            if not self._safety_allows_motion():
+                return False
             if self.veh_y is not None and (self.veh_y - y0) >= LIFT_RISE_MIN:
                 if risen_at is None:
                     risen_at = time.monotonic()
@@ -129,17 +158,28 @@ class LiftActionServerNode(Node):
         robot_rear/robot_front 양쪽 arm_control(SetBool)에 opening을 비동기 호출.
         두 서비스 모두 기동 확인 + 두 응답 모두 success=True 여야 전체 True.
         """
+        if not self._safety_allows_motion():
+            return False
         for r in self.robots:
             if not self.arm[r].wait_for_service(timeout_sec=ARM_SERVICE_WAIT_TIMEOUT):
                 return False
         futs = [self.arm[r].call_async(SetBool.Request(data=opening)) for r in self.robots]
         deadline = time.monotonic() + ARM_CALL_DEADLINE
         while time.monotonic() < deadline and not all(f.done() for f in futs):
+            if not self._safety_allows_motion():
+                return False
             time.sleep(0.02)
         return all(f.done() and f.result() and f.result().success for f in futs)
 
     def _on_control_lift(self, goal_handle):
         # command: "UP" -> arm_control(True)(파지/지지), 그 외("DOWN" 등) -> arm_control(False)(해제)
+        if not self._safety_allows_motion():
+            result = ControlLift.Result()
+            result.success = False
+            result.support_state = 'SAFETY_STOPPED'
+            goal_handle.abort()
+            return result
+
         opening = goal_handle.request.command == 'UP'
         ok = self._call_arms(opening)
         if ok and opening:

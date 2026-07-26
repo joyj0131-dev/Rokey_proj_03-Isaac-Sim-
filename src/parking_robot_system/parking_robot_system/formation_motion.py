@@ -56,6 +56,8 @@ import time
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from parking_robot_interfaces.msg import FormationStop, SafetyState
 
 from parking_robot_system.formation_driver import (
     CONTROL_HZ, INGRESS_SPEED, K_LIN, K_STRAFE, K_YAW, MAX_LIN, MAX_YAW,
@@ -168,6 +170,13 @@ class FormationMotion:
         self.pose = {r: None for r in self.robots}   # rid -> (x, z, yaw), USD
         self.veh_x = self.veh_y = self.veh_z = None
         self.veh_yaw = None
+        # 중앙 안전 상태를 받기 전에는 fail-safe 정지.
+        self._emergency_stop = True
+        self._last_safety_state_at = None
+        # 비상정지가 한 번이라도 들어온 현재 액션은 운영 복귀 승인 뒤에도
+        # 이어서 실행하면 안 된다. 새 액션 콜백이 begin_operation()을 호출할
+        # 때만 이 래치를 해제한다.
+        self._operation_cancelled = True
         grp = callback_group or ReentrantCallbackGroup()
         for r in self.robots:
             # 토픽 접두사 "/robot_{id}/..."는 isaacpjt/Isaac_envo/parking_v4_runner.py가
@@ -181,6 +190,17 @@ class FormationMotion:
                 lambda m, rid=r: self._odom(rid, m), 10, callback_group=grp)
         node.create_subscription(
             PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
+        node.create_subscription(
+            FormationStop, "/formation_stop", self._on_emergency_stop,
+            10, callback_group=grp)
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        node.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state,
+            safety_qos, callback_group=grp)
         self.cmd = {r: node.create_publisher(Twist, f"/robot_{r}/cmd_vel", 10) for r in self.robots}
 
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
@@ -200,6 +220,67 @@ class FormationMotion:
                 2 * (q.w * q.z + q.x * q.y),
                 1 - 2 * (q.y * q.y + q.z * q.z))
 
+    def _on_emergency_stop(self, msg):
+        """관제탑의 전역 비상정지는 프로세스 재기동 전까지 래치한다."""
+        if msg.stop and msg.source_robot_id == "control_tower":
+            first_stop = not self._emergency_stop
+            self._emergency_stop = True
+            self._operation_cancelled = True
+            if first_stop:
+                self.node.get_logger().error(
+                    f"관제탑 비상정지 수신: {msg.reason or '사유 없음'}"
+                )
+
+    def _on_safety_state(self, msg):
+        """중앙 상태만 정지 래치를 해제할 수 있다.
+
+        READY_FOR_OPERATION도 motion_allowed=False라서 점검 승인만으로
+        로봇이 움직이지 않는다.
+        """
+        was_stopped = self._emergency_stop
+        self._last_safety_state_at = time.monotonic()
+        self._emergency_stop = not msg.motion_allowed
+        if self._emergency_stop:
+            self._operation_cancelled = True
+        if was_stopped != self._emergency_stop:
+            log = (
+                self.node.get_logger().warn
+                if self._emergency_stop
+                else self.node.get_logger().info
+            )
+            log(
+                f"중앙 안전 상태={msg.state}, "
+                f"motion_allowed={msg.motion_allowed}"
+            )
+
+    def _motion_blocked(self):
+        heartbeat_stale = (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
+        return (
+            self._emergency_stop
+            or self._operation_cancelled
+            or heartbeat_stale
+        )
+
+    def begin_operation(self):
+        """새 액션 시작 시에만 이전 작업 취소 래치를 해제한다.
+
+        STOPPED_LATCHED/READY_FOR_OPERATION/heartbeat 두절 상태에서는
+        새 액션 자체를 시작하지 않는다. 이미 실행 중이던 액션은 비상정지로
+        _operation_cancelled=True가 된 뒤 NORMAL이 와도 계속 취소 상태다.
+        """
+        heartbeat_stale = (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
+        if self._emergency_stop or heartbeat_stale:
+            self._operation_cancelled = True
+            return False
+        self._operation_cancelled = False
+        return True
+
     def carry_heading(self):
         """차량 직접 heading을 우선하고, 없으면 로봇 baseline으로 폴백한다."""
         if self.veh_yaw is not None:
@@ -211,6 +292,8 @@ class FormationMotion:
 
     # ---- 발행/정지 헬퍼 (원본 L96-111 그대로) ----
     def _pub(self, rid, vx, vy=0.0, wz=0.0):
+        if self._motion_blocked():
+            vx = vy = wz = 0.0
         t = Twist()
         t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
         self.cmd[rid].publish(t)
@@ -224,16 +307,26 @@ class FormationMotion:
         self._stop_all()
         end = time.time() + secs
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             self._stop_all()
             time.sleep(1.0 / CONTROL_HZ)
+        return True
 
     def wait_data(self, timeout=15.0):
         """두 로봇 odom + 차량 pose 수신 대기(원본 _wait_data, L116-121 그대로)."""
         end = time.time() + timeout
         while time.time() < end and (any(self.pose[r] is None for r in self.robots)
                                      or self.veh_z is None):
+            if self._motion_blocked():
+                return False
             time.sleep(0.1)
-        return all(self.pose[r] is not None for r in self.robots) and self.veh_z is not None
+        return (
+            not self._motion_blocked()
+            and all(self.pose[r] is not None for r in self.robots)
+            and self.veh_z is not None
+        )
 
     # ---- 원본 _omni_step (L123-138), 로직 변경 없음 ----
     def _omni_step(self, rid, tx, tz, tol=POS_TOL):
@@ -251,6 +344,9 @@ class FormationMotion:
         """현재 yaw 유지한 채 world (tx,tz)로 옴니 이동(vx,vy). 회전 없음."""
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             if self._omni_step(rid, tx, tz):
                 break
             time.sleep(1.0 / CONTROL_HZ)
@@ -265,6 +361,9 @@ class FormationMotion:
         idx = {rid: 0 for rid in routes}
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             for rid, wps in routes.items():
                 if idx[rid] >= len(wps):
                     self._pub(rid, 0.0)
@@ -286,6 +385,9 @@ class FormationMotion:
         인플레이스 회전은 롤러 슬립이 커 느리므로 타임아웃 넉넉히."""
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             yaw = self.pose[rid][2]
             e = wrap(target_yaw - yaw)
             if abs(e) < YAW_TOL:
@@ -310,6 +412,9 @@ class FormationMotion:
         cx = self.cx if cx is None else cx
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             x, z, yaw = self.pose[rid]
             if abs(z - target_z) < tol and abs(x - cx) < tol * 2:
                 break
@@ -333,6 +438,9 @@ class FormationMotion:
         done = {rid: False for rid in targets}
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             for rid, target_yaw in targets.items():
                 if done[rid]:
                     self._pub(rid, 0.0)
@@ -426,6 +534,9 @@ class FormationMotion:
         max_heading_error = 0.0
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             ex, ez = tx_usd - self.veh_x, tz_usd - self.veh_z
             heading = self.carry_heading()
             if heading is None:
@@ -541,6 +652,9 @@ class FormationMotion:
         done = {rid: False for rid in targets}
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             for rid, (cx, target_z, face_yaw) in targets.items():
                 if done[rid]:
                     self._pub(rid, 0.0)
@@ -648,6 +762,9 @@ class FormationMotion:
 
         end = time.time() + timeout
         while time.time() < end:
+            if self._motion_blocked():
+                self._stop_all()
+                return False
             rear_p, front_p = self.pose.get(self.rear_id), self.pose.get(self.front_id)
             if rear_p is None or front_p is None:
                 self._stop_all()

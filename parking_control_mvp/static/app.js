@@ -24,15 +24,18 @@ const alertLabels = {
   ERROR: "오류",
   OBSTACLE: "장애물 감지",
   ROBOT_ERROR: "로봇 오류",
+  EMERGENCY_STOP: "비상정지",
+  SENSOR: "센서 연결",
   SYSTEM: "시스템",
 };
 
 const requestTypeLabels = {
-  PARK_IN: "입고",
+  PARK_IN: "입차",
   PARK_OUT: "출차",
 };
 
 const workspaceTabs = ["live", "requests", "tasks"];
+const HIDDEN_SENSOR_ALERTS_STORAGE_KEY = "parking-ui-hidden-sensor-alerts";
 let latestDashboard = null;
 let selectedMapItem = null;
 let pendingFocusRequestId = null;
@@ -43,6 +46,20 @@ let recentWorkflowEvents = [];
 const lastRequestStates = new Map();
 const robotSpeechBubbles = new Map();
 const seenSpeechAlertIds = new Set();
+const hiddenSensorAlertIds = new Set();
+
+try {
+  const storedSensorAlertIds = JSON.parse(
+    window.sessionStorage.getItem(HIDDEN_SENSOR_ALERTS_STORAGE_KEY) || "[]"
+  );
+  if (Array.isArray(storedSensorAlertIds)) {
+    storedSensorAlertIds.forEach((sensorId) =>
+      hiddenSensorAlertIds.add(String(sensorId))
+    );
+  }
+} catch (_error) {
+  // 저장소가 차단된 브라우저에서도 알림 자체는 정상 동작하게 한다.
+}
 
 // 폴링 간격(0.5~2초)보다 로봇 이동이 빨리 끝나면 순간이동처럼 보이므로,
 // 서버가 보낸 좌표는 "목표"로만 쓰고 화면 표시 좌표는 매 프레임 보간한다.
@@ -223,16 +240,59 @@ async function apiRequest(path, options = {}) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.detail || "요청 처리 중 오류가 발생했습니다.");
+    throw new Error(formatApiError(data));
   }
 
   return data;
 }
 
+function formatApiError(data) {
+  const detail = data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+
+  if (Array.isArray(detail)) {
+    const fieldLabels = {
+      operator_id: "관제 담당자 ID",
+      inspection_note: "점검 결과",
+      approval_note: "운영 복귀 사유",
+      area_clear: "작업 구역 안전 확인",
+      robots_stopped: "전체 로봇 정지 확인",
+      load_secured: "차량·리프트 지지 상태 확인",
+      sensors_checked: "센서·통신 상태 확인",
+    };
+    const messages = detail.map((error) => {
+      const field = Array.isArray(error?.loc)
+        ? error.loc[error.loc.length - 1]
+        : null;
+      const label = fieldLabels[field] || "입력 내용";
+      const errorType = String(error?.type || "");
+      const minimum = error?.ctx?.min_length ?? error?.ctx?.limit_value;
+      if (
+        errorType.includes("string_too_short")
+        || errorType.includes("min_length")
+      ) {
+        return `${label}는 최소 ${minimum || 1}자 이상 입력해주세요.`;
+      }
+      if (errorType.includes("missing")) {
+        return `${label}을 입력해주세요.`;
+      }
+      return `${label}을 확인해주세요.`;
+    });
+    return [...new Set(messages)].join("\n");
+  }
+
+  if (detail && typeof detail === "object") {
+    return detail.message || "입력 내용을 확인한 후 다시 요청해주세요.";
+  }
+  return data?.message || "요청 처리 중 오류가 발생했습니다.";
+}
+
 function renderSummary(summary, robots, sensors, system, alerts = [], requests = []) {
   const robotHealthy = robots.filter((robot) => !["ERROR", "OFFLINE"].includes(robot.status)).length;
-  const lidarOnline = sensors.filter((sensor) => sensor.status === "ONLINE").length;
-  const lidarHealthy = system.mode === "mock" ? sensors.length : lidarOnline;
+  const isSensorHealthy = (sensor) => system.mode === "mock"
+    ? ["MOCK", "ONLINE"].includes(sensor.status)
+    : sensor.status === "ONLINE";
+  const lidarHealthy = sensors.filter(isSensorHealthy).length;
   const totalSlots = summary.total_slots;
   const reservedSlots = Math.max(
     0,
@@ -245,7 +305,7 @@ function renderSummary(summary, robots, sensors, system, alerts = [], requests =
     (robot) => ["ERROR", "OFFLINE"].includes(robot.status)
   );
   const unavailableSensors = sensors.filter(
-    (sensor) => system.mode !== "mock" && sensor.status !== "ONLINE"
+    (sensor) => !isSensorHealthy(sensor)
   );
   const hasCriticalAlert = alerts.some((alert) => alert.level === "ERROR");
   const items = [
@@ -285,22 +345,23 @@ function renderSummary(summary, robots, sensors, system, alerts = [], requests =
       icon: "◉",
       label: "센서",
       value: `${lidarHealthy} / ${sensors.length}`,
-      badge: system.mode === "mock"
-        ? "MOCK"
-        : lidarOnline === sensors.length ? "정상" : "연결 필요",
-      detail: system.mode === "mock"
-        ? "LiDAR 테스트 데이터"
-        : unavailableSensors.length
-          ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 연결 끊김`
+      badge: unavailableSensors.length
+        ? "연결 필요"
+        : system.mode === "mock" ? "MOCK" : "정상",
+      detail: unavailableSensors.length
+        ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 연결 끊김`
+        : system.mode === "mock"
+          ? "LiDAR 테스트 데이터"
           : sensors.length ? `LiDAR ${sensors.length}대 정상` : "센서 정보 없음",
-      tone: system.mode === "mock" ? "primary" : lidarOnline === sensors.length ? "success" : "warning",
+      tone: unavailableSensors.length
+        ? "warning"
+        : system.mode === "mock" ? "primary" : "success",
     },
   ];
 
-  const taskAttentionCount = summary.active_requests + alerts.length;
   const taskTabCount = document.getElementById("taskTabCount");
-  taskTabCount.textContent = taskAttentionCount;
-  taskTabCount.title = `진행 작업 ${summary.active_requests}건 · 미해제 경고 ${alerts.length}건`;
+  taskTabCount.textContent = summary.active_requests;
+  taskTabCount.title = `현재 진행 중인 작업 ${summary.active_requests}건`;
   document.getElementById("summaryCards").innerHTML = `
     <div class="status-overview-items">
       ${items
@@ -342,6 +403,11 @@ const LOT_VEHICLE_ZONE_WIDTH = 142;
 const LOT_VEHICLE_ZONE_HEIGHT = 78;
 const LOT_ROBOT_CARD_WIDTH = 92;
 const LOT_ROBOT_CARD_HEIGHT = 88;
+// 실제 map 좌표는 유지하되, 차량 대기 구역(entry/exit_outer)부터
+// 로봇 인계 지점(entry/exit_wait)까지의 긴 외곽 통로만 화면에서 압축한다.
+// 압축 뒤 전체 운용 클러스터를 왼쪽으로 옮겨 좌우 여백을 비슷하게 맞춘다.
+const LOT_EXTERNAL_LANE_COMPRESSION = 0.22;
+const LOT_CLUSTER_X_SHIFT = -150;
 const ROBOT_VISUAL_X_OFFSET = {
   entry_lead: -13,
   entry_follow: 13,
@@ -429,7 +495,27 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
   ];
   if (entrance) fixedPoints.push(entrance);
   const layoutPoints = fixedPoints.length ? fixedPoints : placedRobots;
-  const { sx, sy } = computeLotTransform(layoutPoints);
+  const baseTransform = computeLotTransform(layoutPoints);
+  const externalLaneAnchor = nodes.find(
+    (node) => node.id === "entry_wait"
+  ) || nodes.find((node) => node.id === "exit_wait");
+  const externalLaneAnchorX = externalLaneAnchor?.x;
+  const externalLaneAnchorScreenX = externalLaneAnchor
+    ? baseTransform.sx(externalLaneAnchor.x)
+    : null;
+  const sx = (x) => {
+    const screenX = baseTransform.sx(x);
+    const compressedX = (
+      externalLaneAnchorScreenX != null
+      && externalLaneAnchorX != null
+      && x < externalLaneAnchorX
+    )
+      ? externalLaneAnchorScreenX
+        - (externalLaneAnchorScreenX - screenX) * LOT_EXTERNAL_LANE_COMPRESSION
+      : screenX;
+    return compressedX + LOT_CLUSTER_X_SHIFT;
+  };
+  const sy = baseTransform.sy;
   const parts = [`
     <defs>
       <marker id="arrow-entry" viewBox="0 0 10 10" refX="8" refY="5"
@@ -1006,7 +1092,6 @@ function renderSelectionDetail(dashboard) {
       <span class="detail-kicker">주차면 상세</span>
       <div class="detail-title-row">
         <h3>${slot.id}${slot.is_accessible ? " ♿" : ""}</h3>
-        <span class="badge ${slot.status}">${statusLabels[slot.status]}</span>
       </div>
       <div class="detail-status-summary ${slot.status}">
         <span>현재 주차면 상태</span>
@@ -1036,7 +1121,6 @@ function renderSelectionDetail(dashboard) {
       <span class="detail-kicker">천장 LiDAR 상세</span>
       <div class="detail-title-row">
         <h3>${sensor.id}</h3>
-        <span class="sensor-state ${sensor.status}">${sensorLabel}</span>
       </div>
       <div class="detail-status-summary ${sensor.status}">
         <span>센서 연결 상태</span>
@@ -1086,7 +1170,6 @@ function renderSelectionDetail(dashboard) {
     <span class="detail-kicker">로봇 상세</span>
     <div class="detail-title-row">
       <h3><span class="detail-robot-icon">🤖</span>${shortRobotName(robot.id)}</h3>
-      <span class="badge ${isObstaclePaused ? "PAUSED" : robot.status}">${isObstaclePaused ? "장애물 정지" : robotOperationLabel(robot, currentRequest)}</span>
     </div>
     <div class="detail-status-summary ${isObstaclePaused ? "PAUSED" : robot.status}">
       <span>현재 운영 상태</span>
@@ -1331,7 +1414,7 @@ function renderRequests(requests, system) {
         <div class="empty-state-icon">T</div>
         <strong>등록된 작업 요청이 없습니다.</strong>
         <span>
-          입고 또는 출차 요청을 등록하면<br />
+          입차 또는 출차 요청을 등록하면<br />
           작업 진행 상태가 이곳에 표시됩니다.
         </span>
         ${renderTaskStepper({ status: "WAITING" }, true)}
@@ -1422,18 +1505,123 @@ function renderRequests(requests, system) {
   `;
 }
 
-function renderAlerts(alerts) {
+function sensorConnectionAlerts(sensors, system) {
+  const offlineSensors = sensors.filter((sensor) => {
+      if (system?.mode === "mock") {
+        return !["MOCK", "ONLINE"].includes(sensor.status);
+      }
+      return sensor.status !== "ONLINE";
+    });
+  const offlineSensorIds = new Set(
+    offlineSensors.map((sensor) => String(sensor.id))
+  );
+  let hiddenStateChanged = false;
+
+  // 숨김은 현재 연결 끊김에만 적용한다. 다시 연결된 센서는 숨김을
+  // 자동 해제하여 다음에 새로 끊겼을 때 경고가 다시 나타나게 한다.
+  hiddenSensorAlertIds.forEach((sensorId) => {
+    if (!offlineSensorIds.has(sensorId)) {
+      hiddenSensorAlertIds.delete(sensorId);
+      hiddenStateChanged = true;
+    }
+  });
+  if (hiddenStateChanged) persistHiddenSensorAlerts();
+
+  return offlineSensors
+    .filter((sensor) => !hiddenSensorAlertIds.has(String(sensor.id)))
+    .map((sensor) => {
+      const topic = String(sensor.topic || "").toLowerCase();
+      const sensorType = topic.includes("camera")
+        ? "카메라"
+        : topic.includes("lidar") || topic.includes("point")
+          ? "LiDAR"
+          : "센서";
+      return {
+        id: `sensor-${sensor.id}`,
+        sensor_id: String(sensor.id),
+        level: "WARNING",
+        category: "SENSOR",
+        message: `${sensor.id} ${sensorType} 데이터가 수신되지 않습니다. 센서 연결을 확인해주세요.`,
+        created_at: null,
+        dismissible: true,
+      };
+    });
+}
+
+function persistHiddenSensorAlerts() {
+  try {
+    window.sessionStorage.setItem(
+      HIDDEN_SENSOR_ALERTS_STORAGE_KEY,
+      JSON.stringify([...hiddenSensorAlertIds])
+    );
+  } catch (_error) {
+    // 저장 실패 시에도 현재 페이지에서는 Set 값으로 숨김을 유지한다.
+  }
+}
+
+function hideSensorAlert(sensorId) {
+  hiddenSensorAlertIds.add(String(sensorId));
+  persistHiddenSensorAlerts();
+  renderAlerts(
+    latestDashboard?.alerts || [],
+    latestDashboard?.sensors || [],
+    latestDashboard?.system || null
+  );
+}
+
+function restoreSensorAlerts() {
+  hiddenSensorAlertIds.clear();
+  persistHiddenSensorAlerts();
+  renderAlerts(
+    latestDashboard?.alerts || [],
+    latestDashboard?.sensors || [],
+    latestDashboard?.system || null
+  );
+}
+
+function renderAlerts(alerts, sensors = [], system = null) {
   const panel = document.getElementById("alertPanel");
   const list = document.getElementById("alertList");
+  const sensorAlerts = sensorConnectionAlerts(sensors, system);
+  const hiddenOfflineSensorCount = sensors.filter((sensor) => {
+    const offline = system?.mode === "mock"
+      ? !["MOCK", "ONLINE"].includes(sensor.status)
+      : sensor.status !== "ONLINE";
+    return offline && hiddenSensorAlertIds.has(String(sensor.id));
+  }).length;
+  const restoreButton = document.getElementById("restoreSensorAlertsButton");
+  restoreButton.classList.toggle("hidden", hiddenOfflineSensorCount === 0);
+  restoreButton.textContent = hiddenOfflineSensorCount
+    ? `숨긴 센서 알림 ${hiddenOfflineSensorCount}개 다시 보기`
+    : "숨긴 센서 알림 다시 보기";
 
-  if (!alerts.length) {
+  const safetyConnectionAlerts = system?.safety?.state === "UNKNOWN"
+    ? [{
+        id: "safety-supervisor-unavailable",
+        level: "ERROR",
+        category: "SYSTEM",
+        message: "중앙 안전 관리자 상태를 수신할 수 없습니다. 새 작업과 모션이 차단됩니다.",
+        created_at: null,
+        dismissible: false,
+      }]
+    : [];
+  const visibleAlerts = [
+    ...alerts.map((alert) => ({
+      ...alert,
+      dismissible: alert.category !== "EMERGENCY_STOP",
+    })),
+    ...safetyConnectionAlerts,
+    ...sensorAlerts,
+  ];
+
+  if (!visibleAlerts.length) {
     panel.classList.add("hidden");
     list.innerHTML = "";
     return;
   }
 
   panel.classList.remove("hidden");
-  list.innerHTML = alerts
+  list.innerHTML = visibleAlerts
     .map(
       (alert) => `
         <div class="alert-card ${alert.level}">
@@ -1447,18 +1635,53 @@ function renderAlerts(alerts) {
               </span>
             </div>
             <p class="alert-message">${alert.message}</p>
-            <span class="alert-time">${alert.created_at.replace("T", " ")}</span>
+            <span class="alert-time">${alert.created_at ? alert.created_at.replace("T", " ") : "현재 상태"}</span>
           </div>
-          <button
-            class="secondary-button small"
-            onclick="resolveAlert(${alert.id})"
-          >
-            해제
-          </button>
+          ${alert.category === "EMERGENCY_STOP" &&
+            system?.safety?.state !== "UNKNOWN" ? `
+            <button
+              type="button"
+              class="secondary-button small safety-recovery-button"
+              data-open-safety-recovery
+            >
+              ${system?.safety?.state === "READY_FOR_OPERATION"
+                ? "운영 복귀 승인"
+                : "안전 복구 절차"}
+            </button>
+          ` : alert.category === "SENSOR" && alert.sensor_id ? `
+            <button
+              type="button"
+              class="secondary-button small"
+              data-hide-sensor-alert="${alert.sensor_id}"
+              title="현재 센서 연결 끊김 알림을 숨깁니다."
+            >
+              숨기기
+            </button>
+          ` : alert.dismissible ? `
+            <button
+              class="secondary-button small"
+              onclick="resolveAlert(${alert.id})"
+            >
+              해제
+            </button>
+          ` : `
+            <span class="alert-latched">
+              ${alert.category === "EMERGENCY_STOP" ? "관제 확인 필요" : "자동 복구 대기"}
+            </span>
+          `}
         </div>
       `
     )
     .join("");
+
+  list.querySelectorAll("[data-hide-sensor-alert]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hideSensorAlert(button.dataset.hideSensorAlert);
+    });
+  });
+  list.querySelectorAll("[data-open-safety-recovery]").forEach((button) => {
+    button.addEventListener("click", openSafetyRecoveryDialog);
+  });
 }
 
 function renderSystem(system) {
@@ -1476,7 +1699,17 @@ function renderSystem(system) {
   const unavailableRobots = (latestDashboard?.robots || []).filter(
     (robot) => ["ERROR", "OFFLINE"].includes(robot.status)
   );
-  const warningReason = activeAlerts.find(
+  const safety = system.safety || {
+    state: system.emergency_stop ? "STOPPED_LATCHED" : "NORMAL",
+    motion_allowed: !system.emergency_stop,
+  };
+  const warningReason = safety.state === "READY_FOR_OPERATION"
+    ? "운영 복귀 승인 대기"
+    : safety.state === "UNKNOWN"
+      ? "안전 관리자 확인 필요"
+      : system.emergency_stop
+        ? "비상정지 작동"
+    : activeAlerts.find(
     (alert) => alert.category === "OBSTACLE"
   )
     ? "장애물 감지"
@@ -1502,16 +1735,86 @@ function renderSystem(system) {
     statusText.textContent = "시스템 정상";
   }
 
+  const emergencyButton = document.getElementById("emergencyStopButton");
+  emergencyButton.disabled = Boolean(system.emergency_stop);
+  emergencyButton.classList.toggle("active", Boolean(system.emergency_stop));
+  emergencyButton.innerHTML = system.emergency_stop
+    ? `<span aria-hidden="true">■</span> ${
+        safety.state === "READY_FOR_OPERATION"
+          ? "안전 점검 완료"
+          : "비상정지 작동 중"
+      }`
+    : `<span aria-hidden="true">■</span> 비상정지`;
+
+  document.querySelectorAll("#requestForm input, #requestForm select, #requestForm button")
+    .forEach((control) => {
+      control.disabled = Boolean(system.emergency_stop);
+    });
+
   // 백업은 모드와 무관하게 항상 노출 (서버 호출 없이 현재 화면 데이터만 내려받음).
   document
     .getElementById("resetButton")
     .classList.toggle("hidden", system.mode !== "mock");
+  document.getElementById("resetButton").disabled = Boolean(system.emergency_stop);
   document
     .getElementById("dbResetButton")
     .classList.toggle("hidden", system.mode !== "ros2");
+  document.getElementById("dbResetButton").disabled = Boolean(system.emergency_stop);
   document
     .getElementById("mockVehicleGuide")
     .classList.toggle("hidden", !system.mock_controls);
+
+  renderSafetyRecoveryDialog(system);
+}
+
+function setSafetyRecoveryMessage(message, isError = false) {
+  const box = document.getElementById("safetyRecoveryMessage");
+  box.textContent = message;
+  box.classList.remove("hidden", "error");
+  if (isError) box.classList.add("error");
+}
+
+function renderSafetyRecoveryDialog(system) {
+  const dialog = document.getElementById("safetyRecoveryDialog");
+  if (!dialog || !dialog.open) return;
+
+  const safety = system?.safety || {};
+  const resetForm = document.getElementById("safetyResetForm");
+  const approvalForm = document.getElementById("operationApprovalForm");
+  const stateBox = document.getElementById("safetyRecoveryState");
+  const labels = {
+    STOPPED_LATCHED: "비상정지 · 현장 점검 필요",
+    READY_FOR_OPERATION: "점검 완료 · 운영 복귀 승인 대기",
+    NORMAL: "정상 운영",
+    UNKNOWN: "중앙 안전 상태 확인 중",
+  };
+  stateBox.innerHTML = `
+    <strong>${labels[safety.state] || safety.state || "상태 확인 중"}</strong>
+    <span>정지 세대 #${safety.stop_epoch || 0}</span>
+    ${safety.reason ? `<p>${safety.reason}</p>` : ""}
+    ${(safety.blockers || []).length
+      ? `<ul>${safety.blockers.map((blocker) => `<li>${blocker}</li>`).join("")}</ul>`
+      : ""}
+  `;
+  resetForm.classList.toggle("hidden", safety.state !== "STOPPED_LATCHED");
+  approvalForm.classList.toggle(
+    "hidden", safety.state !== "READY_FOR_OPERATION"
+  );
+  if (
+    safety.state === "READY_FOR_OPERATION" &&
+    !document.getElementById("operationApprovalOperator").value
+  ) {
+    document.getElementById("operationApprovalOperator").value =
+      safety.operator_id || "";
+  }
+}
+
+function openSafetyRecoveryDialog() {
+  const dialog = document.getElementById("safetyRecoveryDialog");
+  document.getElementById("safetyRecoveryMessage").classList.add("hidden");
+  renderSafetyRecoveryDialog(latestDashboard?.system);
+  if (!dialog.open) dialog.showModal();
+  renderSafetyRecoveryDialog(latestDashboard?.system);
 }
 
 function showMessage(message, isError = false) {
@@ -1535,7 +1838,7 @@ function updateLiveStatus(isOnline, system) {
   if (!status) return;
 
   status.classList.remove("hidden");
-  status.classList.remove("pending", "offline");
+  status.classList.remove("pending", "offline", "connected");
   if (!isOnline) {
     status.classList.add("offline");
     status.querySelector("span").textContent = "서버 연결 끊김";
@@ -1548,7 +1851,8 @@ function updateLiveStatus(isOnline, system) {
     return;
   }
 
-  status.querySelector("span").textContent = "실시간 연결 · ROS2 · 방금 수신";
+  status.classList.add("connected");
+  status.querySelector("span").textContent = "관제 데이터 수신 · 방금";
 }
 
 async function refreshDashboard() {
@@ -1599,7 +1903,7 @@ async function refreshDashboard() {
     ensureRobotAnimationLoop();
     renderSelectionDetail(data);
     renderRequests(data.requests, data.system);
-    renderAlerts(data.alerts || []);
+    renderAlerts(data.alerts || [], data.sensors || [], data.system);
     renderRecentEvents(data.alerts || []);
     renderSystem(data.system);
     updateLiveStatus(true, data.system);
@@ -1624,7 +1928,7 @@ async function advanceRequest(requestId) {
 function updateRequestFlow() {
   const isParkIn = document.getElementById("requestType").value === "PARK_IN";
   document.getElementById("requestFlowTitle").textContent = isParkIn
-    ? "입고 요청 처리"
+    ? "입차 요청 처리"
     : "출차 요청 처리";
   document.getElementById("requestFlowStart").textContent = isParkIn
     ? "차량"
@@ -1785,9 +2089,130 @@ async function resolveAlert(alertId) {
   }
 }
 
+async function activateEmergencyStop() {
+  if (latestDashboard?.system?.emergency_stop) return;
+  if (
+    !window.confirm(
+      "전체 로봇을 즉시 정지할까요?\n기존 작업은 중단되며, 현장 점검과 별도의 운영 복귀 승인이 필요합니다."
+    )
+  )
+    return;
+
+  const button = document.getElementById("emergencyStopButton");
+  button.disabled = true;
+  try {
+    const result = await apiRequest("/emergency-stop", { method: "POST" });
+    showMessage(result.message);
+    await refreshDashboard();
+  } catch (error) {
+    button.disabled = false;
+    showMessage(error.message, true);
+  }
+}
+
 document
   .getElementById("lidarVisibilityButton")
   .addEventListener("click", toggleLidarMarkers);
+document
+  .getElementById("emergencyStopButton")
+  .addEventListener("click", activateEmergencyStop);
+document
+  .getElementById("restoreSensorAlertsButton")
+  .addEventListener("click", restoreSensorAlerts);
+
+document
+  .getElementById("closeSafetyRecoveryDialog")
+  .addEventListener("click", () => {
+    document.getElementById("safetyRecoveryDialog").close();
+  });
+
+document
+  .getElementById("safetyResetForm")
+  .addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const safetyChecks = [
+      ["checkAreaClear", "작업 구역에 사람이 없고 안전함"],
+      ["checkRobotsStopped", "전체 로봇 정지 상태"],
+      ["checkLoadSecured", "차량·리프트 지지 상태"],
+      ["checkSensors", "센서·통신 상태 또는 계획된 비활성 상태"],
+    ];
+    const uncheckedChecks = safetyChecks.filter(
+      ([elementId]) => !document.getElementById(elementId).checked
+    );
+    if (uncheckedChecks.length) {
+      setSafetyRecoveryMessage(
+        `해제 요청 전 모든 안전 점검 항목을 확인해주세요.\n${
+          uncheckedChecks
+            .map(([, label]) => `• ${label}`)
+            .join("\n")
+        }`,
+        true
+      );
+      document.getElementById(uncheckedChecks[0][0]).focus();
+      return;
+    }
+
+    const button = event.submitter;
+    button.disabled = true;
+    try {
+      const result = await apiRequest("/safety/reset-request", {
+        method: "POST",
+        body: JSON.stringify({
+          operator_id: document.getElementById("safetyResetOperator").value.trim(),
+          inspection_note: document.getElementById("safetyInspectionNote").value.trim(),
+          area_clear: document.getElementById("checkAreaClear").checked,
+          robots_stopped: document.getElementById("checkRobotsStopped").checked,
+          load_secured: document.getElementById("checkLoadSecured").checked,
+          sensors_checked: document.getElementById("checkSensors").checked,
+        }),
+      });
+      setSafetyRecoveryMessage(result.message);
+      await refreshDashboard();
+    } catch (error) {
+      setSafetyRecoveryMessage(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+document
+  .getElementById("operationApprovalForm")
+  .addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (
+      !window.confirm(
+        "운영 복귀를 승인할까요?\n기존 작업은 재개되지 않으며 새 작업 접수만 허용됩니다."
+      )
+    )
+      return;
+    const button = event.submitter;
+    button.disabled = true;
+    try {
+      const result = await apiRequest("/safety/approve-operation", {
+        method: "POST",
+        body: JSON.stringify({
+          operator_id: document
+            .getElementById("operationApprovalOperator")
+            .value.trim(),
+          approval_note: document
+            .getElementById("operationApprovalNote")
+            .value.trim(),
+        }),
+      });
+      setSafetyRecoveryMessage(result.message);
+      await refreshDashboard();
+      window.setTimeout(() => {
+        const dialog = document.getElementById("safetyRecoveryDialog");
+        if (dialog.open && latestDashboard?.system?.safety?.state === "NORMAL") {
+          dialog.close();
+        }
+      }, 1200);
+    } catch (error) {
+      setSafetyRecoveryMessage(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
 
 window.advanceRequest = advanceRequest;
 window.resolveAlert = resolveAlert;

@@ -24,13 +24,23 @@ from datetime import datetime
 
 import mysql.connector
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 from sensor_msgs.msg import PointCloud2
 
-from parking_robot_interfaces.msg import ObstacleAlert, TaskState
-from parking_robot_interfaces.srv import RequestParkingTask
+from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
+from parking_robot_interfaces.srv import (
+    ActivateEmergencyStop,
+    ApproveOperation,
+    RequestParkingTask,
+    RequestSafetyReset,
+)
 
 from parking_control.core.graph import ParkingMap
 from parking_control.parking_slot_manager_node import _default_map_yaml
@@ -239,7 +249,16 @@ class Ros2DataSource(DataSource):
         self._poll_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._dispatch_client = None
+        self._emergency_stop_client = None
+        self._safety_reset_client = None
+        self._operation_approval_client = None
         self._db: _ParkingDbReader | None = None
+        self._last_safety_state_at: float | None = None
+        self._safety_state.update(
+            state="UNKNOWN",
+            motion_allowed=False,
+            blockers=["중앙 safety_supervisor 상태 수신 대기"],
+        )
 
         self._map_lock = threading.Lock()
         self._task_id_map: dict[str, int] = {}     # external_task_id -> internal id
@@ -270,6 +289,23 @@ class Ros2DataSource(DataSource):
         self._dispatch_client = self._node.create_client(
             RequestParkingTask, config.DISPATCH_SERVICE_NAME
         )
+        self._emergency_stop_client = self._node.create_client(
+            ActivateEmergencyStop, "/safety/activate_emergency_stop"
+        )
+        self._safety_reset_client = self._node.create_client(
+            RequestSafetyReset, "/safety/request_reset"
+        )
+        self._operation_approval_client = self._node.create_client(
+            ApproveOperation, "/safety/approve_operation"
+        )
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._node.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state, safety_qos
+        )
         self._node.create_subscription(
             ObstacleAlert, config.OBSTACLE_ALERT_TOPIC, self._on_obstacle_alert, 10
         )
@@ -286,7 +322,9 @@ class Ros2DataSource(DataSource):
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
-        self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
+        self._spin_thread = threading.Thread(
+            target=self._spin_executor, daemon=True
+        )
         self._spin_thread.start()
 
         self._db = _ParkingDbReader(
@@ -311,6 +349,12 @@ class Ros2DataSource(DataSource):
         self._node.get_logger().info(
             f"parking_control_web_bridge 시작 (dispatch={config.DISPATCH_SERVICE_NAME})"
         )
+
+    def _spin_executor(self) -> None:
+        try:
+            self._executor.spin()
+        except ExternalShutdownException:
+            pass
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -545,6 +589,80 @@ class Ros2DataSource(DataSource):
                     )
                 )
 
+    def _on_safety_state(self, msg: SafetyState) -> None:
+        self._last_safety_state_at = time.monotonic()
+        state = {
+            "state": msg.state,
+            "motion_allowed": msg.motion_allowed,
+            "stop_epoch": int(msg.stop_epoch),
+            "reason": msg.reason,
+            "operator_id": msg.operator_id,
+            "inspection_note": msg.inspection_note,
+            "affected_task_ids": list(msg.affected_task_ids),
+            "blockers": list(msg.blockers),
+            "updated_at": msg.updated_at,
+        }
+        with self.store.lock:
+            self._safety_state = state
+            self._emergency_stop_active = msg.state != "NORMAL"
+            alert = next(
+                (
+                    item
+                    for item in self.store.alerts
+                    if item.category == AlertCategory.EMERGENCY_STOP and item.active
+                ),
+                None,
+            )
+            if msg.state == "NORMAL":
+                if alert is not None:
+                    alert.active = False
+                return
+
+            if msg.state == "READY_FOR_OPERATION":
+                message = (
+                    "안전 점검이 승인되었습니다. 로봇은 계속 정지 상태이며 "
+                    "별도의 운영 복귀 승인이 필요합니다."
+                )
+            elif msg.state == "UNKNOWN":
+                message = "중앙 안전 관리자 상태를 확인할 수 없습니다."
+            else:
+                message = (
+                    "전체 로봇 비상정지가 유지되고 있습니다. "
+                    "현장 점검 후 관제 해제 요청을 진행해주세요."
+                )
+            if alert is None:
+                self.store.alerts.append(
+                    Alert(
+                        id=self.store.next_alert_id(),
+                        level=AlertLevel.ERROR,
+                        category=AlertCategory.EMERGENCY_STOP,
+                        message=message,
+                        robot_id=None,
+                        created_at=_now(),
+                    )
+                )
+            else:
+                alert.message = message
+
+    @property
+    def safety_state(self) -> dict:
+        state = super().safety_state
+        if (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        ):
+            return {
+                **state,
+                "state": "UNKNOWN",
+                "motion_allowed": False,
+                "blockers": ["중앙 safety_supervisor heartbeat가 수신되지 않습니다."],
+            }
+        return state
+
+    @property
+    def emergency_stop_active(self) -> bool:
+        return self.safety_state["state"] != "NORMAL"
+
     # ------------------------------------------------------------------
     # 요청 등록 (FastAPI 워커 스레드에서 호출됨)
     # ------------------------------------------------------------------
@@ -552,6 +670,11 @@ class Ros2DataSource(DataSource):
         vehicle_number = payload.vehicle_number.strip()
         if not vehicle_number:
             raise DataSourceError("차량 번호를 입력해주세요.", status_code=400)
+        if self.emergency_stop_active:
+            raise DataSourceError(
+                "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
+                status_code=423,
+            )
 
         if not self._dispatch_client.wait_for_service(
             timeout_sec=config.DISPATCH_SERVICE_TIMEOUT_SEC
@@ -614,8 +737,107 @@ class Ros2DataSource(DataSource):
         return parking_request
 
     # ------------------------------------------------------------------
-    # mock 전용 제어 — ros2 모드에서는 지원하지 않음
+    # 비상정지 / mock 전용 제어
     # ------------------------------------------------------------------
+    def emergency_stop(self) -> int:
+        """중앙 safety_supervisor에 영속 비상정지를 요청한다."""
+        with self.store.lock:
+            active_requests = [
+                request
+                for request in self.store.requests
+                if request.status not in TERMINAL_STATUSES
+            ]
+            if self.safety_state["state"] in {
+                "STOPPED_LATCHED",
+                "READY_FOR_OPERATION",
+            }:
+                return len(active_requests)
+            task_ids = [
+                request.external_task_id
+                for request in active_requests
+                if request.external_task_id
+            ]
+
+        request = ActivateEmergencyStop.Request(
+            operator_id="control_ui",
+            reason="관제 UI 전체 비상정지",
+            affected_task_ids=task_ids,
+        )
+        response = self._call_safety_service(
+            self._emergency_stop_client,
+            request,
+            "중앙 비상정지",
+        )
+        if not response.accepted:
+            raise DataSourceError(response.message, status_code=409)
+        return len(active_requests)
+
+    def request_safety_reset(self, payload) -> dict:
+        request = RequestSafetyReset.Request(
+            operator_id=payload.operator_id.strip(),
+            inspection_note=payload.inspection_note.strip(),
+            area_clear=payload.area_clear,
+            robots_stopped=payload.robots_stopped,
+            load_secured=payload.load_secured,
+            sensors_checked=payload.sensors_checked,
+        )
+        response = self._call_safety_service(
+            self._safety_reset_client, request, "안전 해제 요청"
+        )
+        if not response.accepted:
+            detail = "; ".join(response.blockers) or response.message
+            raise DataSourceError(detail, status_code=409)
+        return {
+            "state": response.state,
+            "stop_epoch": int(response.stop_epoch),
+            "message": response.message,
+            "blockers": list(response.blockers),
+        }
+
+    def approve_operation(self, payload) -> dict:
+        request = ApproveOperation.Request(
+            operator_id=payload.operator_id.strip(),
+            approval_note=payload.approval_note.strip(),
+        )
+        response = self._call_safety_service(
+            self._operation_approval_client, request, "운영 복귀 승인"
+        )
+        if not response.accepted:
+            detail = "; ".join(response.blockers) or response.message
+            raise DataSourceError(detail, status_code=409)
+        return {
+            "state": response.state,
+            "stop_epoch": int(response.stop_epoch),
+            "message": response.message,
+            "blockers": list(response.blockers),
+        }
+
+    def _call_safety_service(self, client, request, label):
+        if client is None or not client.wait_for_service(
+            timeout_sec=config.DISPATCH_SERVICE_TIMEOUT_SEC
+        ):
+            raise DataSourceError(
+                f"{label} 서비스에 연결할 수 없습니다. safety_supervisor를 확인해주세요.",
+                status_code=503,
+            )
+        done = threading.Event()
+        outcome = {}
+
+        def _on_done(future):
+            outcome["response"] = future.result()
+            outcome["exception"] = future.exception()
+            done.set()
+
+        future = client.call_async(request)
+        future.add_done_callback(_on_done)
+        if not done.wait(timeout=config.DISPATCH_SERVICE_TIMEOUT_SEC):
+            raise DataSourceError(f"{label} 응답 시간 초과", status_code=504)
+        if outcome.get("exception") is not None:
+            raise DataSourceError(
+                f"{label} 호출 오류: {outcome['exception']}", status_code=502
+            )
+        return outcome["response"]
+
     def advance_request(self, request_id: int) -> ParkingRequest:
         raise DataSourceError(
             "ros2 모드에서는 단계를 수동으로 진행할 수 없습니다 (dispatcher가 제어합니다).",
@@ -631,6 +853,11 @@ class Ros2DataSource(DataSource):
     # 위치 보고값이라, 웹에서 임의로 덮어쓰면 실제 위치와 어긋난 값이 남는다.
     # ------------------------------------------------------------------
     def reset_test_environment(self) -> None:
+        if self._emergency_stop_active:
+            raise DataSourceError(
+                "비상정지 상태에서는 DB 초기화를 사용할 수 없습니다. 시스템을 재기동해주세요.",
+                status_code=423,
+            )
         with self.store.lock, self._map_lock:
             # 진행 중인 작업이 있으면 초기화를 거부한다. sim_orchestrator(또는
             # 실제 orchestrator)의 실행은 DB 밖(ROS2 액션)에서 계속 도는 중이라

@@ -82,6 +82,13 @@ class AlignActionServerNode(Node):
         return max(errors)
 
     def _on_align_vehicle(self, goal_handle):
+        if not self.formation.begin_operation():
+            result = AlignVehicle.Result()
+            result.success = False
+            result.final_error = float(self._final_error())
+            goal_handle.abort()
+            return result
+
         # 이 세트가 입차 전용이면 인계지점 픽업(검증된 pickup_sequence), 출차 전용이면
         # 슬롯 픽업(pickup_at_slot) — site_role 파라미터로 고정(2026-07-24, 세트 자체가
         # 이미 입차/출차 전용이라 target_pose 좌표로 추측할 필요가 없다).

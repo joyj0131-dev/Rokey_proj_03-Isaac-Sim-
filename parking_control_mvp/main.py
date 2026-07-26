@@ -15,9 +15,11 @@ import config
 from core.datasource import DataSource, DataSourceError
 from core.models import (
     Alert,
+    OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
     RequestStatus,
+    SafetyResetRequest,
 )
 from core.state_store import StateStore
 from sources.mock_source import MockDataSource
@@ -105,7 +107,9 @@ def get_system():
     snapshot = store.snapshot()
     alerts = snapshot["alerts"]
 
-    has_error = any(alert.level == "ERROR" for alert in alerts)
+    has_error = datasource.emergency_stop_active or any(
+        alert.level == "ERROR" for alert in alerts
+    )
     sensors = datasource.get_sensor_status()
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
@@ -118,6 +122,8 @@ def get_system():
         "mode": config.PARKING_MODE,
         "mock_controls": datasource.supports_mock_controls,
         "mock_auto_advance": datasource.mock_auto_advance,
+        "emergency_stop": datasource.emergency_stop_active,
+        "safety": datasource.safety_state,
         "health": health,
     }
 
@@ -130,7 +136,9 @@ def get_dashboard():
     alerts = snapshot["alerts"]
     sensors = datasource.get_sensor_status()
 
-    has_error = any(alert.level == "ERROR" for alert in alerts)
+    has_error = datasource.emergency_stop_active or any(
+        alert.level == "ERROR" for alert in alerts
+    )
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
         and any(sensor["status"] != "ONLINE" for sensor in sensors)
@@ -157,6 +165,8 @@ def get_dashboard():
             "mode": config.PARKING_MODE,
             "mock_controls": datasource.supports_mock_controls,
             "mock_auto_advance": datasource.mock_auto_advance,
+            "emergency_stop": datasource.emergency_stop_active,
+            "safety": datasource.safety_state,
             "health": (
                 "ERROR" if has_error else "WARNING" if has_warning else "OK"
             ),
@@ -185,6 +195,41 @@ def advance_request(request_id: int):
 def resolve_alert(alert_id: int):
     _handle(datasource.resolve_alert, alert_id)
     return {"message": "알림이 해제되었습니다."}
+
+
+@app.post("/api/emergency-stop")
+def emergency_stop():
+    affected_tasks = _handle(datasource.emergency_stop)
+    return {
+        "message": (
+            "비상정지가 작동했습니다. 현장 점검 후 관제 안전 복구 절차를 진행해주세요."
+        ),
+        "affected_tasks": affected_tasks,
+    }
+
+
+@app.post("/api/safety/reset-request")
+def request_safety_reset(payload: SafetyResetRequest):
+    result = _handle(datasource.request_safety_reset, payload)
+    return {
+        "message": result.get(
+            "message",
+            "점검 결과가 승인되었습니다. 별도의 운영 복귀 승인이 필요합니다.",
+        ),
+        "safety": datasource.safety_state,
+    }
+
+
+@app.post("/api/safety/approve-operation")
+def approve_operation(payload: OperationApprovalRequest):
+    result = _handle(datasource.approve_operation, payload)
+    return {
+        "message": result.get(
+            "message",
+            "운영 복귀가 승인되었습니다. 새 작업 지시를 접수할 수 있습니다.",
+        ),
+        "safety": datasource.safety_state,
+    }
 
 
 # ----------------------------------------------------------------------

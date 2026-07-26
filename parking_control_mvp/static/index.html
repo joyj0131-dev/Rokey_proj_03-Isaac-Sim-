@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260726-v4-visual-hierarchy" />
+  <link rel="stylesheet" href="/static/style.css?v=20260726-v11-clear-errors" />
 </head>
 <body>
   <div class="app-shell">
@@ -16,7 +16,24 @@
         </div>
 
         <div class="header-actions">
+          <button
+            id="emergencyStopButton"
+            type="button"
+            class="emergency-stop-button"
+            title="전체 로봇에 즉시 정지 신호를 보냅니다."
+          >
+            <span aria-hidden="true">■</span>
+            비상정지
+          </button>
           <span id="modeBadge" class="mode-badge">Mock Mode</span>
+          <button
+            id="restoreSensorAlertsButton"
+            type="button"
+            class="restore-sensor-alerts-button hidden"
+            title="숨긴 센서 연결 알림을 다시 표시합니다."
+          >
+            숨긴 센서 알림 다시 보기
+          </button>
           <div id="systemStatus" class="system-status">
             <span class="status-dot"></span>
             <span id="systemStatusText">시스템 정상</span>
@@ -54,6 +71,7 @@
           data-tab="tasks"
         >
           작업·이벤트
+          <span class="tab-count-label">진행 중</span>
           <span id="taskTabCount" class="tab-count">0</span>
         </button>
       </nav>
@@ -62,9 +80,9 @@
         <section id="alertPanel" class="panel alert-panel hidden" aria-live="polite">
           <div class="panel-header">
             <div>
-              <h2>에러 · 장애물 감지</h2>
+              <h2>안전 · 시스템 알림</h2>
               <p class="panel-description">
-                긴급 알림은 어떤 탭을 보고 있어도 항상 표시됩니다.
+                중요 알림은 항상 표시되며, 센서 연결 알림은 필요할 때 숨길 수 있습니다.
               </p>
             </div>
           </div>
@@ -85,7 +103,7 @@
               <div class="live-title-group">
                 <div class="live-site-title">
                   <h2>ROKEY 스마트 주차장 · V4</h2>
-                  <span>주차장 실시간 현황 · 평시 2초 / 작업 중 0.5초 갱신</span>
+                  <span>주차장 실시간 현황 · 화면 조회 평시 2초 / 작업 중 0.25초</span>
                 </div>
                 <div class="legend map-legend" aria-label="주차면 상태 범례">
                   <span><i class="legend-dot empty"></i>빈 공간</span>
@@ -138,7 +156,7 @@
           <article class="panel request-panel request-workspace">
             <div class="panel-header">
               <div>
-                <h2>입고 · 출차 요청</h2>
+                <h2>입차 · 출차 요청</h2>
                 <p class="panel-description">
                   차량 번호를 입력하여 주차 작업을 등록합니다.
                 </p>
@@ -152,7 +170,7 @@
                     <label>
                       <span>요청 유형</span>
                       <select id="requestType">
-                        <option value="PARK_IN">입고 요청</option>
+                        <option value="PARK_IN">입차 요청</option>
                         <option value="PARK_OUT">출차 요청</option>
                       </select>
                     </label>
@@ -184,12 +202,14 @@
                   <i id="requestFlowDirection">→</i>
                   <span id="requestFlowEnd">주차장</span>
                 </div>
-                <h3 id="requestFlowTitle">입고 요청 처리</h3>
+                <h3 id="requestFlowTitle">입차 요청 처리</h3>
                 <ol>
                   <li><i>1</i><span><strong>요청 접수</strong>차량번호 확인</span></li>
                   <li><i>2</i><span><strong>슬롯 배정</strong>가까운 빈 슬롯 선택</span></li>
                   <li><i>3</i><span><strong>로봇 할당</strong>리더·팔로워 편성</span></li>
-                  <li><i>4</i><span><strong>작업 시작</strong>안전 경로로 이동</span></li>
+                  <li><i>4</i><span><strong>차량 접근</strong>차량 하부로 이동</span></li>
+                  <li><i>5</i><span><strong>운반 작업</strong>리프트 후 주차면 이동</span></li>
+                  <li><i>6</i><span><strong>완료·복귀</strong>차량 배치 후 도크 복귀</span></li>
                 </ol>
               </aside>
             </div>
@@ -208,7 +228,7 @@
               <div>
                 <h2>작업 요청 목록</h2>
                 <p class="panel-description">
-                  등록된 입고·출차 작업의 진행 단계와 이벤트를 확인합니다.
+                  등록된 입차·출차 작업의 진행 단계와 이벤트를 확인합니다.
                 </p>
               </div>
 
@@ -248,6 +268,89 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260726-v4-visual-hierarchy"></script>
+  <dialog id="safetyRecoveryDialog" class="safety-recovery-dialog">
+    <div class="safety-dialog-header">
+      <div>
+        <span class="safety-kicker">관제 안전 복구</span>
+        <h2>비상정지 복구 절차</h2>
+        <p id="safetyRecoverySummary">
+          현장 점검과 운영 복귀 승인을 분리하여 진행합니다.
+        </p>
+      </div>
+      <button
+        id="closeSafetyRecoveryDialog"
+        type="button"
+        class="dialog-close-button"
+        aria-label="닫기"
+      >×</button>
+    </div>
+
+    <div id="safetyRecoveryState" class="safety-recovery-state"></div>
+    <div id="safetyRecoveryMessage" class="message-box hidden" aria-live="polite"></div>
+
+    <form id="safetyResetForm" class="safety-step-form">
+      <div class="safety-step-heading">
+        <i>1</i>
+        <div>
+          <strong>현장 점검 · 해제 요청</strong>
+          <span>점검 승인만으로 로봇은 움직이지 않습니다.</span>
+        </div>
+      </div>
+      <label>
+        <span>관제 담당자 ID</span>
+        <input id="safetyResetOperator" type="text" maxlength="64" required />
+      </label>
+      <label>
+        <span>점검 결과</span>
+        <textarea
+          id="safetyInspectionNote"
+          rows="3"
+          minlength="5"
+          maxlength="1000"
+          placeholder="정지 원인과 현장 확인 결과를 입력하세요."
+          required
+        ></textarea>
+      </label>
+      <div class="safety-checklist">
+        <label><input id="checkAreaClear" type="checkbox" /> 작업 구역에 사람이 없고 안전함</label>
+        <label><input id="checkRobotsStopped" type="checkbox" /> 전체 로봇 정지 상태 확인</label>
+        <label><input id="checkLoadSecured" type="checkbox" /> 차량·리프트 지지 상태 확인</label>
+        <label><input id="checkSensors" type="checkbox" /> 센서·통신 상태 확인 또는 계획된 비활성 확인</label>
+      </div>
+      <button type="submit" class="primary-button danger-button">
+        점검 완료 · 해제 요청
+      </button>
+    </form>
+
+    <form id="operationApprovalForm" class="safety-step-form hidden">
+      <div class="safety-step-heading ready">
+        <i>2</i>
+        <div>
+          <strong>운영 복귀 승인</strong>
+          <span>기존 작업은 재개하지 않고 새 작업 접수만 허용합니다.</span>
+        </div>
+      </div>
+      <label>
+        <span>승인 담당자 ID</span>
+        <input id="operationApprovalOperator" type="text" maxlength="64" required />
+      </label>
+      <label>
+        <span>운영 복귀 사유</span>
+        <textarea
+          id="operationApprovalNote"
+          rows="3"
+          minlength="5"
+          maxlength="1000"
+          placeholder="현재 위치 확인 및 새 작업 가능 판단 근거를 입력하세요."
+          required
+        ></textarea>
+      </label>
+      <button type="submit" class="primary-button">
+        운영 복귀 승인
+      </button>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js?v=20260726-v11-clear-errors"></script>
 </body>
 </html>

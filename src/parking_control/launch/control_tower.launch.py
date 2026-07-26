@@ -19,6 +19,7 @@ from launch_ros.actions import Node
 PACKAGE = 'parking_control'
 
 NODE_EXECUTABLES = [
+    'safety_supervisor',
     'parking_slot_manager',
     'task_dispatcher',
     'robot_position_bridge',

@@ -38,12 +38,19 @@ active=false 배정이 다시 와서 idle로 되돌아간다.
     여기도 맞춰 바꿔야 한다.
 """
 
+import time
+
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from parking_robot_interfaces.msg import FormationAssignment, FormationStop
+from parking_robot_interfaces.msg import (
+    FormationAssignment,
+    FormationStop,
+    SafetyState,
+)
 
 from parking_control.core.formation_costop import is_stale, should_stop
 from parking_control.core.gap_hold_controller import (
@@ -101,6 +108,8 @@ class FormationGapControllerNode(Node):
         self._peer_requested_stop = False
         self._self_fault = False   # TODO: 실제 하드웨어 이상 감지 연결
         self._was_stopped = False  # 정지 전환 시점만 로그로 남기기 위한 상태
+        self._safety_motion_allowed = False
+        self._last_safety_state_at = None
 
         self._cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self._stop_pub = self.create_publisher(FormationStop, "formation_stop", 10)
@@ -109,6 +118,13 @@ class FormationGapControllerNode(Node):
             FormationStop, "formation_stop", self._on_formation_stop, 10)
         self.create_subscription(
             FormationAssignment, "formation_assignment", self._on_assignment, 10)
+        safety_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            SafetyState, "/safety/state", self._on_safety_state, safety_qos)
 
         rate = float(p("control_rate_hz").value)
         self.create_timer(1.0 / rate, self._on_tick)
@@ -170,6 +186,10 @@ class FormationGapControllerNode(Node):
             self.get_logger().warn(
                 f"파트너({msg.source_robot_id})가 공동 정지 요청: {msg.reason}")
 
+    def _on_safety_state(self, msg):
+        self._safety_motion_allowed = msg.motion_allowed
+        self._last_safety_state_at = time.monotonic()
+
     # ---- 제어 루프 ----
 
     def _now_sec(self):
@@ -181,11 +201,21 @@ class FormationGapControllerNode(Node):
 
         now = self._now_sec()
         peer_stale = is_stale(now, self._last_partner_odom_at, self._watchdog_timeout)
-        stop_now = should_stop(self._self_fault, peer_stale, self._peer_requested_stop)
+        safety_heartbeat_stale = (
+            self._last_safety_state_at is None
+            or time.monotonic() - self._last_safety_state_at > 3.0
+        )
+        stop_now = (
+            not self._safety_motion_allowed
+            or safety_heartbeat_stale
+            or should_stop(self._self_fault, peer_stale, self._peer_requested_stop)
+        )
 
         if stop_now:
             self._cmd_pub.publish(Twist())   # 전부 0 — 즉시 정지
-            reason = ("파트너 신호 두절" if peer_stale else
+            reason = ("중앙 안전 heartbeat 두절" if safety_heartbeat_stale else
+                      "중앙 안전 정지" if not self._safety_motion_allowed else
+                      "파트너 신호 두절" if peer_stale else
                       "파트너 정지 요청" if self._peer_requested_stop else
                       "자기 이상 감지")
             self._stop_pub.publish(FormationStop(

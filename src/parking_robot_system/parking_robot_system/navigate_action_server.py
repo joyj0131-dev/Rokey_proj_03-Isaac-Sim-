@@ -85,6 +85,13 @@ class NavigateActionServerNode(Node):
         goal = goal_handle.request
         mode = goal.behavior_tree
 
+        if not self.formation.begin_operation():
+            self.get_logger().warn(
+                "navigate_to_pose: 중앙 안전 정지 또는 이전 작업 취소 래치"
+            )
+            goal_handle.abort()
+            return NavigateToPose.Result()
+
         if not self.formation.wait_data():
             self.get_logger().warn('navigate_to_pose: 데이터 미수신(odom/vehicle pose)')
             goal_handle.abort()
