@@ -161,6 +161,33 @@ def _navigate_goal(clock, x, z, yaw_deg):
     return goal
 
 
+class _AutoRequest:
+    """auto_start 자율실행용 최소 request 대역(ExecuteParkingTask.Goal 필드만)."""
+    def __init__(self, leader, follower, task_id):
+        self.leader_robot_id = leader
+        self.follower_robot_id = follower
+        self.task_id = task_id
+
+
+class _AutoGoalHandle:
+    """auto_start 자율실행이 ``_on_execute_parking_task`` 를 **그대로 재사용**하게
+    하는 최소 goal_handle 대역. 액션 서버 goal 없이도 같은 안무 코드를 돌린다 —
+    피드백은 로그로, abort/succeed 는 무시(자율 실행이라 액션 결과 대상이 없음).
+    """
+    def __init__(self, request, logger):
+        self.request = request
+        self._logger = logger
+
+    def publish_feedback(self, fb):
+        self._logger.info(f'[auto] {fb.current_step} progress={fb.progress:.2f}')
+
+    def abort(self):
+        pass
+
+    def succeed(self):
+        pass
+
+
 class PickupOrchestratorNode(Node):
 
     def __init__(self):
@@ -291,6 +318,26 @@ class PickupOrchestratorNode(Node):
             f'pickup_orchestrator_node 시작: action={self.action_name} '
             f'approach=(x={self.approach_x},z={self.approach_z},yaw={self.approach_yaw_deg}) '
             f'leader_trough={self.leader_trough_index} follower_trough={self.follower_trough_index}')
+
+        # 자율 실행: auto_start=true 면 노드 기동 후 auto_delay_sec 뒤에 스스로
+        # 미션(ExecuteParkingTask 안무)을 실행한다 — 외부 트리거(스모크 스크립트)
+        # 없이 launch 만으로 전체 미션이 돈다. 하위 노드/토픽 디스커버리 여유를 위해
+        # 딜레이를 둔다. 1회성 타이머.
+        self.declare_parameter('auto_start', False)
+        self.declare_parameter('auto_leader', 'entry_lead')
+        self.declare_parameter('auto_follower', 'entry_follow')
+        self.declare_parameter('auto_task_id', 'AUTO')
+        self.declare_parameter('auto_delay_sec', 25.0)
+        if bool(self.get_parameter('auto_start').value):
+            self._auto_leader = self.get_parameter('auto_leader').value
+            self._auto_follower = self.get_parameter('auto_follower').value
+            self._auto_task_id = self.get_parameter('auto_task_id').value
+            delay = float(self.get_parameter('auto_delay_sec').value)
+            self.get_logger().info(
+                f'auto_start=true: {delay:.0f}s 뒤 자율 미션 실행 '
+                f'(leader={self._auto_leader} follower={self._auto_follower})')
+            self._auto_timer = self.create_timer(
+                delay, self._auto_run, callback_group=self._cbg)
 
     # ---- 액션 클라이언트 지연 생성/캐시(로봇 id 는 goal 로 런타임에 옴) ----
 
@@ -580,6 +627,18 @@ class PickupOrchestratorNode(Node):
             pass
 
     # ---- 상태머신 실행부 ----
+
+    def _auto_run(self):
+        """auto_start 타이머 콜백(1회성): 외부 goal 없이 스스로 안무를 실행한다.
+        ``_AutoGoalHandle`` 로 액션 콜백 본체(``_on_execute_parking_task``)를 그대로
+        재사용한다 — 자율 실행과 액션 실행이 완전히 같은 안무 코드를 탄다."""
+        self._auto_timer.cancel()  # 1회만 실행
+        self.get_logger().info('auto_start: 자율 미션 시작')
+        req = _AutoRequest(self._auto_leader, self._auto_follower, self._auto_task_id)
+        handle = _AutoGoalHandle(req, self.get_logger())
+        result = self._on_execute_parking_task(handle)
+        self.get_logger().info(
+            f'auto_start: 미션 종료 success={result.success} message={result.message}')
 
     def _on_execute_parking_task(self, goal_handle):
         goal = goal_handle.request
