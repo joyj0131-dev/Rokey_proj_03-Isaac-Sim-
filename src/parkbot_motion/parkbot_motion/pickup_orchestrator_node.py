@@ -623,6 +623,22 @@ class PickupOrchestratorNode(Node):
                     return ExecuteParkingTask.Result(success=False, message=reason)
                 idx += len(phase_b_robot_phases(is_leader))
                 self.get_logger().info(f'Phase B 레그 완료: robot={rid}')
+
+            # Phase B 종료 후 픽업 진입 전: 두 로봇 localizer 의 마커 보정을 끈다
+            # (ref_ids 를 무매칭값 [-1] 로 -> filter_detections_by_ref 가 아무 마커도
+            # 통과 안 시킴 -> 순수 오도예측). 이유(라이브 실측): 픽업 approach 는
+            # 90° 회전을 포함하는데, 회전 중 전방캠이 XN 을 극단 각도로 봐(로봇 x
+            # 추정이 GT 대비 ~0.5m 편차) 위치전용 보정이 융합자세를 오염시켜 수렴이
+            # 깨진다(R3c "회전 중 마커오염" 재발). 마커를 끄면 융합자세는 정확한
+            # Phase B 종단(직전 XN 보정)에서 순수 오도예측만 하고(짧은 XN→베이
+            # 경로라 드리프트 작음), 최종 정밀은 뎁스 축검출이 맡는다 —
+            # axle_detector/ingress 가 같은 융합프레임을 써서 검출축 기준 상대정지라
+            # 절대 드리프트가 상쇄된다.
+            for rid in (leader_id, follower_id):
+                node = ((self.phase_b_leader_localizer_node if rid == leader_id
+                         else self.phase_b_follower_localizer_node)
+                        or f'/robot_{rid}/marker_localizer_node')
+                self._set_localizer_ref(node, [-1], False, f'pickup-marker-off[{rid}]')
         for step in plan:
             phase, robot_id, trough_index = step
             step_label = f'{phase.upper()}_{robot_id}'
