@@ -133,3 +133,34 @@ class Alert(BaseModel):
     location_y: float | None = None
     created_at: str
     active: bool = True
+
+
+class SafetyIncidentEvent(BaseModel):
+    """하나의 안전 사건 안에서 발생한 순차 조치."""
+
+    stage: Literal[
+        "DETECTED",
+        "ROBOTS_STOPPED",
+        "TASK_PAUSED",
+        "OBSTACLE_CLEARED",
+        "OPERATION_RESUMED",
+    ]
+    message: str
+    created_at: str
+
+
+class SafetyIncident(BaseModel):
+    """장애물 감지부터 자동 재개까지 추적하는 관제 안전 사건."""
+
+    id: int
+    alert_id: int
+    status: Literal["MONITORING", "SAFETY_STOPPED", "RECOVERED"]
+    sensor_id: str | None = None
+    zone_id: str | None = None
+    location_x: float | None = None
+    location_y: float | None = None
+    affected_robot_ids: list[str] = Field(default_factory=list)
+    affected_request_ids: list[int] = Field(default_factory=list)
+    detected_at: str
+    resolved_at: str | None = None
+    events: list[SafetyIncidentEvent] = Field(default_factory=list)

@@ -289,6 +289,31 @@ function requestOperationalStatusLabel(request, alerts = []) {
     : requestStatusLabel(request);
 }
 
+function requestMapStageLabel(request) {
+  const labels = {
+    WAITING: "요청 대기",
+    ROBOT_ASSIGNED: "출발 준비",
+    APPROACHING: "차량 접근 중",
+    LIFTING: "차량 인양 중",
+    MOVING_TO_SLOT: `${request.slot_id || "주차면"} 이동 중`,
+    RETURNING: "대기 구역 복귀 중",
+  };
+  return labels[request.status] || requestStatusLabel(request);
+}
+
+function slotTaskMapLabel(request) {
+  if (["WAITING", "ROBOT_ASSIGNED", "APPROACHING", "LIFTING"].includes(request.status)) {
+    return `${requestTypeLabels[request.request_type]} 대상`;
+  }
+  if (request.status === "MOVING_TO_SLOT") {
+    return `${requestTypeLabels[request.request_type]} 이동 중`;
+  }
+  if (request.status === "RETURNING") {
+    return request.request_type === "PARK_IN" ? "주차 완료" : "출차 완료";
+  }
+  return statusLabels[request.status] || "작업 대상";
+}
+
 function activateWorkspaceTab(tabName, focus = false) {
   const selectedTab = workspaceTabs.includes(tabName) ? tabName : "live";
 
@@ -428,12 +453,12 @@ function renderSummary(summary, robots, sensors, system, alerts = [], requests =
   const items = [
     {
       icon: "P",
-      label: "주차 현황",
+      label: "가용 주차면",
       value: `${summary.empty_slots} / ${totalSlots}`,
-      badge: "사용 가능",
+      badge: summary.empty_slots > 0 ? "사용 가능" : "만차",
       detail: `점유 ${summary.occupied_slots} · 예약 ${reservedSlots}`,
       progress: totalSlots ? (summary.empty_slots / totalSlots) * 100 : 0,
-      tone: "success",
+      tone: summary.empty_slots > 0 ? "success" : "warning",
     },
     {
       icon: "▤",
@@ -584,7 +609,15 @@ function robotMapSubtitle(robot, requests, isPaused = false) {
   return stageLabels[request.status] || `${request.slot_id || "주차면"} 작업`;
 }
 
-function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], alerts = []) {
+function renderLotMap(
+  slots,
+  robots,
+  mapInfo,
+  sensorStatus = [],
+  requests = [],
+  alerts = [],
+  safetyIncidents = []
+) {
   const svg = document.getElementById("lotMap");
   const emptyMessage = document.getElementById("lotMapEmpty");
 
@@ -749,22 +782,29 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
       if (targetSlot) {
         const targetNodeId = `${activeRouteRole}_${targetSlot.id.toLowerCase()}`;
         let activePath = null;
+        let completedPath = null;
         if (
           activeRouteRole === "entry"
-          && ["ROBOT_ASSIGNED", "APPROACHING"].includes(activeMapRequest.status)
+          && activeMapRequest.status === "APPROACHING"
         ) {
           activePath = pathForRoute(["entry_outer", "entry_gate", "entry_wait"]);
         } else if (
           activeRouteRole === "entry"
           && activeMapRequest.status === "MOVING_TO_SLOT"
         ) {
+          completedPath = pathForRoute(["entry_outer", "entry_gate", "entry_wait"]);
           activePath = pathForRoute(
             ["entry_wait", "crossing_entry", targetNodeId],
             [sx(targetSlot.x), sy(targetSlot.y) + LOT_SLOT_HEIGHT / 2]
           );
         } else if (
+          activeRouteRole === "entry"
+          && ["LIFTING", "RETURNING"].includes(activeMapRequest.status)
+        ) {
+          completedPath = pathForRoute(["entry_outer", "entry_gate", "entry_wait"]);
+        } else if (
           activeRouteRole === "exit"
-          && ["ROBOT_ASSIGNED", "APPROACHING", "LIFTING"].includes(activeMapRequest.status)
+          && ["APPROACHING", "LIFTING"].includes(activeMapRequest.status)
         ) {
           activePath = pathForRoute(
             [targetNodeId],
@@ -780,6 +820,20 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
             null,
             [sx(targetSlot.x), sy(targetSlot.y) - LOT_SLOT_HEIGHT / 2]
           );
+        } else if (
+          activeRouteRole === "exit"
+          && activeMapRequest.status === "RETURNING"
+        ) {
+          completedPath = pathForRoute(
+            [targetNodeId, "crossing_exit", "exit_wait", "exit_gate", "exit_outer"],
+            null,
+            [sx(targetSlot.x), sy(targetSlot.y) - LOT_SLOT_HEIGHT / 2]
+          );
+        }
+        if (completedPath) {
+          parts.push(`
+            <path class="lot-route-completed" d="${completedPath}"></path>
+          `);
         }
         if (activePath) {
           parts.push(`
@@ -947,8 +1001,13 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
         ${slot.id}${slot.is_accessible ? " ♿" : ""}
       </text>
       <text class="lot-slot-sub" x="${cx}" y="${hasVehicle ? cy + 26 : cy + 14}">
-        ${slotRequest ? `${statusLabels[slot.status]} · 작업 중` : statusLabels[slot.status]}
+        ${slotRequest ? slotTaskMapLabel(slotRequest) : statusLabels[slot.status]}
       </text>
+      ${slotRequest ? `
+        <text class="lot-slot-task-meta" x="${cx}" y="${hasVehicle ? cy + 42 : cy + 31}">
+          차량 ${slotRequest.vehicle_number}
+        </text>
+      ` : ""}
       </g>
     `);
   }
@@ -965,9 +1024,12 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
     const cy = sy(Number(alert.location_y));
     const isSelected = selectedMapItem?.type === "obstacle"
       && String(selectedMapItem.id) === String(alert.id);
-    const markerLabel = alert.sensor_id
-      ? `장애물 · ${alert.sensor_id}`
-      : "감지 장애물";
+    const incident = safetyIncidents.find(
+      (item) => String(item.alert_id) === String(alert.id)
+    );
+    const markerLabel = incident
+      ? `${formatSafetyIncidentId(incident.id)} · ${alert.sensor_id || "장애물"}`
+      : alert.sensor_id ? `장애물 · ${alert.sensor_id}` : "감지 장애물";
     parts.push(`
       <g class="lot-selectable lot-obstacle-marker ${isSelected ? "selected" : ""}"
         role="button" tabindex="0" data-entity-type="obstacle"
@@ -1016,7 +1078,7 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
       ? `${request.request_type === "PARK_IN" ? "입차" : "출차"}팀 대기`
       : gap > 3
         ? `${teamLabel} · 간격 조정`
-        : `${teamLabel} · ${requestOperationalStatusLabel(request, alerts)}`;
+        : `${teamLabel} · ${requestMapStageLabel(request)}`;
     const labelWidth = Math.max(88, Math.min(132, formationLabel.length * 8 + 18));
     parts.push(`
       <g class="lot-formation ${formationTone}" aria-label="${formationLabel}">
@@ -1074,10 +1136,10 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
           role="button" tabindex="0" data-entity-type="robot" data-entity-id="${robot.id}"
           aria-label="${shortRobotName(robot.id)} ${statusText}">
           <circle class="lot-robot-compact-bg ${visualStatus} ${isSelected ? "selected" : ""}"
-            cx="${cx}" cy="${cy}" r="25"></circle>
+            cx="${cx}" cy="${cy}" r="27"></circle>
           <text class="lot-robot-compact-icon" x="${cx}" y="${cy + 2}" aria-hidden="true">🤖</text>
-          <circle class="lot-robot-compact-role-bg" cx="${cx + 19}" cy="${cy - 19}" r="10"></circle>
-          <text class="lot-robot-compact-role" x="${cx + 19}" y="${cy - 15}">${roleLetter}</text>
+          <circle class="lot-robot-compact-role-bg" cx="${cx + 20}" cy="${cy - 20}" r="8"></circle>
+          <text class="lot-robot-compact-role" x="${cx + 20}" y="${cy - 17}">${roleLetter}</text>
         </g>
       `);
       continue;
@@ -1184,7 +1246,8 @@ function renderLatestLotMap() {
     latestDashboard.map,
     latestDashboard.sensors || [],
     latestDashboard.requests || [],
-    latestDashboard.alerts || []
+    latestDashboard.alerts || [],
+    latestDashboard.safety_incidents || []
   );
 }
 
@@ -1319,6 +1382,37 @@ function obstacleZoneLabel(zoneId) {
   return zoneId;
 }
 
+function formatSafetyIncidentId(incidentId) {
+  return `SI-${String(incidentId).padStart(4, "0")}`;
+}
+
+function safetyIncidentForAlert(alertId, dashboard = latestDashboard) {
+  return (dashboard?.safety_incidents || []).find(
+    (incident) => String(incident.alert_id) === String(alertId)
+  ) || null;
+}
+
+function incidentEventStageLabel(stage) {
+  const labels = {
+    DETECTED: "장애물 감지",
+    ROBOTS_STOPPED: "영향 로봇 정지",
+    TASK_PAUSED: "관련 작업 안전정지",
+    OBSTACLE_CLEARED: "장애물 해소",
+    OPERATION_RESUMED: "작업 자동 재개",
+  };
+  return labels[stage] || stage;
+}
+
+function incidentEventStageOrder(stage) {
+  return [
+    "DETECTED",
+    "ROBOTS_STOPPED",
+    "TASK_PAUSED",
+    "OBSTACLE_CLEARED",
+    "OPERATION_RESUMED",
+  ].indexOf(stage);
+}
+
 function renderSelectionDetail(dashboard) {
   const detail = document.getElementById("selectionDetail");
   const slots = dashboard?.slots || [];
@@ -1344,6 +1438,10 @@ function renderSelectionDetail(dashboard) {
       return;
     }
     const requestObstacle = obstacleForRequest(request, dashboard.alerts || []);
+    const requestIncident = (dashboard.safety_incidents || []).find(
+      (incident) => incident.status !== "RECOVERED"
+        && incident.affected_request_ids.includes(request.id)
+    );
     const assignedIds = assignedRobotIds(request);
     const assignedRobots = assignedIds
       .map((robotId) => robots.find((robot) => robot.id === robotId))
@@ -1358,7 +1456,9 @@ function renderSelectionDetail(dashboard) {
       return sensor.status !== "ONLINE";
     });
     const safetyLabel = requestObstacle
-      ? `${obstacleZoneLabel(requestObstacle.zone_id)} 장애물 대기`
+      ? `${
+          requestIncident ? `${formatSafetyIncidentId(requestIncident.id)} · ` : ""
+        }${obstacleZoneLabel(requestObstacle.zone_id)} 장애물 대기`
       : unavailableSensors.length
         ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 미수신 · 안전 감지 제한 운용`
         : "정상";
@@ -1367,6 +1467,7 @@ function renderSelectionDetail(dashboard) {
       : formationGap != null && formationGap > 3
         ? `간격 조정 필요 · ${formationGap.toFixed(1)} m`
         : "정상";
+    const stageSummary = requestStepSummary(request);
     detail.innerHTML = `
       <span class="detail-kicker">현재 작업 상세</span>
       <div class="detail-title-row">
@@ -1374,17 +1475,26 @@ function renderSelectionDetail(dashboard) {
       </div>
       <div class="detail-status-summary ${requestObstacle ? "PAUSED" : "BUSY"}">
         <span>현재 단계</span>
-        <strong>${requestOperationalStatusLabel(request, dashboard.alerts || [])}</strong>
-        <small>${requestObstacle ? "장애물 해소 후 자동 재개" : `경과 ${formatElapsed(request.created_at)}`}</small>
+        <strong>${
+          requestObstacle
+            ? "장애물 대기"
+            : `${stageSummary.number}. ${stageSummary.current}`
+        }</strong>
+        <small>${
+          requestObstacle
+            ? `${stageSummary.number}. ${stageSummary.current}에서 정지 · 해소 후 자동 재개`
+            : stageSummary.next
+              ? `다음 단계 · ${stageSummary.next}`
+              : "마지막 단계"
+        }</small>
       </div>
-      <div class="robot-task-progress task-detail-progress">
-        ${renderTaskStepper(request, true)}
-      </div>
-      <dl class="detail-list robot-detail-list">
+      <dl class="detail-list robot-detail-list task-detail-grid">
         <div><dt>차량 번호</dt><dd>${request.vehicle_number}</dd></div>
         <div><dt>목표 주차면</dt><dd>${request.slot_id || "배정 중"}</dd></div>
         <div><dt>담당 로봇</dt><dd>${assignedIds.length ? assignedRobotTableLabel(request) : "배정 중"}</dd></div>
         <div><dt>경과 시간</dt><dd>${formatElapsed(request.created_at)}</dd></div>
+      </dl>
+      <dl class="detail-list task-health-list">
         <div><dt>협동 상태</dt><dd><span class="detail-state ${
           formationGap != null && formationGap > 3 ? "warning" : "normal"
         }">● ${cooperationLabel}</span></dd></div>
@@ -1463,38 +1573,94 @@ function renderSelectionDetail(dashboard) {
   }
 
   if (selectedMapItem.type === "obstacle") {
-    const alert = (dashboard.alerts || []).find(
+    let alert = (dashboard.alerts || []).find(
       (item) => item.category === "OBSTACLE"
         && String(item.id) === String(selectedMapItem.id)
     );
-    if (!alert) {
+    const incident = safetyIncidentForAlert(selectedMapItem.id, dashboard);
+    if (!alert && !incident) {
       selectedMapItem = null;
       renderSelectionDetail(dashboard);
       return;
     }
-    const affectedRobots = affectedRobotsForObstacle(alert, robots);
+    if (!alert) {
+      alert = {
+        id: incident.alert_id,
+        category: "OBSTACLE",
+        message: "장애물이 해소되어 정상 운용을 재개했습니다.",
+        sensor_id: incident.sensor_id,
+        zone_id: incident.zone_id,
+        location_x: incident.location_x,
+        location_y: incident.location_y,
+        created_at: incident.detected_at,
+      };
+    }
+    const affectedRobots = incident
+      ? robots.filter((robot) => incident.affected_robot_ids.includes(robot.id))
+      : affectedRobotsForObstacle(alert, robots);
     const affectedIds = new Set(affectedRobots.map((robot) => robot.id));
     const relatedRequest = (dashboard.requests || []).find(
-      (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
-        && assignedRobotIds(request).some((robotId) => affectedIds.has(robotId))
+      (request) => incident
+        ? incident.affected_request_ids.includes(request.id)
+        : !["COMPLETED", "CANCELLED"].includes(request.status)
+          && assignedRobotIds(request).some((robotId) => affectedIds.has(robotId))
     );
     const coordinateLabel = alert.location_x == null || alert.location_y == null
       ? "위치 정보 없음"
       : `x ${Number(alert.location_x).toFixed(2)} · y ${Number(alert.location_y).toFixed(2)} m`;
     detail.innerHTML = `
-      <span class="detail-kicker danger">LiDAR 안전 감지</span>
+      <span class="detail-kicker ${
+        incident?.status === "RECOVERED" ? "recovered" : "danger"
+      }">${
+        incident
+          ? `안전 사건 ${formatSafetyIncidentId(incident.id)}`
+          : "LiDAR 안전 감지"
+      }</span>
       <div class="detail-title-row">
-        <h3><span class="detail-danger-icon">!</span>감지 장애물</h3>
+        <h3><span class="detail-danger-icon ${
+          incident?.status === "RECOVERED" ? "recovered" : ""
+        }">${incident?.status === "RECOVERED" ? "✓" : "!"}</span>${
+          incident?.status === "RECOVERED" ? "안전 사건 복구 완료" : "장애물 안전정지"
+        }</h3>
       </div>
-      <div class="detail-status-summary PAUSED">
+      <div class="detail-status-summary ${incident?.status === "RECOVERED" ? "ONLINE" : "PAUSED"}">
         <span>현재 안전 조치</span>
         <strong>${
-          affectedRobots.length
+          incident?.status === "RECOVERED"
+            ? "정상 운용 재개"
+            : affectedRobots.length
             ? "영향 로봇 일시 정지"
             : "해당 통로 신규 진입 차단"
         }</strong>
-        <small>${alert.message}</small>
+        <small>${
+          incident?.status === "RECOVERED"
+            ? `${formatDateTime(incident.resolved_at)} 복구`
+            : alert.message
+        }</small>
       </div>
+      ${incident ? `
+        <ol class="safety-incident-timeline" aria-label="안전 사건 처리 과정">
+          ${incident.events.map((event) => `
+            <li class="done ${event.stage}">
+              <i>${event.stage === "OPERATION_RESUMED" ? "✓" : "•"}</i>
+              <div>
+                <strong>${incidentEventStageLabel(event.stage)}</strong>
+                <span>${event.message}</span>
+                <time>${formatEventTime(event.created_at)}</time>
+              </div>
+            </li>
+          `).join("")}
+          ${incident.status !== "RECOVERED" ? `
+            <li class="pending">
+              <i>4</i>
+              <div>
+                <strong>해소·자동 재개 대기</strong>
+                <span>센서 해소 프레임 수신 후 자동으로 재개합니다.</span>
+              </div>
+            </li>
+          ` : ""}
+        </ol>
+      ` : ""}
       <dl class="detail-list">
         <div><dt>감지 센서</dt><dd>${alert.sensor_id || "센서 ID 미수신"}</dd></div>
         <div><dt>감지 구역</dt><dd>${obstacleZoneLabel(alert.zone_id)}</dd></div>
@@ -1510,6 +1676,9 @@ function renderSelectionDetail(dashboard) {
             : "관련 진행 작업 없음"
         }</dd></div>
         <div><dt>발생 시각</dt><dd>${formatDateTime(alert.created_at)}</dd></div>
+        ${incident?.resolved_at ? `
+          <div><dt>복구 시각</dt><dd>${formatDateTime(incident.resolved_at)}</dd></div>
+        ` : ""}
       </dl>
     `;
     return;
@@ -1698,9 +1867,36 @@ function eventCategoryForAlert(alert) {
   return "safety";
 }
 
-function renderRecentEvents(alerts) {
+function renderRecentEvents(
+  alerts,
+  safetyIncidents = latestDashboard?.safety_incidents || []
+) {
+  const incidentAlertIds = new Set(
+    safetyIncidents.map((incident) => String(incident.alert_id))
+  );
+  const safetyIncidentEvents = safetyIncidents.flatMap((incident) =>
+    incident.events.map((event) => ({
+      time: event.created_at,
+      tone: ["OBSTACLE_CLEARED", "OPERATION_RESUMED"].includes(event.stage)
+        ? "success"
+        : "warning",
+      category: "safety",
+      request_id: incident.affected_request_ids[0] ?? null,
+      request_ids: incident.affected_request_ids,
+      incident_id: incident.id,
+      alert_id: incident.alert_id,
+      sequence: incidentEventStageOrder(event.stage),
+      label: `${formatSafetyIncidentId(incident.id)} · ${incidentEventStageLabel(event.stage)}`,
+      description: event.message,
+    }))
+  );
   let events = [
-    ...alerts.map((alert) => ({
+    ...alerts
+      .filter(
+        (alert) => alert.category !== "OBSTACLE"
+          || !incidentAlertIds.has(String(alert.id))
+      )
+      .map((alert) => ({
       time: alert.created_at,
       tone: alert.level === "ERROR" ? "danger" : "warning",
       category: eventCategoryForAlert(alert),
@@ -1708,13 +1904,18 @@ function renderRecentEvents(alerts) {
       label: alertLabels[alert.category] || "시스템 이벤트",
       description: alert.message,
     })),
+    ...safetyIncidentEvents,
     ...recentWorkflowEvents,
   ]
-    .sort((a, b) => new Date(b.time) - new Date(a.time));
+    .sort((a, b) => (
+      new Date(b.time) - new Date(a.time)
+      || (b.sequence ?? -1) - (a.sequence ?? -1)
+    ));
 
   if (selectedEventScope === "selected" && selectedTaskEventRequestId != null) {
     events = events.filter(
       (event) => event.request_id === selectedTaskEventRequestId
+        || event.request_ids?.includes(selectedTaskEventRequestId)
     );
   }
   if (selectedEventCategory !== "all") {
@@ -1763,7 +1964,13 @@ function renderRecentEvents(alerts) {
   };
 
   container.innerHTML = events.map((event) => `
-    <article class="recent-event-item ${event.tone} ${event.category}">
+    <article class="recent-event-item ${event.tone} ${event.category} ${
+      event.incident_id ? "selectable-incident" : ""
+    }" ${
+      event.incident_id
+        ? `role="button" tabindex="0" data-incident-alert-id="${event.alert_id}"`
+        : ""
+    }>
       <time>${formatEventTime(event.time)}</time>
       <i aria-hidden="true">${eventIcon(event)}</i>
       <div>
@@ -1772,6 +1979,19 @@ function renderRecentEvents(alerts) {
       </div>
     </article>
   `).join("");
+
+  container.querySelectorAll("[data-incident-alert-id]").forEach((element) => {
+    const select = () => {
+      selectMapItem("obstacle", element.dataset.incidentAlertId);
+      activateWorkspaceTab("live");
+    };
+    element.addEventListener("click", select);
+    element.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      select();
+    });
+  });
 }
 
 const taskProgressSteps = [
@@ -1787,6 +2007,15 @@ function requestProgressIndex(status) {
   if (status === "RETURNING") return 4;
   const index = taskProgressSteps.findIndex((step) => step.status === status);
   return index < 0 ? 0 : index;
+}
+
+function requestStepSummary(request) {
+  const index = requestProgressIndex(request.status);
+  return {
+    number: index + 1,
+    current: taskProgressSteps[index]?.label || requestStatusLabel(request),
+    next: taskProgressSteps[index + 1]?.label || null,
+  };
 }
 
 function formatElapsed(createdAt) {
@@ -1882,7 +2111,7 @@ function renderTaskStepper(request, compact = false) {
   `;
 }
 
-function renderActiveTaskBanner(requests, alerts = []) {
+function renderActiveTaskBanner(requests, alerts = [], sensors = [], system = null) {
   const banner = document.getElementById("activeTaskBanner");
   const request = requests.find(
     (item) => !["COMPLETED", "CANCELLED"].includes(item.status)
@@ -1899,6 +2128,11 @@ function renderActiveTaskBanner(requests, alerts = []) {
 
   const obstacleAlert = obstacleForRequest(request, alerts);
   const obstacleActive = obstacleAlert != null;
+  const unavailableSensors = sensors.filter((sensor) => {
+    if (system?.mode === "mock") return !["MOCK", "ONLINE"].includes(sensor.status);
+    return sensor.status !== "ONLINE";
+  });
+  const sensorLimited = unavailableSensors.length > 0;
   const step = requestProgressIndex(request.status) + 1;
   banner.classList.remove("hidden");
   banner.classList.remove("danger");
@@ -1917,6 +2151,12 @@ function renderActiveTaskBanner(requests, alerts = []) {
     <div class="active-task-banner-main">
       <span class="active-task-banner-kicker">
         ${requestTypeLabels[request.request_type]} 작업 #${request.id} · ${obstacleActive ? "일시정지" : "진행 중"}
+        ${sensorLimited ? `
+          <em class="active-task-safety-limit"
+            title="${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 미수신 · 안전 감지 제한 상태로 작업 진행">
+            센서 제한 운용
+          </em>
+        ` : ""}
       </span>
       <strong>${request.vehicle_number} → ${request.slot_id || "슬롯 배정 중"}</strong>
     </div>
@@ -2258,7 +2498,7 @@ function renderAlerts(alerts, sensors = [], system = null) {
   const restoreButton = document.getElementById("restoreSensorAlertsButton");
   restoreButton.classList.toggle("hidden", hiddenOfflineSensorCount === 0);
   restoreButton.textContent = hiddenOfflineSensorCount
-    ? `🔔 숨긴 알림 ${hiddenOfflineSensorCount}`
+    ? `🔔 센서 알림 ${hiddenOfflineSensorCount} 다시 보기`
     : "숨긴 알림";
   restoreButton.title = hiddenOfflineSensorCount
     ? `숨긴 센서 연결 알림 ${hiddenOfflineSensorCount}개를 다시 표시합니다.`
@@ -2302,6 +2542,17 @@ function renderAlerts(alerts, sensors = [], system = null) {
               <span class="alert-category">
                 ${alertLabels[alert.category] || alert.category}
               </span>
+              ${alert.category === "OBSTACLE" ? (() => {
+                const incident = safetyIncidentForAlert(alert.id);
+                if (!incident) return "";
+                return `
+                  <span class="alert-incident-badge">
+                    ${formatSafetyIncidentId(incident.id)} · ${
+                      incident.status === "RECOVERED" ? "복구 완료" : "안전정지"
+                    }
+                  </span>
+                `;
+              })() : ""}
             </div>
             <p class="alert-message">${alert.message}</p>
             <span class="alert-time">${alert.created_at ? alert.created_at.replace("T", " ") : "현재 상태"}</span>
@@ -2403,7 +2654,7 @@ function renderSystem(system) {
     : activeAlerts.find((alert) => alert.level === "ERROR")
       ? "로봇·시스템 오류"
       : offlineSensors.length
-        ? `${offlineSensors.map((sensor) => sensor.id).join("·")} 연결 필요`
+        ? "센서 제한 운용"
         : unavailableRobots.length
           ? `${unavailableRobots.map((robot) => shortRobotName(robot.id)).join("·")} 확인 필요`
           : "주의 필요";
@@ -2580,7 +2831,12 @@ async function refreshDashboard() {
       data.alerts || [],
       data.requests || []
     );
-    renderActiveTaskBanner(data.requests || [], data.alerts || []);
+    renderActiveTaskBanner(
+      data.requests || [],
+      data.alerts || [],
+      data.sensors || [],
+      data.system
+    );
     captureRequestEvents(data.requests, data.system);
     captureAlertSpeech(data.alerts || [], data.robots, data.system);
     updateRobotAnimationTargets(data.robots);
@@ -2590,7 +2846,8 @@ async function refreshDashboard() {
       data.map,
       data.sensors || [],
       data.requests,
-      data.alerts || []
+      data.alerts || [],
+      data.safety_incidents || []
     );
     ensureRobotAnimationLoop();
     renderSelectionDetail(data);

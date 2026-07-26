@@ -6,15 +6,15 @@ feature/parking-control 브랜치의 실제 구현을 기준으로 한다.
                 dispatcher가 쓰는 MySQL(robots/parking_slots/tasks)을
                 읽기 전용으로 폴링한다 (Team A의 scripts/dashboard.py와 동일 방식).
   - 실시간 알림: obstacle_alert 토픽(ObstacleAlert.msg) 구독.
-  - 세부 진행 : task_state 토픽(TaskState.msg) 구독. robot_task_orchestrator가
-                아직 스켈레톤 단계라 발행되지 않을 수 있음 — 그 경우 PROCESSING
-                동안 세부 단계 갱신 없이 ROBOT_ASSIGNED로 유지된다.
+  - 세부 진행 : task_state 토픽(TaskState.msg) 구독. 세부 상태를 받지 못한
+                PROCESSING 작업만 ROBOT_ASSIGNED로 유지한다.
 
 주의(2026-07-20 기준, Team A와 확정 필요): DB tasks.state는 4단계
 (WAITING/PROCESSING/DONE/FAILED)인데 우리 UI는 6단계라, task_state 토픽의
-DETECTING/NAVIGATING/ALIGNING/LIFTING로 세분화한다. NAVIGATING은 리프트 전
-(차량 접근)과 후(주차 위치 이동) 두 번 나오므로, 해당 task에서 LIFTING을
-이미 관측했는지로 구분한다. FAILED는 우리 쪽 CANCELLED로 매핑한다.
+DETECTING/NAVIGATING/ALIGNING/LIFTING 계약과 실제 orchestrator가 발행하는
+SEARCHING/APPROACHING/PICKED_UP/MOVING 상태를 모두 수용한다. NAVIGATING은
+리프트 전(차량 접근)과 후(주차 위치 이동) 두 번 나오므로, 해당 task에서
+LIFTING 또는 PICKED_UP을 이미 관측했는지로 구분한다.
 """
 
 import threading
@@ -48,6 +48,10 @@ from parking_control.parking_slot_manager_node import _default_map_yaml
 import config
 from core.datasource import DataSource, DataSourceError
 from core.obstacle_scope import blocking_obstacle, blocking_request_message
+from core.safety_incident import (
+    open_obstacle_incident,
+    recover_obstacle_incident,
+)
 from core.models import (
     TERMINAL_STATUSES,
     Alert,
@@ -74,12 +78,29 @@ _TASK_STATE_BEFORE_LIFT = {
     "DETECTING": RequestStatus.APPROACHING,
     "NAVIGATING": RequestStatus.APPROACHING,
     "ALIGNING": RequestStatus.APPROACHING,
+    "SEARCHING": RequestStatus.APPROACHING,
+    "APPROACHING": RequestStatus.APPROACHING,
     "LIFTING": RequestStatus.LIFTING,
+    "PICKED_UP": RequestStatus.LIFTING,
+    "MOVING": RequestStatus.MOVING_TO_SLOT,
+    "ARRIVED": RequestStatus.MOVING_TO_SLOT,
+    "PARKED": RequestStatus.MOVING_TO_SLOT,
+    "UNPARKED": RequestStatus.MOVING_TO_SLOT,
     "RETURNING": RequestStatus.RETURNING,
+    "DONE": RequestStatus.COMPLETED,
+    "FAILED": RequestStatus.CANCELLED,
 }
 _TASK_STATE_AFTER_LIFT = {
+    "LIFTING": RequestStatus.LIFTING,
+    "PICKED_UP": RequestStatus.LIFTING,
     "NAVIGATING": RequestStatus.MOVING_TO_SLOT,
+    "MOVING": RequestStatus.MOVING_TO_SLOT,
+    "ARRIVED": RequestStatus.MOVING_TO_SLOT,
+    "PARKED": RequestStatus.MOVING_TO_SLOT,
+    "UNPARKED": RequestStatus.MOVING_TO_SLOT,
     "RETURNING": RequestStatus.RETURNING,
+    "DONE": RequestStatus.COMPLETED,
+    "FAILED": RequestStatus.CANCELLED,
 }
 
 # parking_slot_manager_node / task_dispatcher_node 어느 쪽도 find_empty_slot
@@ -557,6 +578,7 @@ class Ros2DataSource(DataSource):
                         and alert.category == AlertCategory.OBSTACLE
                     ):
                         alert.active = False
+                        recover_obstacle_incident(self.store, alert)
             return
         description = msg.description or "주행 경로에서 장애물이 감지되었습니다."
         zone_ids = []
@@ -589,6 +611,7 @@ class Ros2DataSource(DataSource):
                     )
                 ):
                     alert.active = False
+                    recover_obstacle_incident(self.store, alert)
             existing = next(
                 (
                     alert
@@ -608,25 +631,26 @@ class Ros2DataSource(DataSource):
                 existing.location_y = (
                     float(msg.location.y) if has_location else None
                 )
+                open_obstacle_incident(self.store, existing)
                 return
-            self.store.alerts.append(
-                Alert(
-                    id=self.store.next_alert_id(),
-                    level=AlertLevel.WARNING,
-                    category=AlertCategory.OBSTACLE,
-                    message=description,
-                    robot_id=None,
-                    sensor_id=sensor_id,
-                    zone_id=zone_id,
-                    location_x=float(msg.location.x) if has_location else None,
-                    location_y=float(msg.location.y) if has_location else None,
-                    created_at=_now(),
-                )
+            alert = Alert(
+                id=self.store.next_alert_id(),
+                level=AlertLevel.WARNING,
+                category=AlertCategory.OBSTACLE,
+                message=description,
+                robot_id=None,
+                sensor_id=sensor_id,
+                zone_id=zone_id,
+                location_x=float(msg.location.x) if has_location else None,
+                location_y=float(msg.location.y) if has_location else None,
+                created_at=_now(),
             )
+            self.store.alerts.append(alert)
+            open_obstacle_incident(self.store, alert)
 
     def _on_task_state(self, msg: TaskState) -> None:
         with self._map_lock:
-            if msg.state == "LIFTING":
+            if msg.state in {"LIFTING", "PICKED_UP"}:
                 self._lifted_tasks.add(msg.task_id)
             table = (
                 _TASK_STATE_AFTER_LIFT
@@ -968,3 +992,4 @@ class Ros2DataSource(DataSource):
             self._fine_status.clear()
             self.store.requests.clear()
             self.store.alerts.clear()
+            self.store.safety_incidents.clear()

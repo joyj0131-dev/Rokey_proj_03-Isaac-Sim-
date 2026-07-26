@@ -7,7 +7,7 @@ FastAPI 워커 스레드와 향후 ROS2 콜백 스레드가 동시에 접근하�
 import threading
 from itertools import count
 
-from .models import Alert, ParkingRequest, ParkingSlot, Robot
+from .models import Alert, ParkingRequest, ParkingSlot, Robot, SafetyIncident
 
 
 class StateStore:
@@ -17,8 +17,10 @@ class StateStore:
         self.parking_slots: list[ParkingSlot] = []
         self.requests: list[ParkingRequest] = []
         self.alerts: list[Alert] = []
+        self.safety_incidents: list[SafetyIncident] = []
         self._request_id_counter = count(1)
         self._alert_id_counter = count(1)
+        self._safety_incident_id_counter = count(1)
 
     @property
     def lock(self) -> threading.RLock:
@@ -30,6 +32,9 @@ class StateStore:
 
     def next_alert_id(self) -> int:
         return next(self._alert_id_counter)
+
+    def next_safety_incident_id(self) -> int:
+        return next(self._safety_incident_id_counter)
 
     # ------------------------------------------------------------------
     # 조회 (스냅샷)
@@ -45,11 +50,16 @@ class StateStore:
                 for alert in self.alerts
                 if alert.active
             ]
+            safety_incidents = [
+                incident.model_copy(deep=True)
+                for incident in self.safety_incidents[-20:]
+            ]
         return {
             "robots": robots,
             "slots": slots,
             "requests": requests,
             "alerts": alerts,
+            "safety_incidents": safety_incidents,
         }
 
     # ------------------------------------------------------------------
@@ -66,3 +76,15 @@ class StateStore:
 
     def find_alert(self, alert_id: int) -> Alert | None:
         return next((a for a in self.alerts if a.id == alert_id), None)
+
+    def find_safety_incident_by_alert(
+        self, alert_id: int
+    ) -> SafetyIncident | None:
+        return next(
+            (
+                incident
+                for incident in reversed(self.safety_incidents)
+                if incident.alert_id == alert_id
+            ),
+            None,
+        )

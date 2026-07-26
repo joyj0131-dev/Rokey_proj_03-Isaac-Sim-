@@ -649,10 +649,30 @@ h2 {
 }
 
 .active-task-banner-kicker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   color: var(--primary-dark);
   font-size: 9px;
   font-weight: 950;
   letter-spacing: 0.08em;
+}
+
+.active-task-safety-limit {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px 5px;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #b45309;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .active-task-banner.danger .active-task-banner-kicker {
@@ -1337,6 +1357,17 @@ select:focus {
   color: var(--text-soft);
 }
 
+.alert-incident-badge {
+  padding: 3px 7px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .alert-message {
   margin: 0;
   font-size: 12px;
@@ -1721,6 +1752,15 @@ select:focus {
   filter: drop-shadow(0 2px 3px rgba(37, 99, 235, 0.14));
 }
 
+.lot-route-completed {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.58;
+}
+
 .lot-route-current.entry {
   stroke: #3b82f6;
 }
@@ -1903,6 +1943,13 @@ select:focus {
   text-anchor: middle;
 }
 
+.lot-slot-task-meta {
+  fill: #64748b;
+  font-size: 8.5px;
+  font-weight: 750;
+  text-anchor: middle;
+}
+
 .lot-slot-vehicle {
   font-family: "Noto Color Emoji", "Segoe UI Emoji", sans-serif;
   font-size: 27px;
@@ -2073,7 +2120,7 @@ select:focus {
 
 .lot-robot-compact-icon {
   font-family: "Noto Color Emoji", "Segoe UI Emoji", sans-serif;
-  font-size: 27px;
+  font-size: 29px;
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
@@ -2091,7 +2138,7 @@ select:focus {
 
 .lot-robot-compact-role {
   fill: #ffffff;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 950;
   text-anchor: middle;
 }
@@ -2178,8 +2225,7 @@ select:focus {
 
 .lot-formation line {
   stroke: #10b981;
-  stroke-width: 3;
-  stroke-dasharray: 6 4;
+  stroke-width: 2;
 }
 
 .lot-formation line.label-guide {
@@ -2420,6 +2466,10 @@ select:focus {
   color: var(--danger);
 }
 
+.detail-kicker.recovered {
+  color: var(--success);
+}
+
 .detail-danger-icon {
   display: inline-grid;
   place-items: center;
@@ -2431,6 +2481,10 @@ select:focus {
   color: #ffffff;
   font-size: 14px;
   vertical-align: middle;
+}
+
+.detail-danger-icon.recovered {
+  background: var(--success);
 }
 
 .selection-detail h3 {
@@ -2532,6 +2586,102 @@ select:focus {
   background: #fef2f2;
 }
 
+.safety-incident-timeline {
+  display: grid;
+  gap: 0;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.safety-incident-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 48px;
+  padding-bottom: 9px;
+}
+
+.safety-incident-timeline li::after {
+  position: absolute;
+  top: 23px;
+  bottom: -1px;
+  left: 10px;
+  width: 2px;
+  background: #fecaca;
+  content: "";
+}
+
+.safety-incident-timeline li:last-child {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.safety-incident-timeline li:last-child::after {
+  display: none;
+}
+
+.safety-incident-timeline i {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  box-shadow: 0 0 0 3px #fee2e2;
+}
+
+.safety-incident-timeline li.OBSTACLE_CLEARED::after,
+.safety-incident-timeline li.OBSTACLE_CLEARED i,
+.safety-incident-timeline li.OPERATION_RESUMED i {
+  background: var(--success);
+}
+
+.safety-incident-timeline li.OBSTACLE_CLEARED i,
+.safety-incident-timeline li.OPERATION_RESUMED i {
+  box-shadow: 0 0 0 3px #d1fae5;
+}
+
+.safety-incident-timeline li.pending::after {
+  background: #cbd5e1;
+}
+
+.safety-incident-timeline li.pending i {
+  background: #ffffff;
+  color: #94a3b8;
+  box-shadow: inset 0 0 0 2px #cbd5e1;
+}
+
+.safety-incident-timeline div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.safety-incident-timeline strong {
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.safety-incident-timeline span,
+.safety-incident-timeline time {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.safety-incident-timeline time {
+  font-variant-numeric: tabular-nums;
+}
+
 .detail-list {
   display: grid;
   gap: 6px;
@@ -2577,6 +2727,20 @@ select:focus {
 
 .robot-detail-list div {
   padding: 7px 9px;
+}
+
+.task-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.task-health-list {
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.task-health-list div {
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
 }
 
 .detail-list .detail-warning {
@@ -2966,6 +3130,22 @@ select:focus {
   gap: 8px;
   min-height: 57px;
   padding: 8px 0;
+}
+
+.recent-event-item.selectable-incident {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.recent-event-item.selectable-incident:hover {
+  background: #fff7ed;
+  box-shadow: 0 0 0 4px #fff7ed;
+}
+
+.recent-event-item.selectable-incident:focus-visible {
+  outline: 2px solid #fb923c;
+  outline-offset: 2px;
 }
 
 .recent-event-item::after {

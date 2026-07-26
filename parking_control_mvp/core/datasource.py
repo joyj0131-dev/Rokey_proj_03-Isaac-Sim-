@@ -16,6 +16,7 @@ from .models import (
     ParkingRequestCreate,
     SafetyResetRequest,
 )
+from .safety_incident import recover_obstacle_incident
 from .state_store import StateStore
 
 
@@ -115,6 +116,8 @@ class DataSource(ABC):
                     status_code=409,
                 )
             alert.active = False
+            if alert.category == "OBSTACLE":
+                recover_obstacle_incident(self.store, alert)
 
     def get_map_info(self) -> dict:
         """실시간 도면 패널용 정적 레이아웃 정보.

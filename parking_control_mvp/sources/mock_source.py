@@ -11,6 +11,10 @@ from datetime import datetime
 
 from core.datasource import DataSource, DataSourceError
 from core.obstacle_scope import blocking_obstacle, blocking_request_message
+from core.safety_incident import (
+    open_obstacle_incident,
+    recover_obstacle_incident,
+)
 from core.models import (
     STATUS_TRANSITIONS,
     TERMINAL_STATUSES,
@@ -127,6 +131,7 @@ class MockDataSource(DataSource):
 
             self.store.requests.clear()
             self.store.alerts.clear()
+            self.store.safety_incidents.clear()
             self._stage_started.clear()
             self._route_progress.clear()
 
@@ -589,6 +594,7 @@ class MockDataSource(DataSource):
                 created_at=_now(),
             )
             self.store.alerts.append(alert)
+            open_obstacle_incident(self.store, alert)
             return alert.model_copy(deep=True)
 
     def emergency_stop(self) -> int:
@@ -739,6 +745,9 @@ class MockDataSource(DataSource):
                 )
 
             alert.active = False
+
+            if alert.category == AlertCategory.OBSTACLE:
+                recover_obstacle_incident(self.store, alert)
 
             # 로봇 오류 알림 해제 시 로봇 복구
             if alert.category == AlertCategory.ROBOT_ERROR and alert.robot_id:

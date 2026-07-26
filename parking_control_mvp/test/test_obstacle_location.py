@@ -57,6 +57,10 @@ def test_repeated_ros2_frames_do_not_duplicate_same_obstacle_alert():
     alerts = store.snapshot()["alerts"]
     assert len(alerts) == 1
     assert alerts[0].location_x == pytest.approx(-9.8)
+    incidents = store.snapshot()["safety_incidents"]
+    assert len(incidents) == 1
+    assert incidents[0].alert_id == alerts[0].id
+    assert incidents[0].location_x == pytest.approx(-9.8)
 
 
 def test_changed_ros2_obstacle_scope_replaces_previous_frame():
@@ -107,6 +111,12 @@ def test_ros2_clear_frame_resolves_active_obstacle_alert():
 
     assert store.snapshot()["alerts"] == []
     assert store.alerts[0].active is False
+    incident = store.snapshot()["safety_incidents"][0]
+    assert incident.status == "RECOVERED"
+    assert [event.stage for event in incident.events][-2:] == [
+        "OBSTACLE_CLEARED",
+        "OPERATION_RESUMED",
+    ]
 
 
 def test_mock_obstacle_has_clickable_map_location():

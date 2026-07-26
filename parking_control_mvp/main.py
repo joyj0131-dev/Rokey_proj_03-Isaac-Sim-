@@ -149,6 +149,7 @@ def get_dashboard():
         "slots": slots,
         "requests": list(reversed(requests)),
         "alerts": list(reversed(alerts)),
+        "safety_incidents": list(reversed(snapshot["safety_incidents"])),
         "map": datasource.get_map_info(),
         "sensors": sensors,
         "summary": {
