@@ -138,27 +138,6 @@ NAVIGATE_RESULT_TIMEOUT = 330.0
 # goto_xz/rotate/ingress 각 최대치 ×2단계 ≈ 890s 최악치) + 여유.
 ALIGN_RESULT_TIMEOUT = 900.0
 
-# ---- RETURNING: West 도크 복귀 목표(map 프레임) — best-effort 근사(TODO Task 12) ----
-# formation_motion.py 미션 상수 DOCK_X=-15.3, LANE_Z_REAR=-1.5, LANE_Z_FRONT=1.5(USD
-# 프레임)를 frame_transform 규약(map_to_usd: x_usd=x_map, z_usd=-y_map)의 역으로 map
-# 프레임에 맞춰 두면, navigate_action_server가 다시 map_to_usd로 되돌릴 때 정확히 미션
-# 도크 좌표로 상쇄되어 수렴한다(rear: x_usd=-15.3,z_usd=-(1.5)=-1.5=LANE_Z_REAR / front:
-# x_usd=-15.3,z_usd=-(-1.5)=1.5=LANE_Z_FRONT). 다만 이 좌표가 실제 도크 "정위치"(안착
-# 자세·장애물 없는 진입 여부)까지 보장하지는 않는다 — carry_to와 동일한 best-effort
-# 한계이며, Isaac GUI에서 사람이 관찰·조정해야 한다(Task 12).
-DOCK_X_MAP = -15.3
-DOCK_Y_REAR_MAP = 1.5      # rear 차로: LANE_Z_REAR=-1.5(USD) → y_map = -(-1.5) = 1.5
-DOCK_Y_FRONT_MAP = -1.5    # front 차로: LANE_Z_FRONT=1.5(USD) → y_map = -(1.5) = -1.5
-
-
-def _dock_pose(y_map):
-    pose = Pose()
-    pose.position.x = DOCK_X_MAP
-    pose.position.y = y_map
-    pose.orientation.w = 1.0
-    return pose
-
-
 # ---- 출차(EXIT) 하차 목표: 인계지점(map 프레임) ----
 # 2026-07-25: v4 레이아웃에서는 입차/출차 인계지점이 물리적으로 분리돼 있어서(예전엔
 # 인계베이 하나 USD(-29.6,0)를 공유) 고정 상수 대신 노드 파라미터(bay_x_map/bay_y_map)로

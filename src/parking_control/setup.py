@@ -28,7 +28,6 @@ setup(
         'console_scripts': [
             'parking_slot_manager = parking_control.parking_slot_manager_node:main',
             'task_dispatcher = parking_control.task_dispatcher_node:main',
-            'sim_orchestrator = parking_control.sim_orchestrator_node:main',
             'robot_position_bridge = parking_control.robot_position_bridge_node:main',
             'safety_monitor = parking_control.safety_monitor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',

@@ -21,11 +21,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'user_request_gateway = parking_robot_system.user_request_gateway:main',
-            'task_dispatcher = parking_robot_system.task_dispatcher:main',
-            'parking_slot_manager = parking_robot_system.parking_slot_manager:main',
             'robot_task_orchestrator = parking_robot_system.robot_task_orchestrator:main',
-            'safety_monitor = parking_robot_system.safety_monitor:main',
             'vehicle_detection_node = parking_robot_system.vehicle_detection_node:main',
             'navigate_action_server = parking_robot_system.navigate_action_server:main',
             'align_action_server = parking_robot_system.align_action_server:main',
