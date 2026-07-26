@@ -9,24 +9,27 @@
 
 | 파일 | 역할 |
 |---|---|
-| `parking_v4_runner.py` / `.sh` | **Isaac 시뮬 브리지**. `--bridge` 로 /odom·image·depth 발행 + /cmd_vel·/lift_cmd 구독. `--probe=<X>` 로 진단 프로브 13종. (미션 안무는 R6 에서 ROS2 로 이전됨) |
-| `bringup_pickup_e2e.sh` | **전체 미션 기동/정리**(브리지 + ROS2 노드 스택 13개). `up`/`down`/`status` |
-| `run_*_node.sh`, `run_*_action_server.sh` | 개별 ROS2 노드 런처(시스템 ROS2 Humble 환경 세팅 후 `src/` 노드 실행) |
-| `run_marker_localizer_v4.sh`, `run_probe_a_detector.sh` | parkbot_aruco 노드 런처 |
+| `sim_bridge.py` / `.sh` | **Isaac(py3.11) 시뮬 브리지**. 씬/로봇/차량/마커 스폰, /odom·image·depth 발행 + /cmd_vel·/lift_cmd 구독. 인자 없이 = 도크 스폰 + 전후방 카메라(Phase B 모드). 오직 이것만이 Isaac 쪽 코드다 |
+| `launch/pickup_mission.launch.py` | **전체 미션 launch**. sim_bridge 기동 → BRIDGE_READY 감지 시 ROS2 노드 스택 기동 → orchestrator 가 자율 실행 |
+| `run_*_node.sh`, `run_*_action_server.sh` | 개별 ROS2 노드 런처(시스템 ROS2 Humble 환경 세팅 + `--ros-args` passthrough). launch 가 이걸 감싼다 |
+| `run_marker_localizer_node.sh`, `run_probe_a_detector.sh` | parkbot_aruco 노드 런처 |
 | `build_*.py`, `marker_layout.py` | USD 자산·마커 지도 생성(일회성). 서로 import 하는 응집 그룹 |
-| `mecanum_drive.py` | 메카넘 USD 저작 + 러너용 재익스포트 shim |
-| `v4_probes.py` | 프로브 지원 |
+| `mecanum_drive.py` | 메카넘 USD 저작 + 기구학(sim_bridge 가 import) |
 
 ## 하위 폴더
 
-- **`smoke/`** — 단계별 스모크 테스트. `*_smoke.py`(클라이언트) + `run_*_smoke.sh`(런처).
-  예: `bash smoke/run_pickup_smoke.sh --leader=entry_lead --follower=entry_follow`
+- **`smoke/`** — 단계별 스모크 테스트(개발 진단용). `*_smoke.py` + `run_*_smoke.sh`.
 - **`legacy/`** — 옛 v2 러너(`dock_lift_handoff_runner*`). 참조용, 현재 미사용.
 
 ## 빠른 실행
 
 ```bash
-bash bringup_pickup_e2e.sh up          # 전체 스택 기동(BRIDGE_READY 까지)
-bash smoke/run_pickup_smoke.sh --leader=entry_lead --follower=entry_follow  # 안무 트리거
-bash bringup_pickup_e2e.sh down        # 정리
+# 전체 미션(Isaac 브리지 + ROS2 노드 스택 + 자율 orchestrator)을 launch 하나로
+source /opt/ros/humble/setup.bash
+ros2 launch isaacpjt/Isaac_envo/launch/pickup_mission.launch.py
+# 정리: Ctrl-C (launch 가 자식 시그널). 잔여: pkill -9 -f 'sim_bridge.py|parkbot_(aruco|motion)'
 ```
+
+미션은 orchestrator 의 `auto_start`(기본 launch 에서 true)로 **자율 실행**된다 — 외부
+트리거 스크립트가 필요 없다. 개별 노드를 수동 기동/디버그하려면 `run_*_node.sh` 를
+직접 쓰면 된다.
