@@ -61,7 +61,7 @@ def _leader_params():
     return {
         'is_leader': True,
         'localizer_node': '/robot_entry_lead/marker_localizer_node',
-        'dock_id': 21, 'dock_x': -3.2, 'dock_z': 2.9, 'dock_decal_z': 2.2,
+        'dock_id': 21, 'dock_x': -3.2, 'dock_z': 2.2, 'dock_decal_z': 2.9,
         'dockcheck_standoff': 1.4,
         'xn_id': 31, 'xn_x': -2.5, 'xn_z': 6.875, 'xn_standoff': 1.3,
         'final_x_offset': -1.7,
@@ -72,7 +72,7 @@ def _follower_params():
     return {
         'is_leader': False,
         'localizer_node': '/robot_entry_follow/marker_localizer_node',
-        'dock_id': 23, 'dock_x': -1.2, 'dock_z': 2.9, 'dock_decal_z': 2.2,
+        'dock_id': 23, 'dock_x': -1.2, 'dock_z': 2.2, 'dock_decal_z': 2.9,
         'dockcheck_standoff': 1.4,
         'xn_id': 31, 'xn_x': -2.5, 'xn_z': 6.875, 'xn_standoff': 1.3,
         'final_x_offset': -1.7,
@@ -98,17 +98,25 @@ def test_run_phase_b_leader_full_sequence():
     _instrument(orch, calls)
     ok, reason = orch._run_phase_b('entry_lead', _leader_params())
     assert ok is True and reason is None
-    # dock_check z = dock_decal_z + dockcheck_standoff = 2.2 + 1.4 = 3.6
+    # rotate_90 z = dock_z(스폰/제자리회전, aruco:position) = 2.2
+    # dock_check z = dock_decal_z(데칼) + dockcheck_standoff = 2.9 + 1.4 = 4.3
     # xn_align_z / offset z = xn_z - xn_standoff = 6.875 - 1.3 = 5.575
     assert calls == [
         ('ref', '/robot_entry_lead/marker_localizer_node', [21], False),   # seed_dock
-        ('nav', 'nav_odom', -3.2, 2.9, 0.0),                               # rotate_90
-        ('nav', 'nav_fused', -3.2, 3.6, 0.0),                              # dock_check
+        ('nav', 'nav_odom', -3.2, 2.2, 0.0),                               # rotate_90
+        ('nav', 'nav_fused', -3.2, 4.3, 0.0),                              # dock_check
         ('ref', '/robot_entry_lead/marker_localizer_node', [31], False),   # xn_align_x: ref 전환
-        ('nav', 'nav_fused', -2.5, 3.6, 0.0),                              # xn_align_x: x 정렬(z 유지)
+        ('nav', 'nav_fused', -2.5, 4.3, 0.0),                              # xn_align_x: x 정렬(z 유지)
         ('nav', 'nav_fused', -2.5, 5.575, 0.0),                           # xn_align_z: 순수 북진
         ('nav', 'nav_fused', -4.2, 5.575, 0.0),                           # offset: xn_x + (-1.7)
     ]
+    # 회귀 가드: dock_z/dock_decal_z 가 다시 뒤바뀌면 이 두 z 값이 같아지거나
+    # (스폰 z 를 도크체크에 쓰는 경우) 표준 3.6 로 되돌아간다 — 명시적으로 구분.
+    rotate_z = calls[1][3]
+    dock_check_z = calls[2][3]
+    assert rotate_z == 2.2
+    assert dock_check_z == 4.3
+    assert rotate_z != dock_check_z
 
 
 def test_run_phase_b_follower_has_no_offset():

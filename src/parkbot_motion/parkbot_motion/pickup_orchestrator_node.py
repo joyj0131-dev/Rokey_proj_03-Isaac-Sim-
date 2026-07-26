@@ -206,17 +206,18 @@ class PickupOrchestratorNode(Node):
         self.declare_parameter('phase_b_align_pos_tol', 0.06)
         # 로봇별 도크(러너 sm.ROBOT_DOCK_MARKER): leader=entry_lead→D_OUT_1(id21,
         # x=-3.2), follower=entry_follow→D_OUT_2(id23, x=-1.2). dock_z 는 스폰/회전
-        # 목표(속성 좌표, +2.9), dock_decal_z 는 도크체크 목표 산정용(데칼은 속성보다
-        # z 로 0.7m 남쪽 — 러너 marker_visual_center 실측, 기본 2.2). 각 값은 T4/T5
-        # bringup 이 실측으로 오버라이드할 수 있게 파라미터로 노출.
+        # 목표(aruco:position z, 기본 2.2), dock_decal_z 는 도크체크 목표 산정용
+        # (데칼 xformOp:translate z 는 aruco:position 보다 0.7m 북쪽 — 러너
+        # marker_visual_center 실측, 기본 2.9). 각 값은 T4/T5 bringup 이 실측으로
+        # 오버라이드할 수 있게 파라미터로 노출.
         self.declare_parameter('phase_b_leader_dock_id', 21)
         self.declare_parameter('phase_b_leader_dock_x', -3.2)
-        self.declare_parameter('phase_b_leader_dock_z', 2.9)
-        self.declare_parameter('phase_b_leader_dock_decal_z', 2.2)
+        self.declare_parameter('phase_b_leader_dock_z', 2.2)
+        self.declare_parameter('phase_b_leader_dock_decal_z', 2.9)
         self.declare_parameter('phase_b_follower_dock_id', 23)
         self.declare_parameter('phase_b_follower_dock_x', -1.2)
-        self.declare_parameter('phase_b_follower_dock_z', 2.9)
-        self.declare_parameter('phase_b_follower_dock_decal_z', 2.2)
+        self.declare_parameter('phase_b_follower_dock_z', 2.2)
+        self.declare_parameter('phase_b_follower_dock_decal_z', 2.9)
         # 융합 localizer 인스턴스의 **완전수식 노드명** — 크로스노드 set_parameters
         # (ref_ids/correct_yaw)의 서비스 대상 `<node_name>/set_parameters`. 빈 값이면
         # 런타임에 `/robot_<id>/marker_localizer_node` 로 유도한다(T4 bringup 이 로봇별
