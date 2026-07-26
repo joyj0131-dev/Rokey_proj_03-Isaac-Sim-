@@ -29,6 +29,13 @@ LOG_DIR="${LOG_DIR:-/tmp/claude-1000/-home-rokey-p3-cobot-ws/9b4dfc19-ad9a-491c-
 PID_FILE="$LOG_DIR/pids.txt"
 MARKER_MAP="$WS_ROOT/src/parkbot_aruco/data/marker_map_v4.json"
 
+# START_AT_DOCK=1(기본): Phase B 전체(도크→XN→베이→픽업). 로봇을 도크 기본
+#   스폰(build_stage 가 dock 마커 x, z=2.2, +X 를 보게 배치 -- 러너 미션 스폰과
+#   동일)에 그대로 두고, odom 은 line 1395 에서 도크 GT 로 시드된다. 오케스트레이터
+#   run_phase_b_first(기본 True)가 Phase B 레그를 corridor_plan 앞에 실행.
+# START_AT_DOCK=0: 레거시 R5b 스모크 — 로봇을 접근선(FOLLOW_X/LEAD_X)으로
+#   텔레포트(--bridge-depth-pose), Phase B 없이 XN 종단자세 근사에서 시작.
+START_AT_DOCK="${START_AT_DOCK:-1}"
 FOLLOW_X="${FOLLOW_X:--1.50}"
 LEAD_X="${LEAD_X:-2.50}"
 CAM_ROBOTS="${CAM_ROBOTS:-entry_lead,entry_follow}"
@@ -56,11 +63,22 @@ cmd_up() {
     : > "$PID_FILE"
 
     echo "[1/13] Isaac 브리지 기동 중… (BRIDGE_READY 까지 최대 180s 대기)"
+    # START_AT_DOCK=1: 도크 기본 스폰 유지(depth-pose 텔레포트 없음) + 후방캠 발행
+    # (--bridge-rear, T2) — Phase B 후방캠 도크점검용 /robot_<id>/rear/image_raw.
+    # START_AT_DOCK=0: 레거시 접근선 텔레포트(--bridge-depth-pose).
+    _bridge_pose_args=()
+    _bridge_rear_arg=()
+    if [ "$START_AT_DOCK" = "1" ]; then
+        _bridge_rear_arg=(--bridge-rear)
+    else
+        _bridge_pose_args=(--bridge-depth-pose="entry_follow:${FOLLOW_X}" \
+                           --bridge-depth-pose="entry_lead:${LEAD_X}")
+    fi
     ( cd "$SCRIPT_DIR" && \
       bash parking_v4_runner.sh --bridge \
         --bridge-cameras="$CAM_ROBOTS" \
-        --bridge-depth-pose="entry_follow:${FOLLOW_X}" \
-        --bridge-depth-pose="entry_lead:${LEAD_X}" \
+        "${_bridge_rear_arg[@]}" \
+        "${_bridge_pose_args[@]}" \
         > "$LOG_DIR/bridge.log" 2>&1 & )
     if ! _wait_for_log_pattern "$LOG_DIR/bridge.log" "BRIDGE_READY" 180; then
         echo "!!! BRIDGE_READY 를 180s 안에 못 봤습니다 -- $LOG_DIR/bridge.log 확인" >&2
@@ -81,22 +99,40 @@ cmd_up() {
         sleep 0.3
     }
 
+    # Phase B(START_AT_DOCK=1): 로봇당 localizer 1개가 전방(XN)+후방(도크) 두
+    # 카메라를 구독해 한 필터를 공유(T3b). rear_image_topic 은 T2 --bridge-rear
+    # 발행 토픽. rear_t_base_cam 은 기본값(전방 Ry180 유도, T3b) — T5 에서 GT 검증.
+    # 노드는 로봇 네임스페이스로 띄워 FQN 을 /robot_<id>/marker_localizer_node 로
+    # 구분(오케스트레이터 크로스노드 set_parameters 대상, T3 기본 유도값과 일치).
+    _rear_lead=()
+    _rear_follow=()
+    if [ "$START_AT_DOCK" = "1" ]; then
+        _rear_lead=(-p rear_image_topic:=/robot_entry_lead/rear/image_raw \
+                    -p rear_camera_info_topic:=/robot_entry_lead/rear/camera_info)
+        _rear_follow=(-p rear_image_topic:=/robot_entry_follow/rear/image_raw \
+                      -p rear_camera_info_topic:=/robot_entry_follow/rear/camera_info)
+    fi
+
     echo "[2/13] marker_localizer_node entry_lead"
     _launch "marker_localizer_entry_lead" "$LOG_DIR/marker_localizer_entry_lead.log" \
         python3 -m parkbot_aruco.marker_localizer_node --ros-args \
+        -r __ns:=/robot_entry_lead \
         -p image_topic:=/robot_entry_lead/front/image_raw \
         -p camera_info_topic:=/robot_entry_lead/front/camera_info \
         -p odom_topic:=/robot_entry_lead/odom \
         -p pose_topic:=/robot_entry_lead/pose \
+        "${_rear_lead[@]}" \
         -p marker_map:="$MARKER_MAP" -p fuse:=true -p frame:=usd
 
     echo "[3/13] marker_localizer_node entry_follow"
     _launch "marker_localizer_entry_follow" "$LOG_DIR/marker_localizer_entry_follow.log" \
         python3 -m parkbot_aruco.marker_localizer_node --ros-args \
+        -r __ns:=/robot_entry_follow \
         -p image_topic:=/robot_entry_follow/front/image_raw \
         -p camera_info_topic:=/robot_entry_follow/front/camera_info \
         -p odom_topic:=/robot_entry_follow/odom \
         -p pose_topic:=/robot_entry_follow/pose \
+        "${_rear_follow[@]}" \
         -p marker_map:="$MARKER_MAP" -p fuse:=true -p frame:=usd
 
     echo "[4/13] pose_controller_node entry_lead (odom, approach)"
@@ -109,7 +145,7 @@ cmd_up() {
         bash "$SCRIPT_DIR/run_pose_controller_node.sh" --ros-args \
         -p robot_id:=entry_lead -p pose_topic:=/robot_entry_lead/pose \
         -p pose_msg_type:=posestamped -p action_name:=/robot_entry_lead/navigate_to_pose_fused \
-        -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p pos_tol:=0.06 -p goal_timeout_sec:="$GOAL_TIMEOUT"
 
     echo "[6/13] pose_controller_node entry_follow (odom, approach)"
     _launch "pose_controller_odom_entry_follow" "$LOG_DIR/pose_controller_odom_entry_follow.log" \
@@ -121,7 +157,7 @@ cmd_up() {
         bash "$SCRIPT_DIR/run_pose_controller_node.sh" --ros-args \
         -p robot_id:=entry_follow -p pose_topic:=/robot_entry_follow/pose \
         -p pose_msg_type:=posestamped -p action_name:=/robot_entry_follow/navigate_to_pose_fused \
-        -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p pos_tol:=0.06 -p goal_timeout_sec:="$GOAL_TIMEOUT"
 
     echo "[8/13] axle_detector_node entry_lead / entry_follow"
     _launch "axle_detector_entry_lead" "$LOG_DIR/axle_detector_entry_lead.log" \
@@ -146,8 +182,19 @@ cmd_up() {
         -p robot_id:=entry_follow -p ramp_wait_sec:="$RAMP_WAIT"
 
     echo "[11/13] pickup_orchestrator_node"
+    # Phase B(START_AT_DOCK=1): run_phase_b_first(오케스트레이터 기본 True)로 도크→XN
+    # 레그를 corridor_plan 앞에 실행. 크로스노드 set_parameters 대상 localizer FQN 을
+    # 명시(위 -r __ns 로 띄운 노드명과 일치). START_AT_DOCK=0 이면 Phase B 를 끈다.
+    _orch_args=()
+    if [ "$START_AT_DOCK" = "1" ]; then
+        _orch_args=(--ros-args \
+            -p phase_b_leader_localizer_node:=/robot_entry_lead/marker_localizer_node \
+            -p phase_b_follower_localizer_node:=/robot_entry_follow/marker_localizer_node)
+    else
+        _orch_args=(--ros-args -p run_phase_b_first:=false)
+    fi
     _launch "pickup_orchestrator" "$LOG_DIR/pickup_orchestrator.log" \
-        bash "$SCRIPT_DIR/run_pickup_orchestrator_node.sh"
+        bash "$SCRIPT_DIR/run_pickup_orchestrator_node.sh" "${_orch_args[@]}"
 
     echo "[12/13] discovery 안정화 대기(10s)"
     sleep 10
