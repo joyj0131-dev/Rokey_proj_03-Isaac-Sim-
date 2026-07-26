@@ -56,6 +56,7 @@ import time
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import ReentrantCallbackGroup
+from std_msgs.msg import Bool, Empty
 
 from parking_robot_system.formation_driver import (
     CONTROL_HZ, INGRESS_SPEED, K_LIN, K_STRAFE, K_YAW, MAX_LIN, MAX_YAW,
@@ -183,6 +184,29 @@ class FormationMotion:
             PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
         self.cmd = {r: node.create_publisher(Twist, f"/robot_{r}/cmd_vel", 10) for r in self.robots}
 
+        # ---- 뎁스캠 바퀴 감지(2026-07-26, p4_depth의 depth_stop_detector.py 연결) ----
+        # ingress_to/ingress_parallel이 진입 시작 직전 wheel_depth_arm(Empty)을 보내
+        # parking_v4_runner.py 쪽 DepthStopDetector를 재보정시키고, 그 결과인
+        # wheel_depth_stop(Bool)을 구독해 "고정 축 오프셋 도달" OR "뎁스로 바퀴 실측
+        # 확인" 둘 중 먼저 온 쪽으로 정지한다 — 뎁스캠이 없거나 안 왔을 때도 기존
+        # 고정 오프셋이 안전망으로 남아있다(하드코딩을 대체가 아니라 보강).
+        self.wheel_depth_stop = {r: False for r in self.robots}
+        self._wheel_depth_arm_pub = {
+            r: node.create_publisher(Empty, f"/robot_{r}/wheel_depth_arm", 10)
+            for r in self.robots}
+        for r in self.robots:
+            node.create_subscription(
+                Bool, f"/robot_{r}/wheel_depth_stop",
+                lambda m, rid=r: self.wheel_depth_stop.__setitem__(rid, bool(m.data)),
+                10, callback_group=grp)
+
+    def _arm_wheel_depth(self, *rids):
+        """진입 시작 직전 호출 — 대상 로봇들의 뎁스 검출기를 재보정시키고
+        이전 시도의 stop 신호를 로컬에서도 지운다."""
+        for rid in rids:
+            self.wheel_depth_stop[rid] = False
+            self._wheel_depth_arm_pub[rid].publish(Empty())
+
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
     def _odom(self, rid, m):
         q = m.pose.pose.orientation
@@ -306,12 +330,17 @@ class FormationMotion:
 
         주의: 아래 yaw 보정 게인(0.6)과 clamp 상한(0.10)은 원본이 K_YAW/MAX_YAW가 아닌
         별도 하드코딩 값을 쓴다(원본 L202 주석: "완만한 방위 유지") — 그대로 유지.
+
+        2026-07-26: wheel_depth_stop(뎁스캠 실측 바퀴 감지)도 정지 조건에 추가했다 —
+        고정 축 오프셋(target_z)에 도달하거나, 뎁스캠이 실제로 바퀴를 감지하거나,
+        둘 중 먼저 오는 쪽으로 멈춘다.
         """
         cx = self.cx if cx is None else cx
+        self._arm_wheel_depth(rid)
         end = time.time() + timeout
         while time.time() < end:
             x, z, yaw = self.pose[rid]
-            if abs(z - target_z) < tol and abs(x - cx) < tol * 2:
+            if self.wheel_depth_stop.get(rid) or (abs(z - target_z) < tol and abs(x - cx) < tol * 2):
                 break
             ex, ez = cx - x, target_z - z
             fwd, left = body_twist_from_world_error(ex, ez, yaw)
@@ -537,7 +566,10 @@ class FormationMotion:
 
         targets: {rid: (cx, target_z, face_yaw)}. 매 tick 각 로봇에 ingress_to와 동일한
         폐루프(중심선 cx·방위 face_yaw 유지 + 축 target_z로 옴니 진입) 지령을 동시에 낸다.
-        두 로봇이 서로 다른 차로에서 시작하고 축 순서가 유지되면 겹치지 않는다."""
+        두 로봇이 서로 다른 차로에서 시작하고 축 순서가 유지되면 겹치지 않는다.
+
+        2026-07-26: ingress_to와 동일하게 wheel_depth_stop도 정지 조건에 포함한다."""
+        self._arm_wheel_depth(*targets.keys())
         done = {rid: False for rid in targets}
         end = time.time() + timeout
         while time.time() < end:
@@ -546,7 +578,7 @@ class FormationMotion:
                     self._pub(rid, 0.0)
                     continue
                 x, z, yaw = self.pose[rid]
-                if abs(z - target_z) < tol and abs(x - cx) < tol * 2:
+                if self.wheel_depth_stop.get(rid) or (abs(z - target_z) < tol and abs(x - cx) < tol * 2):
                     done[rid] = True
                     self._pub(rid, 0.0)
                     continue

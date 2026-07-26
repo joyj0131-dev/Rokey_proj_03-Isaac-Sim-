@@ -65,6 +65,22 @@ DEMO_VEHICLES = (
     ("Pickup", "marker:W_OUT"),   # 입차 대기 슬롯(차량 인계 베이)
     ("Offroad", "slot:A3"),       # A3 슬롯 중심
 )
+# /vehicle/pose 로 GT를 발행할 차량 — formation_motion.wait_data()가 이 토픽을
+# 기다린다(2026-07-26 확인: 실제 파이프라인에서 이게 안 나와서 픽업 시퀀스가
+# "데이터 미수신"으로 멈췄었다). 지금은 전역 토픽 하나뿐이라 입차팀이 다루는
+# 차량(Pickup) 기준으로만 발행한다 — 출차팀이 동시에 다른 차량을 다루는
+# 시나리오까지는 아직 지원 안 함(현재 데모 범위 밖).
+VEHICLE_POSE_SOURCE = "Pickup"
+
+# ---- 뎁스캠 기반 바퀴 감지(2026-07-26, p4_depth 브랜치의 depth_stop_detector.py
+# 연결) — ingress_to()가 쓰던 고정 축 오프셋 대신, 옆 뎁스캠으로 실제 바퀴를
+# 봐서 정지 시점을 판단한다. depth_stop_lift_test.py에서 실측 검증된 값 그대로
+# 재사용한다(카메라 해상도, 캘리브레이션 프레임 수, 드롭 마진, ROI). ----
+WHEEL_DEPTH_CAM_RES = (640, 480)
+WHEEL_DEPTH_BASELINE_FRAMES = 30
+WHEEL_DEPTH_DROP_MARGIN = 0.08
+WHEEL_DEPTH_CONFIRM_FRAMES = 3
+WHEEL_DEPTH_ROI_FRAC = (0.30, 0.70, 0.30, 0.70)  # (col_lo, col_hi, row_lo, row_hi), 사이드캠 중앙
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
 # 않으면 측정과 무관한 다른 코드 변경(예: 카메라 부착 루프의 app.update()
@@ -156,6 +172,31 @@ def robot_prim_path(robot_id):
 
 def vehicle_prim_path(name):
     return f"/World/Vehicles/{name}"
+
+
+def side_camera_path(robot_id, side="left"):
+    """로봇 옆(좌/우) 뎁스캠 프림 경로 — hwia_depth_cam_mecha_roller*.usd 실측
+    구조(depth_stop_lift_test.py의 CAM_LEFT와 같은 경로 패턴, 2026-07-24 확인)."""
+    return (f"{robot_prim_path(robot_id)}/cam_side_{side}_link/"
+            f"depth_cam_{side}/Camera_Pseudo_Depth_{side.capitalize()}")
+
+
+def _depth_to_hw(depth_raw, rgba_hw):
+    """카메라 원시 뎁스 프레임을 (height, width) 2D로 정규화한다.
+
+    depth_stop_lift_test.py에서 실측한 축 순서를 그대로 따른다: rgba_hw(=(height,width))와
+    앞 두 축이 일치하면 그대로, 뒤집혀 있으면 전치한다.
+    """
+    if depth_raw is None or not getattr(depth_raw, "size", 0):
+        return None
+    arr = np.asarray(depth_raw, dtype=np.float64).squeeze()
+    if arr.ndim != 2:
+        return None
+    if arr.shape == rgba_hw:
+        return arr
+    if arr.shape == rgba_hw[::-1]:
+        return arr.T
+    return arr
 
 
 def slot_center(stage, slot_id):
@@ -1053,11 +1094,100 @@ def main():
         sys.path.insert(0, str(BRIDGE_RCLPY))
     import rclpy
     from nav_msgs.msg import Odometry
+    from geometry_msgs.msg import PoseStamped
+    from std_msgs.msg import Bool, Empty, Float32
     if not rclpy.ok():
         rclpy.init()
     ros_node = rclpy.create_node("parking_v4_runner")
     odom_pub = {r: ros_node.create_publisher(Odometry, f"/robot_{r}/odom", 10)
                 for r in sm.ROBOTS}
+
+    # ---- /vehicle/pose GT 발행(2026-07-26) — formation_motion.wait_data()가
+    # 이 토픽을 기다린다. --with-vehicles로 스폰한 VEHICLE_POSE_SOURCE 차량의
+    # 실제(GT) pose를 그대로 낸다(위 VEHICLE_POSE_SOURCE 주석의 현재 범위 한계 참고). ----
+    veh_pose_pub = None
+    veh_prim = None
+    if with_vehicles:
+        veh_path = vehicle_prim_path(VEHICLE_POSE_SOURCE)
+        p = stage.GetPrimAtPath(veh_path)
+        if p and p.IsValid():
+            veh_prim = p
+            veh_pose_pub = ros_node.create_publisher(PoseStamped, "/vehicle/pose", 10)
+            print(f"V4_VEHICLE_POSE_SOURCE={VEHICLE_POSE_SOURCE}", flush=True)
+
+    def publish_vehicle_pose():
+        if veh_pose_pub is None:
+            return
+        from pxr import Usd, UsdGeom
+        xf = UsdGeom.Xformable(veh_prim)
+        m = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        x, y, z = (float(v) for v in m.ExtractTranslation())
+        quat = m.ExtractRotation().GetQuat()
+        msg = PoseStamped()
+        msg.header.stamp = ros_node.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = x, y, z
+        img = quat.GetImaginary()
+        msg.pose.orientation.w = float(quat.GetReal())
+        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z = (
+            float(img[0]), float(img[1]), float(img[2]))
+        veh_pose_pub.publish(msg)
+
+    # ---- 뎁스캠 기반 바퀴 감지(2026-07-26, depth_stop_detector.py 연결) ----
+    # 로봇마다 좌측 뎁스캠 + DepthStopDetector 하나씩. formation_motion.py가
+    # ingress 시작 직전 /robot_{id}/wheel_depth_arm(Empty)을 보내면 그 로봇의
+    # 검출기를 새로 초기화(재보정)한다 — depth_stop_lift_test.py와 동일하게
+    # "진입 시작 시점부터 baseline_frames만큼 모아 기준선을 잡는" 방식이라
+    # 매 시도마다 다시 무장해야 한다.
+    from isaacsim.sensors.camera import Camera
+    sys.path.insert(0, str(WORK_DIR))
+    from depth_stop_detector import DepthStopDetector, roi_min_depth
+
+    wheel_cams, wheel_rgba_hw, wheel_detectors = {}, {}, {}
+    wheel_stop_pub, wheel_roi_pub = {}, {}
+    for r in sm.ROBOTS:
+        if not stage.GetPrimAtPath(robot_prim_path(r)).IsActive():
+            continue
+        cam_path = side_camera_path(r, "left")
+        if not stage.GetPrimAtPath(cam_path).IsValid():
+            continue
+        cam = Camera(prim_path=cam_path, resolution=WHEEL_DEPTH_CAM_RES)
+        cam.initialize()
+        cam.add_distance_to_image_plane_to_frame()
+        wheel_cams[r] = cam
+        wheel_stop_pub[r] = ros_node.create_publisher(Bool, f"/robot_{r}/wheel_depth_stop", 10)
+        wheel_roi_pub[r] = ros_node.create_publisher(Float32, f"/robot_{r}/wheel_depth_roi", 10)
+
+        def _make_arm_cb(rid):
+            def _cb(_msg):
+                wheel_detectors[rid] = DepthStopDetector(
+                    baseline_frames=WHEEL_DEPTH_BASELINE_FRAMES,
+                    drop_margin=WHEEL_DEPTH_DROP_MARGIN,
+                    confirm_frames=WHEEL_DEPTH_CONFIRM_FRAMES)
+                ros_node.get_logger().info(f"wheel_depth_arm: {rid} 검출기 재보정 시작")
+            return _cb
+        ros_node.create_subscription(
+            Empty, f"/robot_{r}/wheel_depth_arm", _make_arm_cb(r), 10)
+    for _ in range(30):
+        app.update()
+    for r, cam in wheel_cams.items():
+        wheel_rgba_hw[r] = tuple(int(v) for v in cam.get_rgba().shape[:2])
+    if wheel_cams:
+        print(f"V4_WHEEL_DEPTH_CAMS={sorted(wheel_cams)}", flush=True)
+
+    def step_wheel_depth(step):
+        """무장된(= wheel_detectors에 있는) 로봇만 뎁스 프레임을 검출기에 먹이고 발행한다."""
+        for r, detector in list(wheel_detectors.items()):
+            cam = wheel_cams.get(r)
+            if cam is None:
+                continue
+            depth_hw = _depth_to_hw(cam.get_depth(), wheel_rgba_hw[r])
+            roi_value = (roi_min_depth(depth_hw, roi_frac=WHEEL_DEPTH_ROI_FRAC)
+                        if depth_hw is not None else math.inf)
+            triggered = detector.update(step, roi_value)
+            wheel_stop_pub[r].publish(Bool(data=bool(triggered)))
+            if math.isfinite(roi_value):
+                wheel_roi_pub[r].publish(Float32(data=float(roi_value)))
 
     def _active_robots():
         """씬에 살아있는 로봇만. probe B 가 대상 외 로봇을 비활성화해도
@@ -1206,6 +1336,7 @@ def main():
             return
 
     prev_sim = timeline.get_current_time()
+    wheel_depth_step = 0
     while app.is_running():
         app.update()
         now_sim = timeline.get_current_time()
@@ -1214,6 +1345,9 @@ def main():
         rclpy.spin_once(ros_node, timeout_sec=0.0)
         step_odometry(dt)
         publish_odom()
+        publish_vehicle_pose()
+        wheel_depth_step += 1
+        step_wheel_depth(wheel_depth_step)
     app.close()
 
 
