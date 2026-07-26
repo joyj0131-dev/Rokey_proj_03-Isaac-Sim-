@@ -63,6 +63,14 @@ from parking_robot_system.formation_driver import (
     POS_TOL, YAW_TOL, body_twist_from_world_error, clamp, formation_heading,
     heading_hold_omega, rigid_body_world_velocity, wrap,
 )
+# 공동정지(co-stop) 워치독 판단(2026-07-26) — formation_gap_controller_node.py가
+# 원래 쓰던 판단 로직(core/formation_costop.is_stale)만 재사용한다. 그 노드
+# 자체는 "로봇마다 별도 프로세스가 서로 다른 cmd_vel을 낸다"는 다른 아키텍처를
+# 전제해서(이 클래스 하나가 편대 두 로봇을 동시에 명령하는 지금 구조와 안 맞고,
+# 그대로 띄우면 토픽 이름도 어긋나 항상 정지로 오작동한다) 그대로 연결하지
+# 않았다 — 대신 "파트너 odom이 끊기면 즉시 둘 다 세운다"는 안전 개념만
+# 아래 폐루프들에 직접 넣었다.
+from parking_control.core.formation_costop import is_stale
 # carry_rotate_to(차를 든 채 제자리 회전)의 강체(ω×r) 계산 — 2026-07-24 배선.
 # 예전엔 이 컨트롤러가 테스트만 통과하고 실제 로봇 코드엔 연결된 적이 없었다
 # (두 로봇이 각자 같은 목표각으로 "따로" 도는 단순한 방식만 실사용됐음). 이제
@@ -128,6 +136,7 @@ class FormationMotion:
                  handoff_x=-8.5, handoff_z=7.075, gate_x=-12.55,
                  dock_rear=(-3.2, 2.2), dock_front=(-1.2, 2.2), lane_z=6.875,
                  rear_axle_z=-1.93, front_axle_z=1.66,
+                 watchdog_timeout_sec=0.5,
                  callback_group=None):
         # rear_id/front_id: 이 편대가 실제로 제어할 물리 로봇 이름(토픽/서비스 네임스페이스에
         # 그대로 쓰인다) — 입차/출차 전용 로봇쌍을 분리하려면 액션서버 생성 시 다른 이름을
@@ -169,6 +178,8 @@ class FormationMotion:
         self.pose = {r: None for r in self.robots}   # rid -> (x, z, yaw), USD
         self.veh_x = self.veh_y = self.veh_z = None
         self.veh_yaw = None
+        self._watchdog_timeout = watchdog_timeout_sec
+        self._pose_updated_at = {r: None for r in self.robots}  # rid -> time.time()
         grp = callback_group or ReentrantCallbackGroup()
         for r in self.robots:
             # 토픽 접두사 "/robot_{id}/..."는 isaacpjt/Isaac_envo/parking_v4_runner.py가
@@ -207,11 +218,20 @@ class FormationMotion:
             self.wheel_depth_stop[rid] = False
             self._wheel_depth_arm_pub[rid].publish(Empty())
 
+    def _watchdog_stale(self):
+        """편대(rear+front) 중 한쪽이라도 odom이 watchdog_timeout_sec 안에 안
+        왔으면 True — "한쪽만 멈추면 차가 뒤틀린다"는 공동정지 원칙
+        (formation_gap_controller_node.py 설계, 2026-07-21)을 그대로 따른다."""
+        now = time.time()
+        return any(is_stale(now, self._pose_updated_at[r], self._watchdog_timeout)
+                   for r in self.robots)
+
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
     def _odom(self, rid, m):
         q = m.pose.pose.orientation
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         self.pose[rid] = (m.pose.pose.position.x, m.pose.pose.position.z, yaw)
+        self._pose_updated_at[rid] = time.time()
 
     def _veh(self, m):
         self.veh_x = m.pose.position.x
@@ -289,6 +309,10 @@ class FormationMotion:
         idx = {rid: 0 for rid in routes}
         end = time.time() + timeout
         while time.time() < end:
+            if len(routes) > 1 and self._watchdog_stale():
+                self._stop_all()
+                self.node.get_logger().warn("approach_parallel: 공동정지(파트너 odom 두절)")
+                return False
             for rid, wps in routes.items():
                 if idx[rid] >= len(wps):
                     self._pub(rid, 0.0)
@@ -362,6 +386,10 @@ class FormationMotion:
         done = {rid: False for rid in targets}
         end = time.time() + timeout
         while time.time() < end:
+            if len(targets) > 1 and self._watchdog_stale():
+                self._stop_all()
+                self.node.get_logger().warn("rotate_parallel: 공동정지(파트너 odom 두절)")
+                return False
             for rid, target_yaw in targets.items():
                 if done[rid]:
                     self._pub(rid, 0.0)
@@ -455,6 +483,10 @@ class FormationMotion:
         max_heading_error = 0.0
         end = time.time() + timeout
         while time.time() < end:
+            if self._watchdog_stale():
+                self._stop_all()
+                self.node.get_logger().warn("carry_to: 공동정지(파트너 odom 두절)")
+                return False
             ex, ez = tx_usd - self.veh_x, tz_usd - self.veh_z
             heading = self.carry_heading()
             if heading is None:
@@ -573,6 +605,10 @@ class FormationMotion:
         done = {rid: False for rid in targets}
         end = time.time() + timeout
         while time.time() < end:
+            if len(targets) > 1 and self._watchdog_stale():
+                self._stop_all()
+                self.node.get_logger().warn("ingress_parallel: 공동정지(파트너 odom 두절)")
+                return False
             for rid, (cx, target_z, face_yaw) in targets.items():
                 if done[rid]:
                     self._pub(rid, 0.0)
@@ -680,6 +716,10 @@ class FormationMotion:
 
         end = time.time() + timeout
         while time.time() < end:
+            if self._watchdog_stale():
+                self._stop_all()
+                self.node.get_logger().warn("carry_rotate_to: 공동정지(파트너 odom 두절)")
+                return False
             rear_p, front_p = self.pose.get(self.rear_id), self.pose.get(self.front_id)
             if rear_p is None or front_p is None:
                 self._stop_all()
