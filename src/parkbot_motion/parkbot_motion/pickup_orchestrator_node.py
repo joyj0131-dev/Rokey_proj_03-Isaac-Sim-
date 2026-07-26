@@ -186,6 +186,14 @@ class PickupOrchestratorNode(Node):
         # align(융합) 단계 실패를 치명적으로 볼지 -- 기본 False(베스트에포트,
         # § 클래스 docstring "align" 절 근거).
         self.declare_parameter('align_required', False)
+        # approach 자세원을 융합(navigate_fused_action)으로 쓸지 -- 기본 False(오도,
+        # R5b 하위호환: 로봇이 베이 근처에서 시작해 오도 드리프트가 작을 때). Phase B
+        # 를 앞에 붙이면 도크→XN ~12m+회전으로 raw 오도가 ~1m 드리프트하므로(실측),
+        # approach 는 마커보정된 융합 자세(Phase B 종단에서 정확)로 시작해야 한다 --
+        # bringup_pickup_e2e.sh 가 START_AT_DOCK=1 에서 켠다. axle_detector/ingress 도
+        # 같은 융합 프레임을 쓰면(bringup 배선) 뎁스 검출축 기준 상대정지라 절대
+        # 드리프트가 상쇄된다.
+        self.declare_parameter('approach_use_fused', False)
 
         # ---- Phase B(도크 스폰→XN 융합주행) 레그 파라미터 (R6/T3) ----
         # corridor_plan(픽업 회랑) **앞에** 두 로봇의 도크→XN 레그를 붙일지.
@@ -239,6 +247,7 @@ class PickupOrchestratorNode(Node):
         self.ingress_action = gp('ingress_action').value
         self.lift_action = gp('lift_action').value
         self.align_required = bool(gp('align_required').value)
+        self.approach_use_fused = bool(gp('approach_use_fused').value)
 
         # ---- Phase B 파라미터 캐시 ----
         self.run_phase_b_first = bool(gp('run_phase_b_first').value)
@@ -348,7 +357,12 @@ class PickupOrchestratorNode(Node):
     # ---- 단계별 호출 래퍼 ----
 
     def _approach(self, robot_id):
-        client = self._client(robot_id, 'nav_odom', NavigateToPose, self.navigate_odom_action)
+        # approach_use_fused: Phase B 뒤엔 raw 오도가 드리프트하므로 마커보정된
+        # 융합 자세원(nav_fused)으로 시작한다(§ approach_use_fused 파라미터 근거).
+        if self.approach_use_fused:
+            client = self._client(robot_id, 'nav_fused', NavigateToPose, self.navigate_fused_action)
+        else:
+            client = self._client(robot_id, 'nav_odom', NavigateToPose, self.navigate_odom_action)
         goal = _navigate_goal(self.get_clock(), self.approach_x, self.approach_z,
                                self.approach_yaw_deg)
         result, status, reason = self._call_action(

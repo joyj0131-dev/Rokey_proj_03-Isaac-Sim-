@@ -104,13 +104,18 @@ cmd_up() {
     # 발행 토픽. rear_t_base_cam 은 기본값(전방 Ry180 유도, T3b) — T5 에서 GT 검증.
     # 노드는 로봇 네임스페이스로 띄워 FQN 을 /robot_<id>/marker_localizer_node 로
     # 구분(오케스트레이터 크로스노드 set_parameters 대상, T3 기본 유도값과 일치).
+    # seed_pose: 도크 스폰 GT 자세로 필터를 미리 시딩(첫 마커 fix 전에도 odom
+    # 예측으로 융합자세가 나와 dock_check 같은 융합주행이 시작 가능 — 러너
+    # _mission_setup 의 도크 직접시딩 등가물). yaw=90=+X(도크 스폰 방향).
     _rear_lead=()
     _rear_follow=()
     if [ "$START_AT_DOCK" = "1" ]; then
         _rear_lead=(-p rear_image_topic:=/robot_entry_lead/rear/image_raw \
-                    -p rear_camera_info_topic:=/robot_entry_lead/rear/camera_info)
+                    -p rear_camera_info_topic:=/robot_entry_lead/rear/camera_info \
+                    -p "seed_pose:=[-3.2,2.2,90.0]")
         _rear_follow=(-p rear_image_topic:=/robot_entry_follow/rear/image_raw \
-                      -p rear_camera_info_topic:=/robot_entry_follow/rear/camera_info)
+                      -p rear_camera_info_topic:=/robot_entry_follow/rear/camera_info \
+                      -p "seed_pose:=[-1.2,2.2,90.0]")
     fi
 
     echo "[2/13] marker_localizer_node entry_lead"
@@ -145,7 +150,7 @@ cmd_up() {
         bash "$SCRIPT_DIR/run_pose_controller_node.sh" --ros-args \
         -p robot_id:=entry_lead -p pose_topic:=/robot_entry_lead/pose \
         -p pose_msg_type:=posestamped -p action_name:=/robot_entry_lead/navigate_to_pose_fused \
-        -p pos_tol:=0.06 -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p pos_tol:=0.06 -p pose_stale_timeout_sec:=15.0 -p goal_timeout_sec:="$GOAL_TIMEOUT"
 
     echo "[6/13] pose_controller_node entry_follow (odom, approach)"
     _launch "pose_controller_odom_entry_follow" "$LOG_DIR/pose_controller_odom_entry_follow.log" \
@@ -157,21 +162,38 @@ cmd_up() {
         bash "$SCRIPT_DIR/run_pose_controller_node.sh" --ros-args \
         -p robot_id:=entry_follow -p pose_topic:=/robot_entry_follow/pose \
         -p pose_msg_type:=posestamped -p action_name:=/robot_entry_follow/navigate_to_pose_fused \
-        -p pos_tol:=0.06 -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p pos_tol:=0.06 -p pose_stale_timeout_sec:=15.0 -p goal_timeout_sec:="$GOAL_TIMEOUT"
+
+    # Phase B(START_AT_DOCK=1): 픽업 자세원을 마커보정된 융합 /pose 로 준다 -- 긴
+    # Phase B 경로(도크→XN ~12m+회전) 뒤 raw 오도 드리프트(~1m 실측)를 피한다.
+    # axle_detector 와 ingress 가 **같은 융합 프레임**을 쓰면 뎁스 검출축 기준
+    # 상대정지라 절대 드리프트가 상쇄된다(axle_detector docstring §"주행좌표"가
+    # 도크 인근 구간에서 /pose 로 바꿔 쓰는 이 구성을 명시). START_AT_DOCK=0 이면
+    # 기존 오도(하위호환, R5b 베이근처 시작).
+    _fused_pose_lead=()
+    _fused_pose_follow=()
+    if [ "$START_AT_DOCK" = "1" ]; then
+        _fused_pose_lead=(-p pose_topic:=/robot_entry_lead/pose -p pose_msg_type:=posestamped)
+        _fused_pose_follow=(-p pose_topic:=/robot_entry_follow/pose -p pose_msg_type:=posestamped)
+    fi
 
     echo "[8/13] axle_detector_node entry_lead / entry_follow"
     _launch "axle_detector_entry_lead" "$LOG_DIR/axle_detector_entry_lead.log" \
-        bash "$SCRIPT_DIR/run_axle_detector_node.sh" --ros-args -p robot_id:=entry_lead
+        bash "$SCRIPT_DIR/run_axle_detector_node.sh" --ros-args -p robot_id:=entry_lead \
+        "${_fused_pose_lead[@]}"
     _launch "axle_detector_entry_follow" "$LOG_DIR/axle_detector_entry_follow.log" \
-        bash "$SCRIPT_DIR/run_axle_detector_node.sh" --ros-args -p robot_id:=entry_follow
+        bash "$SCRIPT_DIR/run_axle_detector_node.sh" --ros-args -p robot_id:=entry_follow \
+        "${_fused_pose_follow[@]}"
 
     echo "[9/13] ingress_node entry_lead / entry_follow"
     _launch "ingress_entry_lead" "$LOG_DIR/ingress_entry_lead.log" \
         bash "$SCRIPT_DIR/run_ingress_node.sh" --ros-args \
-        -p robot_id:=entry_lead -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p robot_id:=entry_lead -p goal_timeout_sec:="$GOAL_TIMEOUT" \
+        "${_fused_pose_lead[@]}"
     _launch "ingress_entry_follow" "$LOG_DIR/ingress_entry_follow.log" \
         bash "$SCRIPT_DIR/run_ingress_node.sh" --ros-args \
-        -p robot_id:=entry_follow -p goal_timeout_sec:="$GOAL_TIMEOUT"
+        -p robot_id:=entry_follow -p goal_timeout_sec:="$GOAL_TIMEOUT" \
+        "${_fused_pose_follow[@]}"
 
     echo "[10/13] lift_action_server entry_lead / entry_follow"
     _launch "lift_entry_lead" "$LOG_DIR/lift_entry_lead.log" \
@@ -187,7 +209,10 @@ cmd_up() {
     # 명시(위 -r __ns 로 띄운 노드명과 일치). START_AT_DOCK=0 이면 Phase B 를 끈다.
     _orch_args=()
     if [ "$START_AT_DOCK" = "1" ]; then
+        # approach_use_fused: Phase B 뒤 raw 오도 드리프트를 피해 approach 를 마커보정
+        # 융합 자세로 시작(axle_detector/ingress 도 위에서 융합 프레임 -> 상대정지).
         _orch_args=(--ros-args \
+            -p approach_use_fused:=true \
             -p phase_b_leader_localizer_node:=/robot_entry_lead/marker_localizer_node \
             -p phase_b_follower_localizer_node:=/robot_entry_follow/marker_localizer_node)
     else

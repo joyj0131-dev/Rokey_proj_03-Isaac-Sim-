@@ -139,6 +139,14 @@ class MarkerLocalizerNode(Node):
         # 내야 하므로 토픽명을 파라미터화한다(기본값은 기존 하드코딩 값 그대로 —
         # 기존 호출부와 하위호환). 예: -p pose_topic:=/robot_entry_lead/pose
         self.declare_parameter("pose_topic", "/robot_pose")
+        # seed_pose: fuse=True 필터의 초기 자세 [x, z, yaw_deg]. 비면 시딩 안 함
+        # (첫 마커 fix 로 자기시딩=기존 동작, 하위호환). Phase B 처럼 도크 스폰에서
+        # 마커를 아직 못 본 상태로 융합주행을 시작해야 할 때, 여기에 스폰 GT 자세를
+        # 주면 odom 예측이 첫 fix 전에도 자세를 실어나른다(러너 _mission_setup 이
+        # 필터를 도크 좌표로 직접 시딩하던 것의 ROS2 등가물). 마커 fix 가 들어오면
+        # correct_yaw 규약대로 보정된다.
+        self.declare_parameter(
+            "seed_pose", [], ParameterDescriptor(dynamic_typing=True))
         # Phase B(도크→XN 융합주행): 러너 ctx["ref_id"] 하드필터의 ROS2 이식.
         # 빈 리스트=필터 없음(전체 검출 사용, 기존 동작과 동일=하위호환). T3
         # 오케스트레이터가 set_parameters 로 도크(21/23)→XN(31) 런타임 전환.
@@ -218,6 +226,15 @@ class MarkerLocalizerNode(Node):
         if self.fuse:
             from parkbot_aruco.marker_localizer import PoseFilter
             self.filt = PoseFilter()
+            seed = list(self.get_parameter("seed_pose").value or [])
+            if len(seed) == 3:
+                self.filt.set_pose(float(seed[0]), float(seed[1]), float(seed[2]))
+                self.get_logger().info(
+                    f"seed_pose 로 필터 초기화: x={seed[0]:.3f} z={seed[1]:.3f} "
+                    f"yaw={seed[2]:.1f}° (첫 fix 전 odom 예측 활성)")
+            elif seed:
+                self.get_logger().warn(
+                    f"seed_pose 는 [x,z,yaw_deg] 3개여야 합니다(받음 {len(seed)}개) — 무시")
             self.create_subscription(Odometry, self.get_parameter("odom_topic").value,
                                      self._on_odom, qos_profile_sensor_data)
 
@@ -277,6 +294,15 @@ class MarkerLocalizerNode(Node):
         if delta is not None and self.filt is not None and self.filt.x is not None:
             self.filt.predict(*delta)
         self._last_odom = cur
+        # 융합 자세를 odom 콜백에서도 발행한다(필터 시딩 후). /odom 은 브리지가 매
+        # sim 스텝 발행하는 가장 안정적인 신호라(카메라 렌더와 무관), 저RTF 에서
+        # 카메라 프레임이 드물어져도 /pose 피드가 끊기지 않는다 — 소비자
+        # (pose_controller)의 pose_stale_timeout(자세 공백 시 goal abort)을 막는다.
+        # 마커 보정은 여전히 _process_frame 에서 일어나고, 여기선 그 최신 필터
+        # 자세(마커보정+odom예측)를 재발행할 뿐이다.
+        if self.filt is not None and self.filt.x is not None:
+            px, pz, pyaw = self.filt.pose()
+            self._publish_pose(px, pz, pyaw, msg.header)
 
     def _on_image(self, msg: Image):
         if self.K is None:
@@ -332,44 +358,51 @@ class MarkerLocalizerNode(Node):
                     f"(재투영 {p.reproj_err_px:.2f}px)")
 
             if self.fuse and self.filt is not None:
+                # 융합: 이 프레임의 마커로 공유 필터를 보정한다(발행은 루프 밖에서
+                # 프레임당 1회 — 마커 사각 구간에서도 끊김 없이 자세를 내보내기 위함).
                 if self.filt.x is None:
                     self.filt.set_pose(fix.x, fix.z, fix.yaw_deg)
                 else:
                     apply_fix(self.filt, fix, self.correct_yaw)
-                px, pz, pyaw = self.filt.pose()
             else:
-                px, pz, pyaw = fix.x, fix.z, fix.yaw_deg
-            # 이후 px,pz,pyaw 로 PoseStamped 발행(기존 x,z,yaw 자리 대체)
+                # 마커 단독(비융합): 마커별 raw fix 를 그대로 발행(기존 동작 유지).
+                self._publish_pose(fix.x, fix.z, fix.yaw_deg, msg.header)
 
-            ps = PoseStamped()
-            ps.header = msg.header
-            if self.frame == "ros_map":
-                # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2.
-                # psi=atan2(fwd_x,fwd_z), 부호는 Isaac GT 대조 실측으로 확정했다.
-                ps.header.frame_id = "map"
-                ps.pose.position.x = px
-                ps.pose.position.y = -pz
-                ros_yaw = math.radians(pyaw) - math.pi / 2.0
-                ps.pose.orientation.z = math.sin(ros_yaw / 2.0)
-                ps.pose.orientation.w = math.cos(ros_yaw / 2.0)
-            else:
-                ps.pose.position.x = px
-                ps.pose.position.y = 0.0
-                ps.pose.position.z = pz
-                # R3c 수정: 이전에는 이 usd 분기가 orientation 을 전혀 채우지
-                # 않아(geometry_msgs 기본값 x=y=z=0,w=1) yaw 가 항상 0 으로
-                # 발행됐다(pose_controller_node 같은 소비자가 회전 피드백을
-                # 아예 못 받는 버그). /robot_<id>/odom 과 같은 규약(R2 계약,
-                # parking_v4_runner.publish_odom): 이 프로젝트 yaw(yaw=0→+Z)를
-                # 메시지의 z축 회전 슬롯에 그대로 인코딩한다 — 그래야
-                # pose_controller_node.odom_quat_to_yaw_deg 를 Odometry/
-                # PoseStamped 양쪽에 그대로 재사용할 수 있다(같은 인코딩).
-                yaw_rad = math.radians(pyaw)
-                ps.pose.orientation.x = 0.0
-                ps.pose.orientation.y = 0.0
-                ps.pose.orientation.z = math.sin(yaw_rad * 0.5)
-                ps.pose.orientation.w = math.cos(yaw_rad * 0.5)
-            self.pub_pose.publish(ps)
+        # 융합 모드: 이 프레임에 매칭 마커를 봤든(위에서 보정) 아니든, 필터가
+        # 시딩돼 있으면 현재 자세(odom 예측 + 그간의 마커 보정)를 프레임마다
+        # 발행한다. 소비자(pose_controller)가 도크/XN 마커가 아직 안 보이는
+        # 초입에서도 끊김 없는 피드백을 받아 stale_pose 로 중단되지 않게 한다
+        # (seed_pose 로 시딩한 Phase B dock_check 초입 stale_pose 버그 수정).
+        if self.fuse and self.filt is not None and self.filt.x is not None:
+            px, pz, pyaw = self.filt.pose()
+            self._publish_pose(px, pz, pyaw, msg.header)
+
+    def _publish_pose(self, px, pz, pyaw, header):
+        """(x, z, yaw_deg) 를 frame 규약대로 PoseStamped 로 발행(전방/후방/융합 공용)."""
+        ps = PoseStamped()
+        ps.header = header
+        if self.frame == "ros_map":
+            # 확정 규약: ros_x=usd_x, ros_y=-usd_z, ros_yaw=psi-pi/2.
+            # psi=atan2(fwd_x,fwd_z), 부호는 Isaac GT 대조 실측으로 확정했다.
+            ps.header.frame_id = "map"
+            ps.pose.position.x = px
+            ps.pose.position.y = -pz
+            ros_yaw = math.radians(pyaw) - math.pi / 2.0
+            ps.pose.orientation.z = math.sin(ros_yaw / 2.0)
+            ps.pose.orientation.w = math.cos(ros_yaw / 2.0)
+        else:
+            ps.pose.position.x = px
+            ps.pose.position.y = 0.0
+            ps.pose.position.z = pz
+            # 이 프로젝트 yaw(yaw=0→+Z)를 메시지의 z축 회전 슬롯에 그대로 인코딩
+            # (R2/R3c 규약 — pose_controller_node.odom_quat_to_yaw_deg 와 동일
+            # 인코딩이라 Odometry/PoseStamped 양쪽에 그대로 재사용된다).
+            yaw_rad = math.radians(pyaw)
+            ps.pose.orientation.x = 0.0
+            ps.pose.orientation.y = 0.0
+            ps.pose.orientation.z = math.sin(yaw_rad * 0.5)
+            ps.pose.orientation.w = math.cos(yaw_rad * 0.5)
+        self.pub_pose.publish(ps)
 
 
 def main(args=None):
