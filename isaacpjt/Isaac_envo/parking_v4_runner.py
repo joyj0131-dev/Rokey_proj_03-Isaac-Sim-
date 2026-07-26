@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """v4 주차장 러너 — 로봇 4대(입차팀/출차팀) + 휠 오도메트리 + probe 진입점.
 
-기존 dock_lift_handoff_runner_v2.py(로봇 2대)는 건드리지 않는다. 검증된 2대 구성이
-비교 기준으로 남아야 한다.
+(2026-07-26: 로봇 2대짜리 비교 기준이던 dock_lift_handoff_runner_v2.py는
+v4가 충분히 검증돼 더 이상 필요 없어져서 정리했다 — 위 주석은 그 삭제 전
+맥락 참고용으로만 남겨둔다.)
 
 좌표 규약은 site_map_v4 가 전담한다(입차=z양수, 에셋 라벨과 반대).
 
 실행: parking_v4_runner.sh [--gui] [--headless-test] [--keep-lidar]
-                             [--with-pedestrians]
+                             [--with-pedestrians] [--with-vehicles]
 
 --keep-lidar(2026-07-25 추가): probe들은 기본적으로 천장 RTX LiDAR를 끈다
 (무겁고 불필요해서, _disable_sensors 참고) — 이 플래그를 주면 끄지 않는다.
@@ -19,6 +20,15 @@ LiDAR 포인트클라우드를 눈으로 볼 수 있다
 이 프로세스와 같은 셸에서 source할 필요가 없다 — 재실행되는 Isaac
 python.sh가 자체 번들 rclpy를 쓰기 때문에 시스템 ROS Humble을 섞으면
 오히려 충돌 위험이 있다).
+
+--with-vehicles(2026-07-26 추가): 데모용 차량 2대를 배치한다 — fab_vehicles.usd
+(PhysX Vehicle 완비된 에셋, Pickup/Offroad/Sedan 등 10종 포함)에서 Pickup 1대를
+입차 대기 슬롯(W_OUT 마커, 차량 인계 베이)에, Offroad 1대를 A3 슬롯 중심
+(World/ParkingEnvironment/Spaces/A3의 parking:center — 아루코 마커 좌표 아님, generate_map.py와
+같은 근거)에 배치한다. 로봇처럼 RotateX(-90)로 Z-up 에셋을 Y-up 스테이지에
+맞춘다 — 추가 요(yaw) 보정은 넣지 않았으니 Isaac Sim GUI에서 방향이 어색하면
+spawn_demo_vehicles()의 xf.AddRotateZOp() 한 줄을 눈으로 보고 조정할 것
+(이 파일 작성 환경엔 GUI가 없어 방향을 직접 확인 못 했다).
 """
 import math
 import os
@@ -33,6 +43,7 @@ PARKING_USD = WORK_DIR / "parking" / "parking_environment_v4.usd"
 ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
              / "hwia_depth_cam_mecha_roller_lowered.usd")
 PEDESTRIAN_LAYER = WORK_DIR / "animation" / "pedestrians_v4.usda"
+FAB_VEHICLES_USD = WORK_DIR / "fab_vehicles.usd"
 ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh")
 
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
@@ -46,6 +57,14 @@ LINEAR_ACCEL = 0.5
 LINEAR_DECEL = 0.8
 ANGULAR_ACCEL = 0.8
 ROBOT_SPAWN_Y = 0.06
+VEHICLE_SPAWN_Y = 0.035    # vehicle_detection_node.py PICKUP_Y_USD와 같은 값(차체 바닥 높이)
+# 데모 차량 배치(--with-vehicles). where는 "marker:<serves>"(아루코 마커 좌표,
+# read_markers() 사용) 또는 "slot:<slot_id>"(World/ParkingEnvironment/Spaces 실제 슬롯 중심,
+# slot_center() 사용) — 슬롯은 마커가 아니라 이쪽이 실제 중심이다(2026-07-25 확인).
+DEMO_VEHICLES = (
+    ("Pickup", "marker:W_OUT"),   # 입차 대기 슬롯(차량 인계 베이)
+    ("Offroad", "slot:A3"),       # A3 슬롯 중심
+)
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
 # 않으면 측정과 무관한 다른 코드 변경(예: 카메라 부착 루프의 app.update()
@@ -135,7 +154,67 @@ def robot_prim_path(robot_id):
     return f"/World/Robots/{robot_id}"
 
 
-def build_stage(app, keep_lidar=False, with_pedestrians=False):
+def vehicle_prim_path(name):
+    return f"/World/Vehicles/{name}"
+
+
+def slot_center(stage, slot_id):
+    """World/ParkingEnvironment/Spaces/<slot_id>의 parking:center(USD x,z) —
+    슬롯 실제 중심.
+
+    아루코 슬롯 마커(A1/A2/A3, z=-6.875)는 슬롯 중심이 아니라 근처 기준점일
+    뿐이다 — 실제 중심은 이 지오메트리 스코프의 parking:center(z=0, 입/출차
+    정중앙)다(2026-07-25 스크린샷 대조로 확인, generate_map.py의
+    SLOTS_USD와 같은 근거).
+    """
+    path = f"/World/ParkingEnvironment/Spaces/{slot_id}"
+    prim = stage.GetPrimAtPath(path)
+    if not prim or not prim.IsValid():
+        raise RuntimeError(f"슬롯 지오메트리 없음: {path}")
+    center = prim.GetAttribute("parking:center").Get()
+    if center is None:
+        raise RuntimeError(f"{path}에 parking:center 없음")
+    return float(center[0]), float(center[2])
+
+
+def spawn_demo_vehicles(stage, markers):
+    """--with-vehicles: DEMO_VEHICLES에 정의된 차량을 fab_vehicles.usd에서
+    가져와 배치한다. fab_vehicles.usd는 /World/Vehicles/<이름> 경로에
+    PhysX Vehicle이 완비된 차량 10종(Pickup/Offroad/Sedan 등)을 담고 있다
+    (2026-07-26 확인, python으로 직접 stage 순회) — 그중 이름으로 지정한
+    프림 하나만 참조한다(파일 전체를 참조하면 10대가 다 딸려 온다).
+    """
+    from pxr import Gf, UsdGeom
+
+    if not FAB_VEHICLES_USD.is_file():
+        raise RuntimeError(f"차량 에셋 없음: {FAB_VEHICLES_USD}")
+
+    UsdGeom.Xform.Define(stage, "/World/Vehicles")
+    for name, where in DEMO_VEHICLES:
+        kind, key = where.split(":", 1)
+        if kind == "marker":
+            if key not in markers:
+                raise RuntimeError(f"차량 배치 기준 마커 없음: {key}")
+            x, z = markers[key]["x"], markers[key]["z"]
+        elif kind == "slot":
+            x, z = slot_center(stage, key)
+        else:
+            raise RuntimeError(f"알 수 없는 배치 기준: {where!r}")
+
+        prim = stage.DefinePrim(vehicle_prim_path(name), "Xform")
+        prim.GetReferences().AddReference(
+            str(FAB_VEHICLES_USD), f"/World/Vehicles/{name}")
+        xf = UsdGeom.Xformable(prim)
+        xf.ClearXformOpOrder()
+        xf.AddTranslateOp().Set(Gf.Vec3d(x, VEHICLE_SPAWN_Y, z))
+        xf.AddRotateXOp().Set(-90.0)          # Z-up 에셋 -> Y-up 스테이지(로봇과 동일)
+        # 필요하면 여기 xf.AddRotateZOp().Set(...)로 요(yaw) 보정 추가
+        # (원본 에셋 자체 좌표계에서의 회전 — GUI로 방향 보고 값 정할 것).
+    print(f"V4_VEHICLES_SPAWNED count={len(DEMO_VEHICLES)} "
+          f"names={[n for n, _ in DEMO_VEHICLES]}", flush=True)
+
+
+def build_stage(app, keep_lidar=False, with_pedestrians=False, with_vehicles=False):
     from pxr import Gf, UsdGeom
     import omni.usd
 
@@ -195,11 +274,17 @@ def build_stage(app, keep_lidar=False, with_pedestrians=False):
     for _ in range(30):
         app.update()
 
+    if with_vehicles:
+        spawn_demo_vehicles(stage, markers)
+        for _ in range(30):
+            app.update()
+
     placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in sm.ROBOTS}
     pedestrian_count = 2 if with_pedestrians else 0
     character_count = 1 if with_pedestrians else 0
+    vehicle_count = len(DEMO_VEHICLES) if with_vehicles else 0
     print(f"V4_STAGE_READY robots={placed} pedestrians={pedestrian_count} "
-          f"characters={character_count} "
+          f"characters={character_count} vehicles={vehicle_count} "
           f"disabled_lidar={n_lidar} "
           f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
           f"physics={PHYSICS_HZ:.0f}Hz", flush=True)
@@ -433,6 +518,7 @@ def main():
         app,
         keep_lidar="--keep-lidar" in sys.argv[1:],
         with_pedestrians="--with-pedestrians" in sys.argv[1:],
+        with_vehicles="--with-vehicles" in sys.argv[1:],
     )
 
     # probe B 는 측정 대상 외 로봇을 화면·물리에서 뺀다(사용자 요청 + 개루프 주행 중
