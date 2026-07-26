@@ -222,6 +222,23 @@ class PoseFilter:
             self.yaw = _wrap_deg(self.yaw + self.yaw_gain * dyaw)
         self.n_fix += 1
 
+    def update_position_only(self, fix: RobotFix):
+        """마커 관측으로 위치만 보정, yaw 는 오도(predict) 값을 그대로 지킨다.
+
+        Phase B(도크→XN 융합주행)용: 마커 yaw 관측이 필터를 오염시키는 구간에서
+        쓴다(러너 drive_to_pose 의 `_apply_fix` correct_yaw=False 분기와 동일 —
+        `filt.set_pose(filt.x + pos_gain*(fix.x-filt.x), filt.z + pos_gain*(fix.z-filt.z),
+        filt.yaw)`). 첫 관측(초기화 전)이면 신뢰할 오도 yaw 가 아직 없으므로
+        update() 처럼 마커 값으로 그대로 초기화한다.
+        """
+        if self.x is None:
+            self.set_pose(fix.x, fix.z, fix.yaw_deg)
+        else:
+            self.set_pose(self.x + self.pos_gain * (fix.x - self.x),
+                          self.z + self.pos_gain * (fix.z - self.z),
+                          self.yaw)
+        self.n_fix += 1
+
     def pose(self) -> Optional[Tuple[float, float, float]]:
         if self.x is None:
             return None

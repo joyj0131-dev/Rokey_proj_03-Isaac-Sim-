@@ -24,7 +24,9 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 
@@ -41,6 +43,34 @@ _DEFAULT_T_BASE_CAM = [
     0.0, -0.866025, -0.5, 0.09,
     0.0, 0.0, 0.0, 1.0,
 ]
+
+
+def filter_detections_by_ref(dets, ref_ids):
+    """검출 리스트를 ref_ids 로 하드필터한다.
+
+    러너 fuse_camera_setup 의 `hit = [p for p in det if int(p.marker_id) ==
+    ctx["ref_id"]]`(parking_v4_runner.py 960·974행)와 동일한 필터를, 단일 id
+    가 아니라 **집합**(여러 id 허용)으로 일반화한다. ref_ids 가 빈 리스트면
+    필터를 걸지 않고 dets 를 그대로 돌려준다(하위호환 — 기본값).
+    """
+    if not ref_ids:
+        return dets
+    ref_set = {int(r) for r in ref_ids}
+    return [d for d in dets if int(d.marker_id) in ref_set]
+
+
+def apply_fix(filt, fix, correct_yaw):
+    """마커 관측 fix 로 filt 를 보정한다.
+
+    correct_yaw=True 면 기존 PoseFilter.update(fix)(위치+yaw 블렌드).
+    correct_yaw=False 면 PoseFilter.update_position_only(fix) — 위치만
+    pos_gain 으로 블렌드하고 yaw 는 오도(predict) 값을 그대로 지킨다(러너
+    drive_to_pose 의 `_apply_fix` correct_yaw=False 분기와 동일).
+    """
+    if correct_yaw:
+        filt.update(fix)
+    else:
+        filt.update_position_only(fix)
 
 
 def odom_world_delta(prev, cur):
@@ -71,6 +101,18 @@ class MarkerLocalizerNode(Node):
         # 내야 하므로 토픽명을 파라미터화한다(기본값은 기존 하드코딩 값 그대로 —
         # 기존 호출부와 하위호환). 예: -p pose_topic:=/robot_entry_lead/pose
         self.declare_parameter("pose_topic", "/robot_pose")
+        # Phase B(도크→XN 융합주행): 러너 ctx["ref_id"] 하드필터의 ROS2 이식.
+        # 빈 리스트=필터 없음(전체 검출 사용, 기존 동작과 동일=하위호환). T3
+        # 오케스트레이터가 set_parameters 로 도크(21/23)→XN(31) 런타임 전환.
+        # dynamic_typing=True 필수: 빈 리스트 기본값을 그냥 선언하면 rclpy 가
+        # 타입을 BYTE_ARRAY 로 굳혀버려서(빈 배열에서 타입 추론), 이후 T3 가
+        # 정수 배열로 set_parameters 하면 우리 콜백에 닿기도 전에 rclpy 자체
+        # 타입검사에서 거부된다 — dynamic_typing 으로 그 고정을 막는다.
+        self.declare_parameter(
+            "ref_ids", [], ParameterDescriptor(dynamic_typing=True))
+        # 러너 drive_to_pose `_apply_fix` correct_yaw=False(위치전용 보정)의
+        # ROS2 이식. 기본 True=기존 filt.update(fix) 그대로(하위호환).
+        self.declare_parameter("correct_yaw", True)
 
         image_topic = self.get_parameter("image_topic").value
         info_topic = self.get_parameter("camera_info_topic").value
@@ -81,6 +123,9 @@ class MarkerLocalizerNode(Node):
         self.frame = self.get_parameter("frame").value
         self.T_base_cam = np.array(
             self.get_parameter("t_base_cam").value, dtype=np.float64).reshape(4, 4)
+        self.ref_ids = list(self.get_parameter("ref_ids").value)
+        self.correct_yaw = bool(self.get_parameter("correct_yaw").value)
+        self.add_on_set_parameters_callback(self._on_set_parameters)
 
         import json
         from pathlib import Path
@@ -122,6 +167,31 @@ class MarkerLocalizerNode(Node):
         self.dist = (np.array(msg.d, dtype=np.float64).reshape(-1, 1)
                      if len(msg.d) else np.zeros((5, 1)))
 
+    def _on_set_parameters(self, params):
+        """`ref_ids`/`correct_yaw` 런타임 갱신(T3 오케스트레이터의 set_parameters 진입점).
+
+        타입이 어긋나거나(문자열·실수 등) 값이 int/bool 로 못 바뀌면 거부하고
+        기존 self.ref_ids/self.correct_yaw 는 그대로 둔다 — 잘못된 값이 들어와도
+        노드가 죽거나 필터가 조용히 깨지지 않게 한다.
+        """
+        for p in params:
+            if p.name == "ref_ids":
+                if p.type_ != Parameter.Type.INTEGER_ARRAY:
+                    return SetParametersResult(
+                        successful=False, reason="ref_ids must be an integer array")
+                try:
+                    new_ref_ids = [int(v) for v in p.value]
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False, reason="ref_ids must contain integers")
+                self.ref_ids = new_ref_ids
+            elif p.name == "correct_yaw":
+                if p.type_ != Parameter.Type.BOOL:
+                    return SetParametersResult(
+                        successful=False, reason="correct_yaw must be a bool")
+                self.correct_yaw = bool(p.value)
+        return SetParametersResult(successful=True)
+
     def _on_odom(self, msg):
         # 러너 odom 은 위치를 (x, ·, z), yaw 를 z/w 쿼터니언으로 담는다(XZ 평면).
         x = msg.pose.pose.position.x
@@ -142,6 +212,7 @@ class MarkerLocalizerNode(Node):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         poses = AP.detect_and_estimate(
             gray, self.detector, self.code_size, self.K, self.dist)
+        poses = filter_detections_by_ref(poses, self.ref_ids)
 
         for p in poses:
             if p.reproj_err_px > self.max_reproj:
@@ -170,7 +241,7 @@ class MarkerLocalizerNode(Node):
                 if self.filt.x is None:
                     self.filt.set_pose(fix.x, fix.z, fix.yaw_deg)
                 else:
-                    self.filt.update(fix)
+                    apply_fix(self.filt, fix, self.correct_yaw)
                 px, pz, pyaw = self.filt.pose()
             else:
                 px, pz, pyaw = fix.x, fix.z, fix.yaw_deg
