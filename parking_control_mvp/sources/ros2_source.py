@@ -202,9 +202,9 @@ class Ros2DataSource(DataSource):
         self._node.create_subscription(
             ObstacleAlert, config.OBSTACLE_ALERT_TOPIC, self._on_obstacle_alert, 10
         )
-        self._node.create_subscription(
-            TaskState, config.TASK_STATE_TOPIC, self._on_task_state, 10
-        )
+        for topic in config.TASK_STATE_TOPICS:
+            self._node.create_subscription(
+                TaskState, topic, self._on_task_state, 10)
         for sensor_id, _zone, _x, _y, topic in _LIDAR_CONTRACTS:
             self._node.create_subscription(
                 PointCloud2,

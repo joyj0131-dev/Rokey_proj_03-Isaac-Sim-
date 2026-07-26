@@ -41,6 +41,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
 
 from parking_robot_interfaces.msg import ObstacleAlert
@@ -75,7 +76,12 @@ class SafetyMonitorNode(Node):
         self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
-        self._alert_pub = self.create_publisher(ObstacleAlert, "obstacle_alert", 10)
+        self._alert_pub = self.create_publisher(
+            ObstacleAlert, "/obstacle_alert", 10)
+        # Isaac 러너는 커스텀 인터페이스 설치 여부와 관계없이 받을 수 있도록
+        # 표준 Bool 긴급정지 토픽도 함께 사용한다.
+        self._emergency_pub = self.create_publisher(
+            Bool, "/emergency_stop", 10)
         self._marker_pub = self.create_publisher(
             MarkerArray, "parking_status_markers", 10)
         self.create_subscription(
@@ -118,6 +124,8 @@ class SafetyMonitorNode(Node):
             alert.location.y = (y0 + y1) / 2
             self.get_logger().warn(alert.description)
         self._alert_pub.publish(alert)
+        self._emergency_pub.publish(
+            Bool(data=bool(alert.obstacle_detected)))
         return blocked
 
     def _update_slot_occupancy(self, points):

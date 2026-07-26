@@ -33,6 +33,10 @@ def generate_launch_description():
             executable=executable,
             name=executable,
             output='screen',
+            parameters=(
+                [{'zone_lock_mode': 'db'}]
+                if executable == 'task_dispatcher' else []
+            ),
         )
         for executable in NODE_EXECUTABLES
     ])

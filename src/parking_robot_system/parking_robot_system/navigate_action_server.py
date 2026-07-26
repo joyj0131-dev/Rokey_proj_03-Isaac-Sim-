@@ -11,7 +11,7 @@ dock_lift_handoff_mission 폐루프 이식, formation_motion.py 참고)에 위�
                                      중앙 도착 직후 반시계 90도 회전(주차장 구조상 필수, goal.pose 미사용)
     "rear"|"front"              -> FormationMotion.goto_xz(rid, tx, tz)   로봇 1대 개별 직선 이동
     "return_both"               -> FormationMotion.return_both_to_docks() 입차 복귀(슬롯→도크)
-    "return_bay"                -> FormationMotion.return_from_bay()       출차 복귀(베이 차밑 z축 탈출→도크)
+    "return_bay"                -> FormationMotion.return_from_bay()       출차 복귀(현재 차량축 탈출→도크)
 그 외 문자열(빈 문자열 포함)은 알 수 없는 모드로 간주해 abort한다 — 조용히 기본값으로
 넘어가면(예: 빈 문자열을 "carry"로 취급) 호출부의 설정 누락을 숨기게 되므로 의도적으로 엄격하다.
 
@@ -29,7 +29,7 @@ ReentrantCallbackGroup에 두고 main()을 MultiThreadedExecutor(num_threads=4)�
 import math
 
 import rclpy
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -64,6 +64,7 @@ class NavigateActionServerNode(Node):
         self.declare_parameter("dock_front_x", -1.2)
         self.declare_parameter("dock_front_z", 2.2)
         self.declare_parameter("lane_z", 6.875)
+        self.declare_parameter("vehicle_pose_topic", "/vehicle/entry/pose")
         p = self.get_parameter
 
         grp = ReentrantCallbackGroup()
@@ -73,22 +74,40 @@ class NavigateActionServerNode(Node):
             gate_x=p("gate_x").value,
             dock_rear=(p("dock_rear_x").value, p("dock_rear_z").value),
             dock_front=(p("dock_front_x").value, p("dock_front_z").value),
-            lane_z=p("lane_z").value, callback_group=grp)
+            lane_z=p("lane_z").value,
+            vehicle_pose_topic=p("vehicle_pose_topic").value,
+            callback_group=grp)
 
         self._action_server = ActionServer(
             self, NavigateToPose, 'navigate_to_pose', self._on_navigate_to_pose,
-            callback_group=grp)
+            callback_group=grp, cancel_callback=self._on_cancel_request)
 
         self.get_logger().info('navigate_action_server started')
 
+    def _on_cancel_request(self, _cancel_request):
+        self.formation._stop_all()
+        return CancelResponse.ACCEPT
+
+    def _finish_goal(self, goal_handle, ok):
+        self.formation._stop_all()
+        self.formation.set_cancel_checker()
+        if goal_handle.is_cancel_requested:
+            goal_handle.canceled()
+        elif ok:
+            goal_handle.succeed()
+        else:
+            goal_handle.abort()
+        return NavigateToPose.Result()
+
     def _on_navigate_to_pose(self, goal_handle):
+        self.formation.set_cancel_checker(
+            lambda: goal_handle.is_cancel_requested)
         goal = goal_handle.request
         mode = goal.behavior_tree
 
         if not self.formation.wait_data():
             self.get_logger().warn('navigate_to_pose: 데이터 미수신(odom/vehicle pose)')
-            goal_handle.abort()
-            return NavigateToPose.Result()
+            return self._finish_goal(goal_handle, False)
 
         x_map = goal.pose.pose.position.x
         y_map = goal.pose.pose.position.y
@@ -127,18 +146,13 @@ class NavigateActionServerNode(Node):
             # FormationMotion에 내장이라 goal.pose는 사용하지 않는다.
             ok = self.formation.return_both_to_docks()
         elif mode == 'return_bay':
-            # 출차 복귀: 인계베이 차 밑에서 차 길이축(z)으로 빠져나와(사이드 아님) 도크로.
+            # 출차 복귀: 회전 후의 실제 두 로봇 배치축으로 빠져나와 도크로.
             ok = self.formation.return_from_bay()
         else:
             self.get_logger().warn(f'navigate_to_pose: 알 수 없는 behavior_tree 모드 {mode!r}')
-            goal_handle.abort()
-            return NavigateToPose.Result()
+            return self._finish_goal(goal_handle, False)
 
-        if ok:
-            goal_handle.succeed()
-        else:
-            goal_handle.abort()
-        return NavigateToPose.Result()
+        return self._finish_goal(goal_handle, ok)
 
 
 def main(args=None):

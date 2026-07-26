@@ -32,8 +32,7 @@ src/parkbot_aruco/parkbot_aruco/site_map_v4.py의 팀 규약(z 양수=입차, z 
 
 이 파일은 ROS_DOMAIN_ID/RMW_IMPLEMENTATION 등 환경변수를 스스로 설정하지 않는다 —
 `ros2 launch`를 실행하는 터미널이 미리 아래 환경을 소싱해 둬야 Isaac runner와 같은
-ROS 그래프에서 서로를 발견한다. 실측 ROS_DOMAIN_ID는 122다(코드 주석에 126이라
-적힌 곳이 있으면 오기다 — 2026-07-25 실측 확인):
+ROS 그래프에서 서로를 발견한다. 프로젝트 기본 ROS_DOMAIN_ID는 122다:
 
     source /opt/ros/humble/setup.bash
     source install/setup.bash
@@ -60,6 +59,7 @@ SITES = {
         dock_rear_x=-3.2, dock_rear_z=2.2, dock_front_x=-1.2, dock_front_z=2.2,  # D_OUT_1/2
         lane_z=6.875, site_role='entry',                       # XN/A1' 계열
         pickup_x_usd=-8.5, pickup_z_usd=7.075,
+        vehicle_pose_topic='/vehicle/entry/pose',
         bay_x_map=-8.5, bay_y_map=-7.075,   # 이 세트에서는 안 쓰이지만 무해하게 채워둠
     ),
     'exit': dict(
@@ -68,6 +68,7 @@ SITES = {
         dock_rear_x=-3.2, dock_rear_z=-2.2, dock_front_x=-1.2, dock_front_z=-2.2,  # D_IN_1/2
         lane_z=-6.875, site_role='exit',                       # XS/슬롯(A1/A2/A3) 계열
         pickup_x_usd=-8.5, pickup_z_usd=-7.075,   # 이 세트에서는 안 쓰임(detect_vehicle 미사용)
+        vehicle_pose_topic='/vehicle/exit/pose',
         bay_x_map=-8.5, bay_y_map=7.075,
     ),
 }
@@ -89,9 +90,13 @@ def _set_group(set_name, site):
         'dock_rear_x': site['dock_rear_x'], 'dock_rear_z': site['dock_rear_z'],
         'dock_front_x': site['dock_front_x'], 'dock_front_z': site['dock_front_z'],
         'lane_z': site['lane_z'],
+        'vehicle_pose_topic': site['vehicle_pose_topic'],
     }
     align_params = dict(formation_params, site_role=site['site_role'])
-    lift_params = {'rear_id': site['rear_id'], 'front_id': site['front_id']}
+    lift_params = {
+        'rear_id': site['rear_id'], 'front_id': site['front_id'],
+        'vehicle_pose_topic': site['vehicle_pose_topic'],
+    }
     orchestrator_params = {'bay_x_map': site['bay_x_map'], 'bay_y_map': site['bay_y_map']}
     detection_params = {'pickup_x_usd': site['pickup_x_usd'], 'pickup_z_usd': site['pickup_z_usd']}
 

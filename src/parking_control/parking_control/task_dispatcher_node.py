@@ -24,6 +24,7 @@ entry_front_id, exit_rear_id/exit_front_id)을 그대로 쓴다. 각 쌍은 서�
 
 import uuid
 
+import networkx as nx
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -52,7 +53,7 @@ class TaskDispatcherNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        self.declare_parameter("zone_lock_mode", "stub")   # stub | db
+        self.declare_parameter("zone_lock_mode", "db")   # stub | db
         self.declare_parameter("zone_retry_sec", 1.0)
         # 입차/출차 전용 로봇쌍(고정) — site_map_v4.ROBOTS/ROBOT_DOCK_MARKER가 유일한
         # 출처(2026-07-25 수정 — 이전엔 robot_rear/robot_front/robot_rear2/robot_front2라는
@@ -178,6 +179,12 @@ class TaskDispatcherNode(Node):
 
     def _send_execute_goal(self, task_id, request, leader_id, follower_id,
                            slot_id, x, y):
+        if not self._acquire_task_route(
+                task_id, request.request_type, slot_id):
+            self._fail_task(
+                task_id, leader_id, follower_id,
+                f"{request.request_type} 이동 구역이 다른 작업에서 사용 중")
+            return
         client = self._execute_clients[request.request_type]
         # wait_for_server는 그래프 이벤트 기반 자체 폴링이라 재진입 spin이 필요
         # 없다(robot_task_orchestrator._call_action과 같은 근거). 이걸 안 하면
@@ -224,6 +231,7 @@ class TaskDispatcherNode(Node):
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
         self._publish_formation(task_id, leader_id, follower_id, active=False)
+        self._release_task_route(task_id)
         self.get_logger().info(
             f"작업 {task_id[:8]} 종료: {state} ({result.message})")
 
@@ -232,9 +240,43 @@ class TaskDispatcherNode(Node):
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
         self._publish_formation(task_id, leader_id, follower_id, active=False)
+        self._release_task_route(task_id)
         self.get_logger().warn(f"작업 {task_id[:8]} 실패: {reason}")
 
     # ---- 존 락 ----
+
+    def _task_route_zones(self, request_type, slot_id):
+        """한 작업의 편성 로봇 두 대가 함께 통과할 구역을 계산한다.
+
+        단계별 락 전환 전까지는 전체 경로를 작업 단위로 잡는다. 보수적이지만
+        입차/출차가 같은 통로를 동시에 점유하는 사고를 막으며, 경로의 실제
+        zone 값만 사용하므로 슬롯 번호 하드코딩은 없다.
+        """
+        start, end = (
+            ("entry_wait", slot_id) if request_type == "ENTRY"
+            else (slot_id, "exit_wait"))
+        path = nx.shortest_path(
+            self._map.graph, start, end, weight="dist")
+        return sorted(self._map.edge_zones(path))
+
+    def _acquire_task_route(self, task_id, request_type, slot_id):
+        if self.get_parameter("zone_lock_mode").value == "stub":
+            return True
+        acquired = []
+        for zone_id in self._task_route_zones(request_type, slot_id):
+            if self._db.try_acquire_zone(zone_id, task_id=task_id):
+                acquired.append(zone_id)
+                continue
+            self._db.release_zones(task_id=task_id, zone_ids=acquired)
+            return False
+        self.get_logger().info(
+            f"작업 {task_id[:8]} 구역 확보: {', '.join(acquired)}")
+        return True
+
+    def _release_task_route(self, task_id):
+        if self.get_parameter("zone_lock_mode").value == "stub":
+            return
+        self._db.release_zones(task_id=task_id)
 
     def _owner(self, request):
         """robot_id(로봇 개인)/task_id(로봇 2대 팀) 중 정확히 하나를 뽑는다.

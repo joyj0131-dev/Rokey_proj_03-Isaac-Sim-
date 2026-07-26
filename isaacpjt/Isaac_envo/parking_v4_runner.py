@@ -8,7 +8,9 @@ v4가 충분히 검증돼 더 이상 필요 없어져서 정리했다 — 위 �
 좌표 규약은 site_map_v4 가 전담한다(입차=z양수, 에셋 라벨과 반대).
 
 실행: parking_v4_runner.sh [--gui] [--headless-test] [--keep-lidar]
+                             [--lidar-ros2]
                              [--with-pedestrians] [--with-vehicles]
+                             [--cameras=0|2|4]
 
 --keep-lidar(2026-07-25 추가): probe들은 기본적으로 천장 RTX LiDAR를 끈다
 (무겁고 불필요해서, _disable_sensors 참고) — 이 플래그를 주면 끄지 않는다.
@@ -20,6 +22,11 @@ LiDAR 포인트클라우드를 눈으로 볼 수 있다
 이 프로세스와 같은 셸에서 source할 필요가 없다 — 재실행되는 Isaac
 python.sh가 자체 번들 rclpy를 쓰기 때문에 시스템 ROS Humble을 섞으면
 오히려 충돌 위험이 있다).
+
+--lidar-ros2: 별도 Isaac Sim 캡처 프로세스를 띄우지 않고 이 러너의 같은
+stage에 있는 각 RTX LiDAR에 전용 render product를 하나씩 연결해
+/parking/lidar/ceiling_XX/points_usd로 발행한다. --keep-lidar를 자동으로
+활성화한다.
 
 --with-vehicles(2026-07-26 추가): 데모용 차량 2대를 배치한다 — fab_vehicles.usd
 (PhysX Vehicle 완비된 에셋, Pickup/Offroad/Sedan 등 10종 포함)에서 Pickup 1대를
@@ -44,43 +51,65 @@ ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
              / "hwia_depth_cam_mecha_roller_lowered.usd")
 PEDESTRIAN_LAYER = WORK_DIR / "animation" / "pedestrians_v4.usda"
 FAB_VEHICLES_USD = WORK_DIR / "fab_vehicles.usd"
-ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh")
+ISAAC_ROOT = Path(os.environ.get(
+    "ISAAC_SIM_ROOT",
+    str(Path.home() / "dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"),
+))
+ISAAC_PYTHON = ISAAC_ROOT / "python.sh"
 
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
+# 실시간 성능 기본값. 기존 120 Hz 물리 + 640x480 깊이카메라
+# 4대는 한 프레임마다 처리할 일이 너무 많아 전체 미션에서 RTF가 약 0.2까지
+# 떨어졌다. 코드 곳곳의 60 Hz 기준 step 수는 보존하고, 주차 로봇의 저속
+# 주행에 충분한 60 Hz 물리와 1/4 픽셀 카메라로 상시 CPU/GPU 부하를 낮춘다.
 RENDER_HZ = 60.0
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 400
-PHYSICS_HZ = 120.0
+PHYSICS_HZ = 60.0
+FRONT_CAMERA_RES = (320, 240)
 LINEAR_ACCEL = 0.5
 LINEAR_DECEL = 0.8
 ANGULAR_ACCEL = 0.8
+CMD_VEL_WATCHDOG_SEC = 0.5
+CMD_MAX_LINEAR = 1.5
+CMD_MAX_ANGULAR = 1.5
+RTF_REPORT_PERIOD_SEC = 10.0
 ROBOT_SPAWN_Y = 0.06
 VEHICLE_SPAWN_Y = 0.035    # vehicle_detection_node.py PICKUP_Y_USD와 같은 값(차체 바닥 높이)
 # 데모 차량 배치(--with-vehicles). where는 "marker:<serves>"(아루코 마커 좌표,
 # read_markers() 사용) 또는 "slot:<slot_id>"(World/ParkingEnvironment/Spaces 실제 슬롯 중심,
 # slot_center() 사용) — 슬롯은 마커가 아니라 이쪽이 실제 중심이다(2026-07-25 확인).
 DEMO_VEHICLES = (
-    ("Pickup", "marker:W_OUT"),   # 입차 대기 슬롯(차량 인계 베이)
-    ("Offroad", "slot:A3"),       # A3 슬롯 중심
+    # 첫 값은 화면에 만들 데모 모델 이름일 뿐 제어 ID가 아니다. 두 모델을
+    # 서로 바꿔도 두 번째 값(시작 위치)으로 entry/exit 역할이 정해진다.
+    ("Pickup", "marker:W_OUT"),   # 입차 시작 위치(차량 인계 베이)
+    ("Offroad", "slot:A3"),       # 출차 시작 위치(A3 슬롯 중심)
 )
-# /vehicle/pose 로 GT를 발행할 차량 — formation_motion.wait_data()가 이 토픽을
-# 기다린다(2026-07-26 확인: 실제 파이프라인에서 이게 안 나와서 픽업 시퀀스가
-# "데이터 미수신"으로 멈췄었다). 지금은 전역 토픽 하나뿐이라 입차팀이 다루는
-# 차량(Pickup) 기준으로만 발행한다 — 출차팀이 동시에 다른 차량을 다루는
-# 시나리오까지는 아직 지원 안 함(현재 데모 범위 밖).
-VEHICLE_POSE_SOURCE = "Pickup"
+# 기존 /vehicle/pose는 입차 위치 차량 pose를 내보내는 호환 토픽으로 유지한다.
+# 제어용 토픽은 차종 이름이 아니라 시작 위치의 역할(entry/exit)로 구분한다.
+LEGACY_VEHICLE_POSE_ROLE = "entry"
 
 # ---- 뎁스캠 기반 바퀴 감지(2026-07-26, p4_depth 브랜치의 depth_stop_detector.py
 # 연결) — ingress_to()가 쓰던 고정 축 오프셋 대신, 옆 뎁스캠으로 실제 바퀴를
 # 봐서 정지 시점을 판단한다. depth_stop_lift_test.py에서 실측 검증된 값 그대로
 # 재사용한다(카메라 해상도, 캘리브레이션 프레임 수, 드롭 마진, ROI). ----
-WHEEL_DEPTH_CAM_RES = (640, 480)
+WHEEL_DEPTH_CAM_RES = (320, 240)
 WHEEL_DEPTH_BASELINE_FRAMES = 30
 WHEEL_DEPTH_DROP_MARGIN = 0.08
 WHEEL_DEPTH_CONFIRM_FRAMES = 3
 WHEEL_DEPTH_ROI_FRAC = (0.30, 0.70, 0.30, 0.70)  # (col_lo, col_hi, row_lo, row_hi), 사이드캠 중앙
+ARM_TARGETS_DEG = {
+    "arm_left_front_joint": 90.0,
+    "arm_left_rear_joint": -90.0,
+    "arm_right_front_joint": -90.0,
+    "arm_right_rear_joint": 90.0,
+}
+ARM_RAMP_TIME_SEC = 3.0
+ARM_DRIVE_STIFFNESS = 1800.0
+ARM_DRIVE_DAMPING = 140.0
+ARM_DRIVE_MAX_FORCE = 5000.0
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
 # 않으면 측정과 무관한 다른 코드 변경(예: 카메라 부착 루프의 app.update()
@@ -91,6 +120,10 @@ PROBE_SETTLE_FRAMES = 120
 def _restart_with_isaac_python():
     if os.environ.get("CARB_APP_PATH"):
         return
+    if not ISAAC_PYTHON.is_file():
+        raise FileNotFoundError(
+            "Isaac Sim python.sh를 찾을 수 없습니다: "
+            f"{ISAAC_PYTHON} (설치 위치가 다르면 ISAAC_SIM_ROOT를 지정하세요)")
     os.execv(str(ISAAC_PYTHON), [str(ISAAC_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
@@ -156,6 +189,24 @@ def _apply_physics(stage):
     vctx.CreateLongitudinalAxisAttr(PhysxSchema.Tokens.posZ)
 
 
+def _configure_arm_drives(stage, robot_id):
+    """arm_control이 사용할 네 팔 관절의 position drive를 준비한다."""
+    from pxr import UsdPhysics
+
+    joints_path = f"{robot_prim_path(robot_id)}/joints"
+    for joint_name in ARM_TARGETS_DEG:
+        joint = stage.GetPrimAtPath(f"{joints_path}/{joint_name}")
+        if not joint or not joint.IsValid():
+            raise RuntimeError(f"{robot_id}: 팔 관절 없음: {joint_name}")
+        drive = UsdPhysics.DriveAPI.Get(joint, "angular")
+        if not drive:
+            drive = UsdPhysics.DriveAPI.Apply(joint, "angular")
+        drive.CreateStiffnessAttr(ARM_DRIVE_STIFFNESS)
+        drive.CreateDampingAttr(ARM_DRIVE_DAMPING)
+        drive.CreateMaxForceAttr(ARM_DRIVE_MAX_FORCE)
+        drive.CreateTargetPositionAttr(0.0)
+
+
 def _disable_sensors(stage):
     """천장 RTX 라이다는 이 작업에 불필요하고 무겁다. 원본은 수정하지 않는다."""
     sensors = stage.GetPrimAtPath("/World/Sensors")
@@ -172,6 +223,16 @@ def robot_prim_path(robot_id):
 
 def vehicle_prim_path(name):
     return f"/World/Vehicles/{name}"
+
+
+def vehicle_mission_role(where):
+    """데모 차량의 차종이 아니라 시작 위치로 입·출차 역할을 정한다."""
+    kind, key = where.split(":", 1)
+    if kind == "marker" and key == "W_OUT":
+        return "entry"
+    if kind == "slot":
+        return "exit"
+    return None
 
 
 def side_camera_path(robot_id, side="left"):
@@ -350,7 +411,8 @@ def find_front_camera(stage, robot_id):
     return str(cams[0].GetPath())
 
 
-def attach_camera_graph(robot_id, cam_path, width=640, height=480):
+def attach_camera_graph(robot_id, cam_path, width=FRONT_CAMERA_RES[0],
+                        height=FRONT_CAMERA_RES[1]):
     """C++ OmniGraph 로 image_raw + camera_info 를 발행한다.
 
     Python rclpy 로 이미지를 퍼블리시하면 Isaac 루프가 죽는다(ARUCO_PLAN 전제).
@@ -539,8 +601,13 @@ def calibrate_tbasecam(ctx, art, app, timeline, gt_fn, spawn_orn):
 
 def main():
     _restart_with_isaac_python()
+    args = sys.argv[1:]
+    lidar_ros2 = "--lidar-ros2" in args
+    keep_lidar = "--keep-lidar" in args or lidar_ros2
+    with_pedestrians = "--with-pedestrians" in args
+    with_vehicles = "--with-vehicles" in args
     from isaacsim import SimulationApp
-    headless = "--gui" not in sys.argv[1:]
+    headless = "--gui" not in args
     app = SimulationApp({
         "headless": headless,
         "width": RENDER_WIDTH,
@@ -557,10 +624,50 @@ def main():
 
     stage = build_stage(
         app,
-        keep_lidar="--keep-lidar" in sys.argv[1:],
-        with_pedestrians="--with-pedestrians" in sys.argv[1:],
-        with_vehicles="--with-vehicles" in sys.argv[1:],
+        keep_lidar=keep_lidar,
+        with_pedestrians=with_pedestrians,
+        with_vehicles=with_vehicles,
     )
+
+    # NVIDIA RTX LiDAR ROS2 구조대로 센서마다 별도 render product/writer를
+    # 같은 stage에 붙인다. 별도 SimulationApp이 같은 USD를 또 열지 않으므로
+    # 로봇/차량과 LiDAR가 반드시 같은 시뮬레이션 시각과 장면을 본다.
+    lidar_ros_resources = []
+    if lidar_ros2:
+        import omni.replicator.core as rep
+        from pxr import Sdf
+
+        lidar_prims = [
+            prim for prim in stage.Traverse()
+            if str(prim.GetPath()).startswith("/World/Sensors/")
+            and prim.GetTypeName() == "OmniLidar"
+            and prim.HasAPI("OmniSensorGenericLidarCoreAPI")
+        ]
+        if not lidar_prims:
+            raise RuntimeError(
+                "--lidar-ros2를 요청했지만 /World/Sensors 아래 RTX LiDAR가 없습니다.")
+        for index, prim in enumerate(lidar_prims, start=1):
+            attr = prim.GetAttribute(
+                "omni:sensor:Core:outputFrameOfReference")
+            if not attr or not attr.IsValid():
+                attr = prim.CreateAttribute(
+                    "omni:sensor:Core:outputFrameOfReference",
+                    Sdf.ValueTypeNames.Token)
+            attr.Set("WORLD")
+            render_product = rep.create.render_product(
+                str(prim.GetPath()),
+                resolution=(128, 128),
+                name=f"ParkingRunnerLidar_{index}",
+                render_vars=["GenericModelOutput", "RtxSensorMetadata"],
+            )
+            topic = f"parking/lidar/ceiling_{index:02d}/points_usd"
+            writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
+            writer.initialize(topicName=topic, frameId="map_usd_y_up")
+            writer.attach([render_product])
+            lidar_ros_resources.append((render_product, writer))
+            print(
+                f"V4_LIDAR_ROS2 sensor={prim.GetPath()} topic=/{topic}",
+                flush=True)
 
     # probe B 는 측정 대상 외 로봇을 화면·물리에서 뺀다(사용자 요청 + 개루프 주행 중
     # 옆 도크 로봇과의 충돌 제거). 반드시 timeline.play()/Articulation.initialize() '전에'
@@ -568,7 +675,7 @@ def main():
     # 텐서 뷰가 깨져 세그폴트가 난다(관측된 크래시). play 전에 지우면 PhysX 가 아예
     # 로드하지 않으므로 안전하다.
     probe = None
-    for a in sys.argv[1:]:
+    for a in args:
         if a.startswith("--probe="):
             probe = a.split("=", 1)[1]
     if probe == "B":
@@ -601,8 +708,12 @@ def main():
     from mecanum_drive import configure_hub_drives
     for robot_id in arts:
         configure_hub_drives(stage, f"{robot_prim_path(robot_id)}/joints")
+        _configure_arm_drives(stage, robot_id)
 
-    from mecanum_drive import WHEEL_JOINTS, cmd_vel_from_wheel_velocities
+    from mecanum_drive import (
+        WHEEL_JOINTS, cmd_vel_from_wheel_velocities, slew_twist,
+        wheel_velocities_from_cmd_vel,
+    )
     from wheel_odometry import WheelOdometry
 
     wheel_idx = {r: {w: arts[r].dof_names.index(j) for w, j in WHEEL_JOINTS.items()}
@@ -627,7 +738,7 @@ def main():
         return float(pos[0]), float(pos[2]), math.atan2(fwd_x, fwd_z)
 
     odom_mode = "wheel"
-    for a in sys.argv[1:]:
+    for a in args:
         if a.startswith("--odom="):
             odom_mode = a.split("=", 1)[1]
     if odom_mode not in ("gt", "wheel"):
@@ -640,7 +751,7 @@ def main():
     print(f"V4_ODOM_MODE={odom_mode}", flush=True)
 
     n_cams = 0
-    for a in sys.argv[1:]:
+    for a in args:
         if a.startswith("--cameras="):
             n_cams = int(a.split("=", 1)[1])
     if n_cams not in (0, 2, 4):
@@ -682,9 +793,8 @@ def main():
         # 로봇을 마커 앞 거리를 바꿔가며 세우고 현재 거리를 /probe_a/state 로 알린다.
         import json
         from pxr import Gf, UsdGeom
-        BRIDGE_RCLPY_A = Path(
-            "/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
-            "/exts/isaacsim.ros2.bridge/humble/rclpy")
+        BRIDGE_RCLPY_A = (
+            ISAAC_ROOT / "exts/isaacsim.ros2.bridge/humble/rclpy")
         if str(BRIDGE_RCLPY_A) not in sys.path:
             sys.path.insert(0, str(BRIDGE_RCLPY_A))
         import rclpy
@@ -1088,50 +1198,219 @@ def main():
             app.update()
         app.close(); return
 
-    BRIDGE_RCLPY = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release"
-                        "/exts/isaacsim.ros2.bridge/humble/rclpy")
+    BRIDGE_RCLPY = ISAAC_ROOT / "exts/isaacsim.ros2.bridge/humble/rclpy"
     if str(BRIDGE_RCLPY) not in sys.path:
         sys.path.insert(0, str(BRIDGE_RCLPY))
     import rclpy
     from nav_msgs.msg import Odometry
-    from geometry_msgs.msg import PoseStamped
+    from geometry_msgs.msg import PoseStamped, Twist
     from std_msgs.msg import Bool, Empty, Float32
+    from std_srvs.srv import SetBool
+    import time as _time
     if not rclpy.ok():
         rclpy.init()
     ros_node = rclpy.create_node("parking_v4_runner")
     odom_pub = {r: ros_node.create_publisher(Odometry, f"/robot_{r}/odom", 10)
                 for r in sm.ROBOTS}
 
-    # ---- /vehicle/pose GT 발행(2026-07-26) — formation_motion.wait_data()가
-    # 이 토픽을 기다린다. --with-vehicles로 스폰한 VEHICLE_POSE_SOURCE 차량의
-    # 실제(GT) pose를 그대로 낸다(위 VEHICLE_POSE_SOURCE 주석의 현재 범위 한계 참고). ----
-    veh_pose_pub = None
-    veh_prim = None
+    # ---- 실제 ROS 구동 연결 -------------------------------------------------
+    # FormationMotion이 내보내는 /robot_<id>/cmd_vel을 휠 속도로 변환한다.
+    # 0.5초 동안 새 명령이 없으면 통신 단절로 보고 즉시 0으로 만든다.
+    active_robots = tuple(arts)
+    cmd_target = {r: (0.0, 0.0, 0.0) for r in active_robots}
+    cmd_current = {r: (0.0, 0.0, 0.0) for r in active_robots}
+    cmd_seen_at = {r: None for r in active_robots}
+    emergency_stop = False
+    velocity_targets = {
+        r: np.zeros(np.asarray(arts[r].get_joint_positions()).shape, dtype=np.float32)
+        for r in active_robots
+    }
+    arm_indices = {
+        r: {name: arts[r].dof_names.index(name) for name in ARM_TARGETS_DEG}
+        for r in active_robots
+    }
+    arm_position_targets = {
+        r: np.array(arts[r].get_joint_positions(), dtype=np.float32, copy=True)
+        for r in active_robots
+    }
+    arm_scale = {r: 0.0 for r in active_robots}
+    arm_target_scale = {r: 0.0 for r in active_robots}
+    ros_handles = []
+
+    def _set_joint_value(values, index, value):
+        if values.ndim == 2:
+            values[0, index] = value
+        else:
+            values[index] = value
+
+    def _make_cmd_cb(robot_id):
+        def _cb(msg):
+            values = (float(msg.linear.x), float(msg.linear.y), float(msg.angular.z))
+            if not all(math.isfinite(v) for v in values):
+                cmd_target[robot_id] = (0.0, 0.0, 0.0)
+                ros_node.get_logger().error(
+                    f"{robot_id}: 유효하지 않은 cmd_vel 수신 — 정지")
+            else:
+                cmd_target[robot_id] = (
+                    max(-CMD_MAX_LINEAR, min(CMD_MAX_LINEAR, values[0])),
+                    max(-CMD_MAX_LINEAR, min(CMD_MAX_LINEAR, values[1])),
+                    max(-CMD_MAX_ANGULAR, min(CMD_MAX_ANGULAR, values[2])),
+                )
+            cmd_seen_at[robot_id] = _time.monotonic()
+        return _cb
+
+    def _make_arm_cb(robot_id):
+        def _cb(request, response):
+            arm_target_scale[robot_id] = 1.0 if request.data else 0.0
+            response.success = True
+            response.message = (
+                f"{robot_id} arm target="
+                f"{'UP' if request.data else 'DOWN'}")
+            return response
+        return _cb
+
+    def _on_emergency_stop(msg):
+        nonlocal emergency_stop
+        emergency_stop = bool(msg.data)
+        if emergency_stop:
+            for robot_id in active_robots:
+                cmd_target[robot_id] = (0.0, 0.0, 0.0)
+                cmd_current[robot_id] = (0.0, 0.0, 0.0)
+            ros_node.get_logger().error(
+                "emergency_stop=True — 모든 주행 휠 즉시 정지")
+        else:
+            ros_node.get_logger().info(
+                "emergency_stop 해제 — 새 cmd_vel부터 수신")
+
+    ros_handles.append(ros_node.create_subscription(
+        Bool, "/emergency_stop", _on_emergency_stop, 10))
+
+    for r in active_robots:
+        ros_handles.append(ros_node.create_subscription(
+            Twist, f"/robot_{r}/cmd_vel", _make_cmd_cb(r), 10))
+        ros_handles.append(ros_node.create_service(
+            SetBool, f"/robot_{r}/arm_control", _make_arm_cb(r)))
+    print(
+        "V4_ROS_ACTUATORS_READY "
+        f"cmd_vel={[f'/robot_{r}/cmd_vel' for r in active_robots]} "
+        f"arm={[f'/robot_{r}/arm_control' for r in active_robots]}",
+        flush=True,
+    )
+
+    def step_actuators(dt):
+        now_wall = _time.monotonic()
+        for r in active_robots:
+            stale = (cmd_seen_at[r] is None
+                     or now_wall - cmd_seen_at[r] > CMD_VEL_WATCHDOG_SEC)
+            desired = (
+                (0.0, 0.0, 0.0)
+                if stale or emergency_stop else cmd_target[r])
+            # 통신이 끊긴 경우에는 가속도 램프를 기다리지 않고 즉시 정지한다.
+            cmd_current[r] = (
+                (0.0, 0.0, 0.0) if stale or emergency_stop else
+                slew_twist(
+                    cmd_current[r], desired, dt,
+                    linear_accel=LINEAR_ACCEL,
+                    linear_decel=LINEAR_DECEL,
+                    angular_accel=ANGULAR_ACCEL,
+                )
+            )
+            vt = velocity_targets[r]
+            vt[...] = 0.0
+            for wheel_name, omega in wheel_velocities_from_cmd_vel(
+                    *cmd_current[r]).items():
+                _set_joint_value(vt, wheel_idx[r][wheel_name], omega)
+            arts[r].set_joint_velocity_targets(vt)
+
+            max_arm_delta = dt / ARM_RAMP_TIME_SEC if ARM_RAMP_TIME_SEC > 0.0 else 1.0
+            arm_error = arm_target_scale[r] - arm_scale[r]
+            if abs(arm_error) <= max_arm_delta:
+                arm_scale[r] = arm_target_scale[r]
+            elif max_arm_delta > 0.0:
+                arm_scale[r] += math.copysign(max_arm_delta, arm_error)
+            pt = arm_position_targets[r]
+            for arm_name, target_deg in ARM_TARGETS_DEG.items():
+                _set_joint_value(
+                    pt, arm_indices[r][arm_name],
+                    math.radians(target_deg * arm_scale[r]))
+            arts[r].set_joint_position_targets(pt)
+
+    # RTF를 10초마다 콘솔과 토픽에 내보내 성능 저하가 다시 생겼을 때 즉시 보이게 한다.
+    rtf_pub = ros_node.create_publisher(Float32, "/simulation/rtf", 10)
+    rtf_wall_start = _time.monotonic()
+    rtf_sim_start = timeline.get_current_time()
+
+    def report_rtf(now_sim):
+        nonlocal rtf_wall_start, rtf_sim_start
+        now_wall = _time.monotonic()
+        wall_elapsed = now_wall - rtf_wall_start
+        if wall_elapsed < RTF_REPORT_PERIOD_SEC:
+            return
+        rtf = (now_sim - rtf_sim_start) / max(wall_elapsed, 1e-6)
+        rtf_pub.publish(Float32(data=float(rtf)))
+        level = "WARN" if rtf < 0.8 else "OK"
+        print(f"V4_RTF_{level} rtf={rtf:.3f}", flush=True)
+        rtf_wall_start, rtf_sim_start = now_wall, now_sim
+
+    # ---- 차량별 GT pose 발행 ------------------------------------------------
+    # 차량 모델 이름(Pickup/Offroad 등)은 단지 현재 데모 에셋이다. 제어는 차종에
+    # 묶지 않고 시작 위치로 정한 entry/exit 역할 토픽만 구독한다.
+    veh_role_pubs = {}
+    veh_role_by_name = {}
+    veh_prims = {}
+    legacy_veh_pose_pub = None
     if with_vehicles:
-        veh_path = vehicle_prim_path(VEHICLE_POSE_SOURCE)
-        p = stage.GetPrimAtPath(veh_path)
-        if p and p.IsValid():
-            veh_prim = p
-            veh_pose_pub = ros_node.create_publisher(PoseStamped, "/vehicle/pose", 10)
-            print(f"V4_VEHICLE_POSE_SOURCE={VEHICLE_POSE_SOURCE}", flush=True)
+        for vehicle_name, where in DEMO_VEHICLES:
+            p = stage.GetPrimAtPath(vehicle_prim_path(vehicle_name))
+            if not p or not p.IsValid():
+                continue
+            role = vehicle_mission_role(where)
+            if role is None:
+                continue
+            if role in veh_role_pubs:
+                raise RuntimeError(
+                    f"동일 차량 역할이 두 대 이상입니다: role={role}")
+            veh_prims[vehicle_name] = p
+            veh_role_by_name[vehicle_name] = role
+            veh_role_pubs[role] = ros_node.create_publisher(
+                PoseStamped, f"/vehicle/{role}/pose", 10)
+        if LEGACY_VEHICLE_POSE_ROLE in veh_role_pubs:
+            legacy_veh_pose_pub = ros_node.create_publisher(PoseStamped, "/vehicle/pose", 10)
+        print(
+            "V4_VEHICLE_POSE_TOPICS="
+            f"{[f'/vehicle/{role}/pose' for role in veh_role_pubs]} "
+            f"legacy_role={LEGACY_VEHICLE_POSE_ROLE}",
+            flush=True,
+        )
 
     def publish_vehicle_pose():
-        if veh_pose_pub is None:
-            return
         from pxr import Usd, UsdGeom
-        xf = UsdGeom.Xformable(veh_prim)
-        m = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        x, y, z = (float(v) for v in m.ExtractTranslation())
-        quat = m.ExtractRotation().GetQuat()
-        msg = PoseStamped()
-        msg.header.stamp = ros_node.get_clock().now().to_msg()
-        msg.header.frame_id = "map"
-        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = x, y, z
-        img = quat.GetImaginary()
-        msg.pose.orientation.w = float(quat.GetReal())
-        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z = (
-            float(img[0]), float(img[1]), float(img[2]))
-        veh_pose_pub.publish(msg)
+        for vehicle_name, veh_prim in veh_prims.items():
+            xf = UsdGeom.Xformable(veh_prim)
+            m = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            x, y, z = (float(v) for v in m.ExtractTranslation())
+            quat = m.ExtractRotation().GetQuat()
+            msg = PoseStamped()
+            msg.header.stamp = ros_node.get_clock().now().to_msg()
+            msg.header.frame_id = "map"
+            msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = x, y, z
+            # Isaac stage는 Y-up이지만 FormationMotion은 odom과 동일한 ROS식
+            # Z축 yaw 쿼터니언을 읽는다. USD quaternion을 그대로 복사하면
+            # 출차 90도 회전 뒤에도 yaw=0으로 오해하므로, 월드 전방벡터에서
+            # XZ heading을 구해 odom과 같은 표현으로 바꾼다.
+            img = quat.GetImaginary()
+            qw = float(quat.GetReal())
+            qx, qy, qz = float(img[0]), float(img[1]), float(img[2])
+            fwd_x = 1.0 - 2.0 * (qy * qy + qz * qz)
+            fwd_z = 2.0 * (qx * qz - qw * qy)
+            yaw = math.atan2(fwd_x, fwd_z)
+            msg.pose.orientation.z = math.sin(yaw * 0.5)
+            msg.pose.orientation.w = math.cos(yaw * 0.5)
+            role = veh_role_by_name[vehicle_name]
+            veh_role_pubs[role].publish(msg)
+            if (legacy_veh_pose_pub is not None
+                    and role == LEGACY_VEHICLE_POSE_ROLE):
+                legacy_veh_pose_pub.publish(msg)
 
     # ---- 뎁스캠 기반 바퀴 감지(2026-07-26, depth_stop_detector.py 연결) ----
     # 로봇마다 좌측 뎁스캠 + DepthStopDetector 하나씩. formation_motion.py가
@@ -1343,11 +1622,13 @@ def main():
         dt = min(0.1, max(0.0, now_sim - prev_sim))
         prev_sim = now_sim
         rclpy.spin_once(ros_node, timeout_sec=0.0)
+        step_actuators(dt)
         step_odometry(dt)
         publish_odom()
         publish_vehicle_pose()
         wheel_depth_step += 1
         step_wheel_depth(wheel_depth_step)
+        report_rtf(now_sim)
     app.close()
 
 

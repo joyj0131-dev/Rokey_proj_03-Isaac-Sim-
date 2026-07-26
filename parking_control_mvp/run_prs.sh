@@ -6,7 +6,7 @@ WS="$(cd -- "$APP_DIR/.." && pwd)"
 source /opt/ros/humble/setup.bash            # ROS setup 은 nounset 비호환 → set -u 미사용
 source "$WS/install/setup.bash"
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-122}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export PARKING_MODE=prs
 export PATH="$HOME/.local/bin:$PATH"

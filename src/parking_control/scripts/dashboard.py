@@ -56,7 +56,8 @@ class _TaskStateListener(RosNode):
 
     def __init__(self):
         super().__init__("dashboard_log_listener")
-        self.create_subscription(TaskState, "task_state", self._on_msg, 20)
+        for topic in ("/entry/task_state", "/exit/task_state"):
+            self.create_subscription(TaskState, topic, self._on_msg, 20)
 
     def _on_msg(self, msg):
         entry = dict(

@@ -90,8 +90,10 @@ class Ros2PrsDataSource(DataSource):
             self._node.create_subscription(
                 Odometry, f"/{rid}/odom",
                 lambda m, r=rid: self._on_odom(r, m), 10, callback_group=grp)
-        self._node.create_subscription(TaskState, "task_state", self._on_task_state, 20,
-                                       callback_group=grp)
+        for topic in ("/entry/task_state", "/exit/task_state"):
+            self._node.create_subscription(
+                TaskState, topic, self._on_task_state, 20,
+                callback_group=grp)
         self._park_cli = self._node.create_client(ParkInSlot, "/park_in_slot",
                                                   callback_group=grp)
         self._exit_cli = self._node.create_client(ParkInSlot, "/exit_slot",

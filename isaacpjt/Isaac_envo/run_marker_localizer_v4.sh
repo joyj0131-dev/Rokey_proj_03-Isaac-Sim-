@@ -11,7 +11,7 @@ MAP="$PKG_SRC/data/marker_map_v4.json"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-122}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-$HOME/.ros/fastdds_whitelist.xml}"
 export PYTHONPATH="$PKG_SRC:${PYTHONPATH:-}"

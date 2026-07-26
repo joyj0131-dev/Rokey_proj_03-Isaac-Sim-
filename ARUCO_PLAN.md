@@ -37,7 +37,7 @@ Phase 1은 SLAM/nav2 없이 바닥 ArUco로 주행한다(HANDOFF 4-A절). **메�
 │  내부 rclpy(3.11) — 가벼운 것만                              │
 │   └ /arm_control 서비스                         (기존)        │
 └─────────────────────────────────────────────────────────────┘
-                        ↕ DDS (ROS_DOMAIN_ID=126)
+                        ↕ DDS (ROS_DOMAIN_ID=122)
 ┌─ 외부 ROS 2 Humble (3.10) — src/parkbot_aruco ─────────────┐
 │  aruco_detector      /image_raw + /camera_info              │
 │                       → /aruco/detections (vision_msgs)     │

@@ -16,7 +16,7 @@ navigate/align/lift 액션서버 → Isaac(dock_lift_handoff_runner)` 전체를 
    도달하기 **전에 조기 종료**한다(`dock_lift_handoff_runner.py`의 `if "--headless-test" ...:
    ... app.close(); return` 분기가 `import rclpy`보다 앞에 있음). 즉 `--headless-test`로는
    ROS 그래프에 아무 토픽도 뜨지 않는다 — 이 런북의 검증에는 무용하다.
-2. **모든 ROS 터미널(B/C/D/E)이 동일 환경이어야 한다**: `ROS_DOMAIN_ID=126`,
+2. **모든 ROS 터미널(B/C/D/E)이 동일 환경이어야 한다**: `ROS_DOMAIN_ID=122`,
    `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`, `FASTRTPS_DEFAULT_PROFILES_FILE`/
    `FASTDDS_DEFAULT_PROFILES_FILE` **unset**. Isaac runner(`.sh`)는 내부적으로 이 값을
    스스로 설정하므로, 시스템 ROS 2로 뜨는 노드 쪽이 여기에 맞춰야 서로 디스커버리된다.
@@ -43,7 +43,7 @@ colcon build --packages-select parking_robot_interfaces parking_robot_system
 ```bash
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=126
+export ROS_DOMAIN_ID=122
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 ```
@@ -56,7 +56,7 @@ unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 ### 터미널 A — Isaac runner (GUI)
 
 **이 터미널에서는 `/opt/ros/humble/setup.bash`를 source하지 않는다.** 스크립트가
-`ROS_DOMAIN_ID`(기본 126)/`RMW_IMPLEMENTATION`/`LD_LIBRARY_PATH`를 자체적으로 설정하고
+`ROS_DOMAIN_ID`(기본 122)/`RMW_IMPLEMENTATION`/`LD_LIBRARY_PATH`를 자체적으로 설정하고
 `FASTRTPS_DEFAULT_PROFILES_FILE`/`FASTDDS_DEFAULT_PROFILES_FILE`를 unset하며, 시스템
 Humble(3.10)이 섞이면 내부 rclpy(3.11, Isaac 브리지)와 ABI가 충돌한다. 새 터미널을 쓴다.
 
@@ -69,7 +69,7 @@ Isaac Sim GUI 창이 뜨고 씬(주차장 + 인계 베이 Pickup + 로봇 2대)�
 ~ 수 분 소요될 수 있음, 하드웨어 의존). 콘솔에 아래 줄이 뜨면 **/parking_slots 발행 시작**
 신호이므로 이후 터미널로 진행:
 ```
-DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] domain=126
+DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] domain=122
 ```
 
 ### 터미널 B — ROS 2 파이프라인 launch
@@ -77,7 +77,7 @@ DOCK_LIFT_HANDOFF_READY robots=['robot_rear','robot_front'] domain=126
 ```bash
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=126
+export ROS_DOMAIN_ID=122
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 cd /home/rokey/p3/Rokey_proj_03-Isaac-Sim-
@@ -95,7 +95,8 @@ ros2 node list      # 9개 노드 모두 보여야 함
 ros2 topic list      # /parking_slots, /task_state, /robot_rear/odom, /robot_front/odom,
                       # /vehicle/pose, /robot_rear/cmd_vel, /robot_front/cmd_vel, /obstacle_alert 등
 ros2 service list    # /park_in_slot, /dispatch/park_in_slot, /get_slot_info,
-                      # /robot_rear/arm_control, /robot_front/arm_control 등
+                      # /robot_entry_lead/arm_control, /robot_entry_follow/arm_control,
+                      # /robot_exit_lead/arm_control, /robot_exit_follow/arm_control 등
 ros2 action list     # /execute_parking_task, /detect_vehicle, /navigate_to_pose,
                       # /align_vehicle, /control_lift
 ```
@@ -108,7 +109,7 @@ ros2 action list     # /execute_parking_task, /detect_vehicle, /navigate_to_pose
 ```bash
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=126
+export ROS_DOMAIN_ID=122
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 ros2 topic echo --once /parking_slots
@@ -166,7 +167,7 @@ parking_robot_interfaces.srv.ParkInSlot_Response(accepted=False, task_id='', mes
 ```bash
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=126
+export ROS_DOMAIN_ID=122
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 ros2 topic echo /task_state
@@ -268,10 +269,10 @@ ros2 topic echo --once /parking_slots
 
 | 증상 (`ros2 service call` 응답 `message`) | 원인 | 조치 |
 |---|---|---|
-| `"관제 데이터 없음(재시도)"` | `parking_slot_manager`가 아직 `/parking_slots`를 한 번도 못 받음 | 터미널 A가 `DOCK_LIFT_HANDOFF_READY`를 찍었는지, 터미널 B/C/D 환경(도메인 126/RMW/프로파일 unset)이 A와 일치하는지 확인. `ros2 topic hz /parking_slots`로 발행 여부 직접 확인 |
+| `"관제 데이터 없음(재시도)"` | `parking_slot_manager`가 아직 `/parking_slots`를 한 번도 못 받음 | 터미널 A가 `DOCK_LIFT_HANDOFF_READY`를 찍었는지, 터미널 B/C/D 환경(도메인 122/RMW/프로파일 unset)이 A와 일치하는지 확인. `ros2 topic hz /parking_slots`로 발행 여부 직접 확인 |
 | `"관제(dispatcher) 미기동"` / `"dispatcher 응답 없음"` | 터미널 B(`ros2 launch`)가 안 떠 있거나 `task_dispatcher`가 크래시 | 터미널 B 로그 확인, `ros2 node list`에 `task_dispatcher` 있는지 |
 | `"실행 서버(orchestrator) 미기동"` | `robot_task_orchestrator` 미기동 | launch에 포함돼 있으므로 정상 상황이면 발생 안 함 — 터미널 B 로그에서 크래시 확인 |
-| `ros2 topic list`에 `/parking_slots`가 안 보임 | 터미널 A/B 도메인 불일치, 또는 A가 아직 READY 전 | `echo $ROS_DOMAIN_ID`가 양쪽 다 126인지, `unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE` 했는지 재확인 |
+| `ros2 topic list`에 `/parking_slots`가 안 보임 | 터미널 A/B 도메인 불일치, 또는 A가 아직 READY 전 | `echo $ROS_DOMAIN_ID`가 양쪽 다 122인지, `unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE` 했는지 재확인 |
 | `task_state`가 특정 상태에서 몇 분째 안 바뀜 | 위 "알려진 한계" best-effort 구간에서 실제로 멎었을 가능성 | GUI에서 로봇이 물리적으로 움직이는지 관찰. 완전 정지면 해당 단계 안전망 타임아웃(최대 5~11분, 단계별로 다름 — 위 표 참고) 후 `FAILED`로 자동 전이할 때까지 대기하거나, 원인 파악 후 후속 튜닝 |
 | Isaac 콘솔에 `Could not import system rclpy` 등 | 터미널 A에서 실수로 `/opt/ros/humble/setup.bash`를 source함 | 새 터미널로 다시 시작(A는 절대 시스템 ROS를 source하지 않음) |
 

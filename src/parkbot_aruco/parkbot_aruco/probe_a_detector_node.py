@@ -9,7 +9,7 @@ Isaac 러너(parking_v4_runner.py --probe=A)가 발행하는 카메라 영상을
 python 3.10 + 시스템 cv2(예: 4.5.4)로 돈다. 그 경로를 그대로 시험한다. cv2 4.5.4 의
 IPPE_SQUARE 버그는 aruco_pose 가 ITERATIVE 폴백으로 흡수한다.
 
-실행: run_probe_a_detector.sh   (도메인 126 + fastdds 화이트리스트가 세팅된다)
+실행: run_probe_a_detector.sh   (도메인 122 + fastdds 화이트리스트가 세팅된다)
 Isaac 러너: bash parking_v4_runner.sh --gui --probe=A --cam-height=0.15
 """
 import json

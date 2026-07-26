@@ -46,7 +46,7 @@ except ImportError:
 # 지도는 ROS 패키지가 소유한다(실제 배포엔 Isaac 이 없다). 파라미터로 덮어쓸 수 있다.
 _DEFAULT_MAP = default_marker_map_path()
 
-os.environ.setdefault("ROS_DOMAIN_ID", "50")
+os.environ.setdefault("ROS_DOMAIN_ID", "122")
 
 
 def _rvec_to_quat(rvec):

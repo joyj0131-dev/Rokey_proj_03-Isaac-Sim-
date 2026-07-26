@@ -18,7 +18,7 @@ MultiThreadedExecutor(num_threads=4)로 스핀해야 블로킹 루프 도중에�
 self.pose가 갱신된다(안 그러면 폐루프가 수렴 못 함 — 치명적).
 """
 import rclpy
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -48,6 +48,7 @@ class AlignActionServerNode(Node):
         self.declare_parameter("dock_front_x", -1.2)
         self.declare_parameter("dock_front_z", 2.2)
         self.declare_parameter("lane_z", 6.875)
+        self.declare_parameter("vehicle_pose_topic", "/vehicle/entry/pose")
         self.declare_parameter("site_role", "entry")   # entry | exit
         p = self.get_parameter
         self._site_role = p("site_role").value
@@ -59,29 +60,29 @@ class AlignActionServerNode(Node):
             gate_x=p("gate_x").value,
             dock_rear=(p("dock_rear_x").value, p("dock_rear_z").value),
             dock_front=(p("dock_front_x").value, p("dock_front_z").value),
-            lane_z=p("lane_z").value, callback_group=grp)
+            lane_z=p("lane_z").value,
+            vehicle_pose_topic=p("vehicle_pose_topic").value,
+            callback_group=grp)
 
         self._action_server = ActionServer(
-            self, AlignVehicle, 'align_vehicle', self._on_align_vehicle, callback_group=grp)
+            self, AlignVehicle, 'align_vehicle', self._on_align_vehicle,
+            callback_group=grp, cancel_callback=self._on_cancel_request)
 
         self.get_logger().info('align_action_server started')
+
+    def _on_cancel_request(self, _cancel_request):
+        self.formation._stop_all()
+        return CancelResponse.ACCEPT
 
     def _final_error(self):
         """두 로봇의 축 정렬 잔차 중 최댓값(ingress_to의 수렴 판정과 동일 축 — z, 원본 L192-193
         대조). odom이 아직 없으면 -1.0(관측 불가) 센티널을 반환한다."""
-        errors = []
-        axle_targets = (
-            (self.formation.rear_id, self.formation.rear_axle),
-            (self.formation.front_id, self.formation.front_axle),
-        )
-        for rid, target_z in axle_targets:
-            pose = self.formation.pose.get(rid)
-            if pose is None:
-                return -1.0
-            errors.append(abs(pose[1] - target_z))
-        return max(errors)
+        error = self.formation.alignment_error()
+        return -1.0 if error is None else error
 
     def _on_align_vehicle(self, goal_handle):
+        self.formation.set_cancel_checker(
+            lambda: goal_handle.is_cancel_requested)
         # 이 세트가 입차 전용이면 인계지점 픽업(검증된 pickup_sequence), 출차 전용이면
         # 슬롯 픽업(pickup_at_slot) — site_role 파라미터로 고정(2026-07-24, 세트 자체가
         # 이미 입차/출차 전용이라 target_pose 좌표로 추측할 필요가 없다).
@@ -96,7 +97,15 @@ class AlignActionServerNode(Node):
         result = AlignVehicle.Result()
         result.success = ok
         result.final_error = float(self._final_error())
-        goal_handle.succeed()
+        self.formation._stop_all()
+        self.formation.set_cancel_checker()
+        if goal_handle.is_cancel_requested:
+            result.success = False
+            goal_handle.canceled()
+        elif ok:
+            goal_handle.succeed()
+        else:
+            goal_handle.abort()
         return result
 
 

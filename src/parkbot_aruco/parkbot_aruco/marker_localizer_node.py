@@ -31,7 +31,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from parkbot_aruco import aruco_pose as AP
 from parkbot_aruco import marker_localizer as ML
 
-os.environ.setdefault("ROS_DOMAIN_ID", "50")
+os.environ.setdefault("ROS_DOMAIN_ID", "122")
 
 # 깊이캠 에셋 전방 카메라의 base_link→광학 변환(실측). base_link 기준 카메라 마운트.
 # 실제 로봇에선 TF(cam_optical→base_link)로 대체 가능. 행 우선 16개.

@@ -31,12 +31,11 @@ formation_motion.FormationMotion을 통해 갖는다). 대신 아래 두 가지�
      한). 이것이 "정지 시도"의 실질적 메커니즘이다.
   2. `_on_execute_parking_task`는 실패 즉시 이후 단계를 절대 호출하지 않는다(추가 이동
      지령 없음).
-하위 액션서버는 취소(cancel)를 지원하지 않는다(Task 10b 리포트 우려사항 #5 — 로직 변경
-없이 이식된 원본에도 취소 개념이 없었음). 따라서 하위 서버가 자신의 내부 타임아웃보다
-먼저 진짜로 "멎어"(hang) 있다면 orchestrator가 능동적으로 멈춰 세울 방법은 없다 — 이 경우
-`_call_action`의 result_timeout(아래)이 지나서야 FAILED로 전이한다(진짜 하드웨어 정지가
-아니라 "더 이상 지령을 보내지 않음"에 그침). 이 한계는 안전상 후속(P4, safety_monitor
-정식화)에서 다뤄야 한다.
+2단계부터 하위 align/navigate/lift 액션이 취소(cancel)를 지원한다. 사용자가 상위 작업을
+취소하거나 `_call_action`의 result_timeout이 지나면 orchestrator가 실행 중인 하위 goal에도
+cancel을 전송한다. FormationMotion 폐루프는 취소를 확인하는 즉시 두 로봇에 0 cmd_vel을
+발행한다. 물리적인 비상정지는 3단계 safety_monitor 범위지만, 소프트웨어 액션 취소가
+이동 명령을 계속 남기는 문제는 여기서 차단한다.
 
 ## ★동시성 패턴(필수, Task 7/8/10과 동일 교정 패턴)
 이 노드는 액션 서버(execute_parking_task)이면서 그 콜백 안에서 4개 액션 클라이언트를
@@ -74,7 +73,7 @@ import time
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose
-from rclpy.action import ActionClient, ActionServer
+from rclpy.action import ActionClient, ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -130,10 +129,11 @@ SEND_GOAL_TIMEOUT = 10.0            # send_goal_async 수락/거부 핸드셰이
 
 # get_result_async 대기 상한 — 하위 서버의 내부 최대 블로킹 시간 이상으로 여유 있게:
 DETECT_RESULT_TIMEOUT = 15.0        # vehicle_detection_node: 즉시 반환(P1 스텁) + 여유
-LIFT_RESULT_TIMEOUT = 20.0          # lift_action_server: wait_for_service 5s + 응답대기 6s = 11s + 여유
-# formation_motion: carry_to 300s(CARRY_TO_TIMEOUT) 또는 goto_xz/carry_rotate_to
-# 90s(STEP_TIMEOUT) 중 최댓값 + 여유.
-NAVIGATE_RESULT_TIMEOUT = 330.0
+LIFT_RESULT_TIMEOUT = 45.0          # 서비스 최대 16s + 물리 상승/안착 15s + 팔 접힘 6s + 여유
+# 입차 carry는 carry_to 2회, 출차 carry_bay는 carry_to 2회(각 420s) +
+# carry_rotate_to(90s)까지 한 액션 안에서 실행될 수 있다. 바깥 타임아웃이 먼저
+# 끝나 하위 로봇을 중간에 취소하지 않도록 내부 최악값보다 넉넉하게 둔다.
+NAVIGATE_RESULT_TIMEOUT = 1000.0
 # formation_motion.pickup_sequence 내부 단계별 타임아웃 총합(게이트 300 +
 # goto_xz/rotate/ingress 각 최대치 ×2단계 ≈ 890s 최악치) + 여유.
 ALIGN_RESULT_TIMEOUT = 900.0
@@ -168,11 +168,12 @@ class RobotTaskOrchestratorNode(Node):
 
         self._task_state_pub = self.create_publisher(TaskState, 'task_state', 10)
         self._obstacle_alert_sub = self.create_subscription(
-            ObstacleAlert, 'obstacle_alert', self._on_obstacle_alert, 10, callback_group=grp)
+            ObstacleAlert, '/obstacle_alert', self._on_obstacle_alert, 10,
+            callback_group=grp)
 
         self._execute_task_server = ActionServer(
             self, ExecuteParkingTask, 'execute_parking_task', self._on_execute_parking_task,
-            callback_group=grp)
+            callback_group=grp, cancel_callback=self._on_cancel_request)
 
         self._detect_client = ActionClient(
             self, DetectVehicle, 'detect_vehicle', callback_group=grp)
@@ -184,16 +185,27 @@ class RobotTaskOrchestratorNode(Node):
             self, ControlLift, 'control_lift', callback_group=grp)
 
         self._emergency_stop = False
+        self._active_child_goal_handle = None
 
         self.get_logger().info('robot_task_orchestrator node started')
 
+    @staticmethod
+    def _on_cancel_request(_cancel_request):
+        return CancelResponse.ACCEPT
+
     def _on_obstacle_alert(self, msg):
-        # TODO(SR-10/P4): 긴급정지 상태 반영, 장애물 해소 시 작업 재개 신호 처리는
-        # safety_monitor 정식화(P4) 범위 — 이번 태스크(P1 상태머신 골격)는 플래그 보관만.
-        self._emergency_stop = msg.obstacle_detected
+        was_stopped = self._emergency_stop
+        self._emergency_stop = bool(msg.obstacle_detected)
+        if self._emergency_stop and not was_stopped:
+            self.get_logger().error(
+                f'긴급정지: {msg.description or "장애물 감지"}')
+        child = self._active_child_goal_handle
+        if self._emergency_stop and child is not None:
+            child.cancel_goal_async()
 
     # ---- ★동시성 패턴 핵심: 재진입 spin 없는 액션 호출 ----
-    def _call_action(self, client, goal, *, label, wait_timeout, result_timeout):
+    def _call_action(self, client, goal, *, label, wait_timeout, result_timeout,
+                     parent_goal_handle=None):
         """send_goal_async → goal_handle → get_result_async를 non-respin 폴링으로 대기.
 
         반환 (result, status, reason):
@@ -214,52 +226,79 @@ class RobotTaskOrchestratorNode(Node):
             self.get_logger().warn(reason)
             return None, None, reason
 
-        goal_handle = send_fut.result()
-        if goal_handle is None or not goal_handle.accepted:
+        child_goal_handle = send_fut.result()
+        if child_goal_handle is None or not child_goal_handle.accepted:
             reason = f'{label} goal 거부'
             self.get_logger().warn(reason)
             return None, None, reason
+        self._active_child_goal_handle = child_goal_handle
 
-        result_fut = goal_handle.get_result_async()
+        if (parent_goal_handle is not None
+                and parent_goal_handle.is_cancel_requested):
+            child_goal_handle.cancel_goal_async()
+            self._active_child_goal_handle = None
+            return None, GoalStatus.STATUS_CANCELED, '사용자 취소 요청'
+
+        result_fut = child_goal_handle.get_result_async()
         deadline = time.monotonic() + result_timeout
         while not result_fut.done() and time.monotonic() < deadline:
+            if self._emergency_stop:
+                child_goal_handle.cancel_goal_async()
+                self._active_child_goal_handle = None
+                return None, GoalStatus.STATUS_CANCELED, '장애물 긴급정지'
+            if (parent_goal_handle is not None
+                    and parent_goal_handle.is_cancel_requested):
+                child_goal_handle.cancel_goal_async()
+                self._active_child_goal_handle = None
+                return None, GoalStatus.STATUS_CANCELED, '사용자 취소 요청'
             time.sleep(POLL_INTERVAL)
         if not result_fut.done():
             reason = f'{label} 결과 타임아웃({result_timeout:.0f}s)'
             self.get_logger().warn(reason)
+            # 결과만 포기하면 하위 폐루프가 계속 cmd_vel을 보낼 수 있다. 반드시
+            # cancel을 전송해 하위 액션의 정지 경로를 깨운다.
+            child_goal_handle.cancel_goal_async()
+            self._active_child_goal_handle = None
             return None, None, reason
 
         response = result_fut.result()
+        self._active_child_goal_handle = None
         return response.result, response.status, None
 
     # ---- 단계별 액션 호출 래퍼: 모두 (ok, payload, reason) 3-tuple로 통일 ----
-    def _call_detect_vehicle(self):
+    def _call_detect_vehicle(self, parent_goal_handle=None):
         result, _status, reason = self._call_action(
             self._detect_client, DetectVehicle.Goal(trigger=True),
             label='detect_vehicle',
-            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT, result_timeout=DETECT_RESULT_TIMEOUT)
+            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT,
+            result_timeout=DETECT_RESULT_TIMEOUT,
+            parent_goal_handle=parent_goal_handle)
         if result is None:
             return False, None, reason
         if not result.success:
             return False, None, 'detect_vehicle 실패(success=False)'
         return True, result.vehicle_info.pose, None
 
-    def _call_align_vehicle(self, target_pose):
+    def _call_align_vehicle(self, target_pose, parent_goal_handle=None):
         result, _status, reason = self._call_action(
             self._align_client, AlignVehicle.Goal(target_pose=target_pose),
             label='align_vehicle',
-            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT, result_timeout=ALIGN_RESULT_TIMEOUT)
+            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT,
+            result_timeout=ALIGN_RESULT_TIMEOUT,
+            parent_goal_handle=parent_goal_handle)
         if result is None:
             return False, None, reason
         if not result.success:
             return False, None, f'align_vehicle 실패(final_error={result.final_error:.3f})'
         return True, None, None
 
-    def _call_control_lift(self, command):
+    def _call_control_lift(self, command, parent_goal_handle=None):
         result, _status, reason = self._call_action(
             self._lift_client, ControlLift.Goal(command=command),
             label=f'control_lift[{command}]',
-            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT, result_timeout=LIFT_RESULT_TIMEOUT)
+            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT,
+            result_timeout=LIFT_RESULT_TIMEOUT,
+            parent_goal_handle=parent_goal_handle)
         if result is None:
             return False, None, reason
         if not result.success:
@@ -274,36 +313,41 @@ class RobotTaskOrchestratorNode(Node):
         goal.behavior_tree = mode
         return goal
 
-    def _call_navigate(self, pose, mode):
+    def _call_navigate(self, pose, mode, parent_goal_handle=None):
         # NavigateToPose.Result에는 success 필드가 없다(std_msgs/Empty뿐, nav2 표준
         # 계약) — 성패는 액션 종단 상태(GoalStatus)로만 판정(navigate_action_server가
         # 수렴 시 succeed()/그 외 abort()로 인코딩, Task 10b 관례 그대로).
         result, status, reason = self._call_action(
             self._navigate_client, self._navigate_goal(pose, mode),
             label=f'navigate_to_pose[{mode}]',
-            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT, result_timeout=NAVIGATE_RESULT_TIMEOUT)
+            wait_timeout=ACTION_SERVER_WAIT_TIMEOUT,
+            result_timeout=NAVIGATE_RESULT_TIMEOUT,
+            parent_goal_handle=parent_goal_handle)
         if result is None:
             return False, None, reason
         if status != GoalStatus.STATUS_SUCCEEDED:
             return False, None, f'navigate_to_pose[{mode}] 실패(status={status})'
         return True, None, None
 
-    def _call_return_to_dock(self):
+    def _call_return_to_dock(self, parent_goal_handle=None):
         """RETURNING: 두 로봇을 '동시에' 초기 대기 도크로 복귀(사용자 요구).
 
         'return_both' 모드가 navigate_action_server에서 두 로봇을 approach_parallel로 동시
         이동시킨다(슬롯→앞→통로→초기도크 West_A/West_B). 도크 좌표는 FormationMotion에
         내장되어 있어 goal.pose는 사용하지 않는다(더미 Pose)."""
-        ok, _, reason = self._call_navigate(Pose(), 'return_both')
+        ok, _, reason = self._call_navigate(
+            Pose(), 'return_both', parent_goal_handle)
         if not ok:
             return False, None, f'복귀 실패: {reason}'
         return True, None, None
 
-    def _call_return_from_bay(self):
-        """출차 RETURNING: 인계베이 차 밑에서 차 길이축(z)으로 빠져나와 도크로('return_bay').
-        입차 복귀(return_both, 슬롯→통로)와 달리 베이 차량은 z=0이라 옆(x)으로 빼면 바퀴를
-        스친다 — 진입 역방향(z축)으로 탈출한다(사용자 요구)."""
-        ok, _, reason = self._call_navigate(Pose(), 'return_bay')
+    def _call_return_from_bay(self, parent_goal_handle=None):
+        """출차 RETURNING: 인계베이 차 밑에서 현재 차량 길이축으로 빠져나와 도크로.
+
+        슬롯 밖에서 차량을 90도 회전했으므로 고정 z축을 쓰지 않고, 하차 시점의
+        rear→front 실제 배치축을 FormationMotion이 계산한다."""
+        ok, _, reason = self._call_navigate(
+            Pose(), 'return_bay', parent_goal_handle)
         if not ok:
             return False, None, f'복귀 실패: {reason}'
         return True, None, None
@@ -342,36 +386,59 @@ class RobotTaskOrchestratorNode(Node):
         # 좌표 사용)과 MOVING(입차=슬롯으로 carry / 출차=인계베이로 carry_bay) 두 단계뿐이고,
         # APPROACHING(align)은 target_pose 위치로 align_action_server가 자동으로 베이/슬롯
         # 픽업을 가른다.
-        # ARRIVED(2026-07-24, 사용자 확인): 주차장 구조상 슬롯(입차)/출차 완료 지점 중앙에
-        # 로봇 두 대 중심이 도착한 직후 반시계(CCW) 90도 회전이 필요하다 — 입차/출차 둘 다
-        # 같은 방향(CCW)으로 돈다. 'rotate_ccw90'(navigate_action_server.py)이 이 회전을
-        # 담당한다. PARKED=하차, RETURNING=복귀.
+        # 입차는 슬롯 중앙 도착 후 회전한다. 출차는 사용자 요구대로 carry_bay 내부에서
+        # "슬롯 밖 차로까지 완전 이탈 → 반시계 90도 회전 → 인계지점 이동" 순서로 처리한다.
+        # 따라서 출차 ARRIVED에서는 다시 회전하지 않는다.
         is_exit = goal.request_type == 'EXIT'
         if is_exit:
             handlers = {
                 "SEARCHING": lambda: (True, goal.slot_pose, None),   # 차는 슬롯에 있음
-                "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 슬롯 픽업
-                "PICKED_UP": lambda: self._call_control_lift('UP'),
+                "APPROACHING": lambda: self._call_align_vehicle(
+                    vehicle_pose, goal_handle),  # 슬롯 픽업
+                "PICKED_UP": lambda: self._call_control_lift(
+                    'UP', goal_handle),
                 "MOVING": lambda: self._call_navigate(
-                    _bay_pose(self._bay_x_map, self._bay_y_map), 'carry_bay'),  # 인계지점으로
-                "ARRIVED": lambda: self._call_navigate(Pose(), 'rotate_ccw90'),
-                "PARKED": lambda: self._call_control_lift('DOWN'),   # 인계베이에 하차
-                "RETURNING": self._call_return_from_bay,   # 베이 차밑 z축 탈출→도크
+                    _bay_pose(self._bay_x_map, self._bay_y_map),
+                    'carry_bay', goal_handle),
+                "ARRIVED": lambda: (True, None, None),  # 회전은 슬롯 이탈 직후 이미 완료
+                "PARKED": lambda: self._call_control_lift(
+                    'DOWN', goal_handle),   # 인계베이에 하차
+                "RETURNING": lambda: self._call_return_from_bay(goal_handle),
             }
         else:
             handlers = {
-                "SEARCHING": self._call_detect_vehicle,
-                "APPROACHING": lambda: self._call_align_vehicle(vehicle_pose),  # 인계베이 픽업
-                "PICKED_UP": lambda: self._call_control_lift('UP'),
-                "MOVING": lambda: self._call_navigate(goal.slot_pose, 'carry'),  # 슬롯으로
-                "ARRIVED": lambda: self._call_navigate(Pose(), 'rotate_ccw90'),
-                "PARKED": lambda: self._call_control_lift('DOWN'),
-                "RETURNING": self._call_return_to_dock,
+                "SEARCHING": lambda: self._call_detect_vehicle(goal_handle),
+                "APPROACHING": lambda: self._call_align_vehicle(
+                    vehicle_pose, goal_handle),  # 인계베이 픽업
+                "PICKED_UP": lambda: self._call_control_lift(
+                    'UP', goal_handle),
+                "MOVING": lambda: self._call_navigate(
+                    goal.slot_pose, 'carry', goal_handle),  # 슬롯으로
+                "ARRIVED": lambda: self._call_navigate(
+                    Pose(), 'rotate_ccw90', goal_handle),
+                "PARKED": lambda: self._call_control_lift(
+                    'DOWN', goal_handle),
+                "RETURNING": lambda: self._call_return_to_dock(goal_handle),
             }
 
         fail_reason = ''
-        while state not in ('DONE', 'FAILED'):
-            self._publish_task_state(robot_id, goal.task_id, state, _STEP_MESSAGES[state])
+        step_messages = dict(_STEP_MESSAGES)
+        if is_exit:
+            step_messages.update({
+                "MOVING": "슬롯 밖 이탈 후 회전하여 출차 인계장으로 이동 중",
+                "ARRIVED": "출차 인계장 도착",
+            })
+        while state not in ('DONE', 'FAILED', 'CANCELED'):
+            if self._emergency_stop:
+                fail_reason = f'{state}: 장애물 긴급정지'
+                state = 'CANCELED'
+                break
+            if goal_handle.is_cancel_requested:
+                fail_reason = f'{state}: 사용자 취소 요청'
+                state = 'CANCELED'
+                break
+            self._publish_task_state(
+                robot_id, goal.task_id, state, step_messages[state])
             self._publish_feedback(goal_handle, state, idx, total)
 
             ok, payload, reason = handlers[state]()
@@ -383,7 +450,9 @@ class RobotTaskOrchestratorNode(Node):
                 state = next_state(state)
             else:
                 fail_reason = f'{state}: {reason}'
-                state = 'FAILED'
+                state = (
+                    'CANCELED' if goal_handle.is_cancel_requested
+                    else 'FAILED')
 
         final_message = (('출차 완료' if is_exit else '주차 완료')
                          if state == 'DONE' else fail_reason)
@@ -393,12 +462,15 @@ class RobotTaskOrchestratorNode(Node):
             f'execute_parking_task 종료: task_id={goal.task_id} state={state} '
             f'message={final_message}')
 
-        # align/lift/detect 액션서버와 동일 관례: 액션 자체는 항상 succeed()하고
-        # 성패는 result.success 필드로 전달한다(원 스텁도 이 관례를 이미 따르고 있었음).
-        goal_handle.succeed()
         result = ExecuteParkingTask.Result()
         result.success = (state == 'DONE')
         result.message = final_message
+        if state == 'DONE':
+            goal_handle.succeed()
+        elif state == 'CANCELED':
+            goal_handle.canceled()
+        else:
+            goal_handle.abort()
         return result
 
 

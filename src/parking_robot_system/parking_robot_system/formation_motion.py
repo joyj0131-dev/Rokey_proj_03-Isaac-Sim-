@@ -136,6 +136,7 @@ class FormationMotion:
                  handoff_x=-8.5, handoff_z=7.075, gate_x=-12.55,
                  dock_rear=(-3.2, 2.2), dock_front=(-1.2, 2.2), lane_z=6.875,
                  rear_axle_z=-1.93, front_axle_z=1.66,
+                 vehicle_pose_topic="/vehicle/pose",
                  watchdog_timeout_sec=0.5,
                  callback_group=None):
         # rear_id/front_id: 이 편대가 실제로 제어할 물리 로봇 이름(토픽/서비스 네임스페이스에
@@ -178,21 +179,23 @@ class FormationMotion:
         self.pose = {r: None for r in self.robots}   # rid -> (x, z, yaw), USD
         self.veh_x = self.veh_y = self.veh_z = None
         self.veh_yaw = None
+        self.vehicle_pose_topic = vehicle_pose_topic
+        self._last_axle_targets = None
+        self._cancel_checker = lambda: False
         self._watchdog_timeout = watchdog_timeout_sec
-        self._pose_updated_at = {r: None for r in self.robots}  # rid -> time.time()
+        self._pose_updated_at = {r: None for r in self.robots}  # rid -> monotonic time
         grp = callback_group or ReentrantCallbackGroup()
         for r in self.robots:
             # 토픽 접두사 "/robot_{id}/..."는 isaacpjt/Isaac_envo/parking_v4_runner.py가
             # 실제로 발행하는 이름(odom_pub, attach_camera_graph 참고) — "/{id}/..."가
             # 아니다(2026-07-25 확인·수정: 이전엔 접두사 없이 구독해서 odom이 전혀 안
-            # 들어왔다). cmd_vel은 현재 v4 runner 쪽에 구독자가 없어(주행 루프가 아직
-            # probe 전용) 실제로는 아무도 안 받지만, 나중에 붙을 때 같은 네임스페이스
-            # 관례를 따르도록 미리 맞춰둔다.
+            # 들어왔다). cmd_vel도 같은 네임스페이스로 v4 runner가 구독해 실제 휠
+            # 속도 명령으로 변환한다.
             node.create_subscription(
                 Odometry, f"/robot_{r}/odom",
                 lambda m, rid=r: self._odom(rid, m), 10, callback_group=grp)
         node.create_subscription(
-            PoseStamped, "/vehicle/pose", self._veh, 10, callback_group=grp)
+            PoseStamped, vehicle_pose_topic, self._veh, 10, callback_group=grp)
         self.cmd = {r: node.create_publisher(Twist, f"/robot_{r}/cmd_vel", 10) for r in self.robots}
 
         # ---- 뎁스캠 바퀴 감지(2026-07-26, p4_depth의 depth_stop_detector.py 연결) ----
@@ -222,16 +225,38 @@ class FormationMotion:
         """편대(rear+front) 중 한쪽이라도 odom이 watchdog_timeout_sec 안에 안
         왔으면 True — "한쪽만 멈추면 차가 뒤틀린다"는 공동정지 원칙
         (formation_gap_controller_node.py 설계, 2026-07-21)을 그대로 따른다."""
-        now = time.time()
+        now = time.monotonic()
         return any(is_stale(now, self._pose_updated_at[r], self._watchdog_timeout)
                    for r in self.robots)
+
+    def set_cancel_checker(self, checker=None):
+        """실행 중인 ROS 액션의 취소 여부를 폐루프에 연결한다."""
+        self._cancel_checker = checker or (lambda: False)
+
+    def _cancel_requested(self):
+        try:
+            return bool(self._cancel_checker())
+        except Exception:
+            return False
+
+    def alignment_error(self):
+        """마지막 픽업에서 사용한 실제 축 목표와 현재 pose의 최대 오차."""
+        if not self._last_axle_targets:
+            return None
+        errors = []
+        for rid, target_z in self._last_axle_targets.items():
+            pose = self.pose.get(rid)
+            if pose is None:
+                return None
+            errors.append(abs(pose[1] - target_z))
+        return max(errors) if errors else None
 
     # ---- 구독 콜백 (원본 L86-94 그대로) ----
     def _odom(self, rid, m):
         q = m.pose.pose.orientation
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         self.pose[rid] = (m.pose.pose.position.x, m.pose.pose.position.z, yaw)
-        self._pose_updated_at[rid] = time.time()
+        self._pose_updated_at[rid] = time.monotonic()
 
     def _veh(self, m):
         self.veh_x = m.pose.position.x
@@ -266,16 +291,22 @@ class FormationMotion:
     def _settle(self, secs=0.5):
         """단계 경계에서 정지 후 잠깐 멈춤 → 관성 흡수(원본 L105-111 그대로)."""
         self._stop_all()
-        end = time.time() + secs
-        while time.time() < end:
+        end = time.monotonic() + secs
+        while time.monotonic() < end:
             self._stop_all()
+            if self._cancel_requested():
+                break
             time.sleep(1.0 / CONTROL_HZ)
 
     def wait_data(self, timeout=15.0):
         """두 로봇 odom + 차량 pose 수신 대기(원본 _wait_data, L116-121 그대로)."""
-        end = time.time() + timeout
-        while time.time() < end and (any(self.pose[r] is None for r in self.robots)
-                                     or self.veh_z is None):
+        end = time.monotonic() + timeout
+        while (time.monotonic() < end
+               and (any(self.pose[r] is None for r in self.robots)
+                    or self.veh_z is None)):
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             time.sleep(0.1)
         return all(self.pose[r] is not None for r in self.robots) and self.veh_z is not None
 
@@ -293,8 +324,11 @@ class FormationMotion:
     # ---- 원본 _goto_xz (L140-148), 로직 변경 없음 ----
     def goto_xz(self, rid, tx, tz, timeout=STEP_TIMEOUT):
         """현재 yaw 유지한 채 world (tx,tz)로 옴니 이동(vx,vy). 회전 없음."""
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._pub(rid, 0.0)
+                return False
             if self._omni_step(rid, tx, tz):
                 break
             time.sleep(1.0 / CONTROL_HZ)
@@ -307,8 +341,11 @@ class FormationMotion:
         중간 웨이포인트는 CORNER_TOL 반경에서 통과(정지 없이 코너를 돌아 부드럽게),
         마지막 웨이포인트만 POS_TOL 로 정밀 정지."""
         idx = {rid: 0 for rid in routes}
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             if len(routes) > 1 and self._watchdog_stale():
                 self._stop_all()
                 self.node.get_logger().warn("approach_parallel: 공동정지(파트너 odom 두절)")
@@ -332,8 +369,11 @@ class FormationMotion:
     def rotate_to(self, rid, target_yaw, timeout=90.0):
         """GT yaw 폐루프 회전(느림). 회전 방향 비신뢰라 작은 wz로 수렴.
         인플레이스 회전은 롤러 슬립이 커 느리므로 타임아웃 넉넉히."""
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._pub(rid, 0.0)
+                return False
             yaw = self.pose[rid][2]
             e = wrap(target_yaw - yaw)
             if abs(e) < YAW_TOL:
@@ -361,8 +401,11 @@ class FormationMotion:
         """
         cx = self.cx if cx is None else cx
         self._arm_wheel_depth(rid)
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._pub(rid, 0.0)
+                return False
             x, z, yaw = self.pose[rid]
             if self.wheel_depth_stop.get(rid) or (abs(z - target_z) < tol and abs(x - cx) < tol * 2):
                 break
@@ -384,8 +427,11 @@ class FormationMotion:
         두 로봇에 서로 반대 방향의 목표 yaw를 줄 수 있어야 한다.
         """
         done = {rid: False for rid in targets}
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             if len(targets) > 1 and self._watchdog_stale():
                 self._stop_all()
                 self.node.get_logger().warn("rotate_parallel: 공동정지(파트너 odom 두절)")
@@ -450,10 +496,16 @@ class FormationMotion:
         self._settle()
 
         self.node.get_logger().info("인계장 픽업: rear 뒷축·front 앞축 동시 진입")
-        if not self.ingress_parallel({
-                self.rear_id: (self.handoff_x, self.handoff_z + self.rear_axle, FACE_PZ),
-                self.front_id: (self.handoff_x, self.handoff_z + self.front_axle, FACE_MZ),
-        }, timeout=140.0, tol=INGRESS_TOL):
+        targets = {
+            self.rear_id: (
+                self.handoff_x, self.handoff_z + self.rear_axle, FACE_PZ),
+            self.front_id: (
+                self.handoff_x, self.handoff_z + self.front_axle, FACE_MZ),
+        }
+        self._last_axle_targets = {
+            rid: target[1] for rid, target in targets.items()}
+        if not self.ingress_parallel(
+                targets, timeout=140.0, tol=INGRESS_TOL):
             self._stop_all()
             return False, "동시 축 진입 실패"
         self._settle(INGRESS_SETTLE)
@@ -481,8 +533,11 @@ class FormationMotion:
             return False
 
         max_heading_error = 0.0
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             if self._watchdog_stale():
                 self._stop_all()
                 self.node.get_logger().warn("carry_to: 공동정지(파트너 odom 두절)")
@@ -526,7 +581,10 @@ class FormationMotion:
                           clamp(base_left + turn_left, MAX_LIN), omega)
             time.sleep(1.0 / CONTROL_HZ)
         self._stop_all()
-        final_heading_error = wrap(heading_ref - self.carry_heading())
+        final_heading = self.carry_heading()
+        if final_heading is None:
+            return False
+        final_heading_error = wrap(heading_ref - final_heading)
         self.node.get_logger().info(
             f"운반 heading: max={math.degrees(max_heading_error):.3f}deg "
             f"final={math.degrees(final_heading_error):+.3f}deg")
@@ -559,20 +617,34 @@ class FormationMotion:
     def return_from_bay(self):
         """출차 하차(인계지점) 후 도크 복귀 — 두 단계(사용자 실측 반영):
 
-        ① 백아웃(정밀): 차 밑에서 차 길이축(z)으로 '완전히' 빠져나온다. rear 남(-z)/front 북(+z)
-           으로 인계지점 중심에서 BAY_CLEAR_Z만큼(단일 웨이포인트 → CORNER_TOL로 안 자르고
-           정밀 정지). 이렇게 확실히 나온 뒤에 이동해야 좌우 바퀴를 안 스친다(진입 역방향).
+        ① 백아웃(정밀): 차 밑에서 현재 두 로봇을 잇는 축 방향으로 '완전히' 빠져나온다.
+           출차 차량은 슬롯 밖에서 90도 회전하므로 고정 z축으로 빠지면 차 옆면을 긁는다.
+           실제 rear→front 단위벡터를 계산해 rear는 반대쪽, front는 진행 쪽으로
+           BAY_CLEAR_Z만큼 벌어진다.
         ② 통로 차로로 복귀: rear/front가 서로 다른 차로(lane_z + LANE_Z_REAR/FRONT)로 각자
            도크까지 이동한다(return_both_to_docks와 동일 패턴).
         """
         # ① 정밀 백아웃 — 차 밖으로 완전히
-        backout = {}
-        for rid, offset in ((self.rear_id, -BAY_CLEAR_Z), (self.front_id, BAY_CLEAR_Z)):
-            cur = self.pose.get(rid)
-            if cur is None:
-                return False
-            backout[rid] = [(cur[0], self.handoff_z + offset)]   # 단일 웨이포인트 → 정밀 정지
-        self.node.get_logger().info("출차 복귀①: 차 길이축으로 완전히 빠져나옴")
+        rear = self.pose.get(self.rear_id)
+        front = self.pose.get(self.front_id)
+        if rear is None or front is None:
+            return False
+        axis_x, axis_z = front[0] - rear[0], front[1] - rear[1]
+        axis_norm = math.hypot(axis_x, axis_z)
+        if axis_norm < 0.5:
+            self.node.get_logger().warn("출차 복귀: 로봇 배치축 계산 실패")
+            return False
+        ux, uz = axis_x / axis_norm, axis_z / axis_norm
+        center_x = 0.5 * (rear[0] + front[0])
+        center_z = 0.5 * (rear[1] + front[1])
+        backout = {
+            self.rear_id: [
+                (center_x - ux * BAY_CLEAR_Z, center_z - uz * BAY_CLEAR_Z)],
+            self.front_id: [
+                (center_x + ux * BAY_CLEAR_Z, center_z + uz * BAY_CLEAR_Z)],
+        }
+        self.node.get_logger().info(
+            "출차 복귀①: 실제 차량 길이축으로 완전히 빠져나옴")
         if not self.approach_parallel(backout):
             self._stop_all()
             return False
@@ -603,8 +675,11 @@ class FormationMotion:
         2026-07-26: ingress_to와 동일하게 wheel_depth_stop도 정지 조건에 포함한다."""
         self._arm_wheel_depth(*targets.keys())
         done = {rid: False for rid in targets}
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             if len(targets) > 1 and self._watchdog_stale():
                 self._stop_all()
                 self.node.get_logger().warn("ingress_parallel: 공동정지(파트너 odom 두절)")
@@ -658,31 +733,59 @@ class FormationMotion:
             return False, "슬롯 접근 타임아웃"
         self._settle()
         # ② 두 로봇 동시에 FACE_MZ로 정렬(빈 몸이라 제자리 회전 무방)
-        self.carry_rotate_to(FACE_MZ)
+        if not self.rotate_parallel({
+                self.rear_id: FACE_MZ,
+                self.front_id: FACE_MZ,
+        }):
+            self._stop_all()
+            return False, "슬롯 진입 전 회전 실패"
         self._settle()
         # ③ 두 로봇 동시에 각자 축으로 진입
         self.node.get_logger().info("출차: 두 로봇 동시 진입")
-        self.ingress_parallel({
+        targets = {
             self.front_id: (slot_x, front_t, FACE_MZ),
             self.rear_id: (slot_x, rear_t, FACE_MZ),
-        })
+        }
+        self._last_axle_targets = {
+            rid: target[1] for rid, target in targets.items()}
+        if not self.ingress_parallel(targets):
+            self._stop_all()
+            return False, "슬롯 축 진입 실패"
         self._settle(INGRESS_SETTLE)
         return True, "슬롯 픽업 완료(동시)"
 
     def carry_to_bay(self, bay_x, bay_z):
-        """출차 운반: 슬롯에서 통로로 나와 통로 따라 인계지점으로(입차 carry의 역방향, L자).
-          ① carry_to(현재 veh_x, 이 세트 전용 차로) → 슬롯 밖 통로로,
-          ② carry_to(bay_x, bay_z) → 통로 따라 인계지점으로.
+        """출차 운반: 슬롯에서 완전히 나온 뒤 회전하고 인계지점으로 이동.
+
+          ① 현재 x를 유지한 채 출차 차로까지 이동해 슬롯 밖으로 완전히 나옴
+          ② 슬롯 밖의 빈 공간에서 차량과 두 로봇을 반시계 90도 회전
+          ③ 회전한 방향을 유지하며 인계지점으로 이동
+
+        회전을 인계지점 도착 뒤에 하던 이전 순서는 사용자 요구와 반대였으며,
+        슬롯 주변 구조물과의 충돌 위험도 있었다.
         """
         if self.veh_x is None or self.veh_z is None:
             return False
         heading_ref = self.carry_heading()
+        if heading_ref is None:
+            return False
         self.node.get_logger().info("출차 운반: 슬롯→통로")
         ok = self.carry_to(self.veh_x, self.lane_z, heading_ref=heading_ref)
-        if ok:
-            self.node.get_logger().info(f"출차 운반: 통로→인계지점({bay_x:.1f},{bay_z:.1f})")
-            ok = self.carry_to(bay_x, bay_z, heading_ref=heading_ref)
-        return ok
+        if not ok:
+            return False
+        self._settle()
+
+        self.node.get_logger().info("출차 운반: 슬롯 밖 이탈 완료→반시계 90도 회전")
+        if not self.carry_rotate_to(heading_ref + math.pi / 2):
+            return False
+        rotated_heading = self.carry_heading()
+        if rotated_heading is None:
+            return False
+        self._settle()
+
+        self.node.get_logger().info(
+            f"출차 운반: 회전 완료→인계지점({bay_x:.1f},{bay_z:.1f})")
+        return self.carry_to(bay_x, bay_z, heading_ref=rotated_heading)
 
     def carry_rotate_to(self, target_yaw, timeout=90.0, tol_rad=None):
         """파지 후 두 로봇을 target_yaw로 회전(강체로 잡은 차량이 함께 회전).
@@ -714,8 +817,11 @@ class FormationMotion:
             target_angle_rad=relative_angle, k_omega=K_YAW,
             max_omega=MAX_YAW, max_linear=MAX_LIN)
 
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._cancel_requested():
+                self._stop_all()
+                return False
             if self._watchdog_stale():
                 self._stop_all()
                 self.node.get_logger().warn("carry_rotate_to: 공동정지(파트너 odom 두절)")
