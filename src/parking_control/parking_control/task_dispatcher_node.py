@@ -119,11 +119,25 @@ class TaskDispatcherNode(Node):
                 return response
 
         leader_id, follower_id = self._robot_pairs[request.request_type]
-        idle_ids = {r["robot_id"] for r in self._db.idle_robots()}
-        if leader_id not in idle_ids or follower_id not in idle_ids:
+        pair_ids = (leader_id, follower_id)
+        statuses = self._db.robot_statuses(pair_ids)
+        missing_ids = [robot_id for robot_id in pair_ids if robot_id not in statuses]
+        if missing_ids:
+            response.message = (
+                "필수 로봇이 DB에 등록되지 않았습니다: "
+                f"{', '.join(missing_ids)} (V4 테스트 환경 초기화 필요)"
+            )
+            return response
+
+        unavailable = [
+            f"{robot_id}={statuses[robot_id]}"
+            for robot_id in pair_ids
+            if statuses[robot_id] != "IDLE"
+        ]
+        if unavailable:
             response.message = (
                 f"{request.request_type} 전용 로봇쌍({leader_id}/{follower_id})이 "
-                "사용 중입니다")
+                f"사용 중입니다: {', '.join(unavailable)}")
             return response
 
         task_id = str(uuid.uuid4())

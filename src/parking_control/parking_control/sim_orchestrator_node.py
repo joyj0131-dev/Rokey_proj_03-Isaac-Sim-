@@ -20,6 +20,7 @@ OCCUPIED/EMPTY로 바꾸므로, 대시보드(dashboard.py)와 웹 UI 양쪽에�
 응답할지 불명확하다). 테스트할 때는 이 노드가 그 자리를 대신한다.
 """
 
+import math
 import time
 
 import rclpy
@@ -35,6 +36,40 @@ from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
 from parking_control.core.pathfinder import PathFinder
 from parking_control.parking_slot_manager_node import _default_map_yaml
+
+
+# 실제 formation_gap_controller의 기본 편대 간격과 맞춘다. UI에서도 92px
+# 로봇 카드 두 장이 한 아이콘처럼 겹치지 않고 리더/팔로워가 구분된다.
+SIM_FORMATION_GAP_M = 2.9
+
+
+def formation_positions(previous_center, center, robot_count=2,
+                        gap_m=SIM_FORMATION_GAP_M):
+    """경로 진행축을 따라 리더/팔로워의 화면용 편대 좌표를 계산한다.
+
+    첫 번째 좌표가 리더(진행 방향 앞), 두 번째가 팔로워(뒤)다. 테스트용
+    시뮬레이터이므로 실제 제어기를 흉내 내지는 않지만, 두 로봇이 같은 차량을
+    운반하는 편대로 함께 이동하는 모습은 유지한다.
+    """
+    if robot_count <= 0:
+        return []
+    if robot_count == 1:
+        return [center]
+
+    dx = center[0] - previous_center[0]
+    dy = center[1] - previous_center[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        dx, dy, length = 1.0, 0.0, 1.0
+    ux, uy = dx / length, dy / length
+    start_offset = gap_m * (robot_count - 1) / 2.0
+    return [
+        (
+            center[0] + ux * (start_offset - index * gap_m),
+            center[1] + uy * (start_offset - index * gap_m),
+        )
+        for index in range(robot_count)
+    ]
 
 
 class SimOrchestratorNode(Node):
@@ -71,33 +106,46 @@ class SimOrchestratorNode(Node):
 
     # ---- 이동 시뮬레이션 ----
 
-    def _current_node(self):
-        pos = self._db.get_robot_position(self._robot_id)
+    def _current_node(self, robot_id=None):
+        pos = self._db.get_robot_position(robot_id or self._robot_id)
         if pos is None:
             return "dock_wait_A"
         return self._map.nearest_node(*pos)
 
-    def _move_to(self, target_node):
+    def _move_to(self, target_node, robot_ids):
         """target_node까지 경로를 따라 좌표를 조금씩 갱신한다.
 
-        이동 중에는 robots.target_node를 채워 대시보드가 "가야 할 경로"를
-        계산할 수 있게 하고, 도착하면 비운다.
+        리더만 움직이던 기존 테스트 대역과 달리 goal에 배정된 리더/팔로워를
+        경로 진행축 앞뒤의 편대로 배치하고, 한 SQL 문으로 함께 갱신한다.
+        이동 중에는 두 로봇 모두 target_node를 채우고 도착하면 비운다.
         """
-        start = self._current_node()
+        robot_ids = [robot_id for robot_id in robot_ids if robot_id]
+        if not robot_ids:
+            return
+        start = self._current_node(robot_ids[0])
         path = self._pathfinder.find_path(start, target_node)
         if path is None:
             self.get_logger().warn(f"경로 없음: {start} → {target_node}")
             return
-        self._db.update_robot_target(self._robot_id, target_node)
+        for robot_id in robot_ids:
+            self._db.update_robot_target(robot_id, target_node)
         delay = self.get_parameter("move_step_sec").value
-        for x, y in path.waypoints[1:]:
-            self._db.update_robot_position(self._robot_id, x, y)
+        previous = path.waypoints[0]
+        for center in path.waypoints[1:]:
+            positions = formation_positions(
+                previous, center, robot_count=len(robot_ids))
+            self._db.update_robot_positions(
+                (robot_id, x, y)
+                for robot_id, (x, y) in zip(robot_ids, positions)
+            )
             time.sleep(delay)
-        self._db.update_robot_target(self._robot_id, None)
+            previous = center
+        for robot_id in robot_ids:
+            self._db.update_robot_target(robot_id, None)
 
-    def _nearest_dock(self):
+    def _nearest_dock(self, robot_id):
         """가장 가까운 로봇 대기/충전 도크와 그 역할(waiting/charging)."""
-        start = self._current_node()
+        start = self._current_node(robot_id)
         best = None
         for dock in self._map.nodes_of_kind("dock"):
             path = self._pathfinder.find_path(start, dock)
@@ -119,28 +167,50 @@ class SimOrchestratorNode(Node):
     def _pause(self):
         time.sleep(self.get_parameter("stage_pause_sec").value)
 
-    def _return_to_dock(self, task_id):
-        dock, role = self._nearest_dock()
+    def _return_to_dock(self, task_id, robot_ids):
+        dock, role = self._nearest_dock(robot_ids[0])
         label = "충전 도크" if role == "charging" else "대기 장소"
         self._publish_state(task_id, "RETURNING", f"{label}로 이동 중")
-        self._move_to(dock)
+        self._move_to(dock, robot_ids)
+
+        # 마지막에는 각 로봇을 자기 팀의 실제 도크에 정렬한다. 같은 도크
+        # 중심에 두 아이콘이 겹치거나 다른 슬롯 위에 남는 것을 방지한다.
+        team_docks = sorted(
+            node_id
+            for node_id in self._map.nodes_of_kind("dock")
+            if self._map.graph.nodes[node_id].get("role") == role
+        )
+        if len(team_docks) >= len(robot_ids):
+            self._db.update_robot_positions(
+                (
+                    robot_id,
+                    *self._map.node_pos(dock_id),
+                )
+                for robot_id, dock_id in zip(robot_ids, team_docks)
+            )
 
     # ---- 액션 콜백 ----
 
     def _execute(self, goal_handle):
         goal = goal_handle.request
         task_id, slot_id = goal.task_id, goal.slot_id
+        leader_id = goal.leader_robot_id or self._robot_id
+        robot_ids = list(dict.fromkeys(
+            robot_id
+            for robot_id in (leader_id, goal.follower_robot_id)
+            if robot_id
+        ))
         result = ExecuteParkingTask.Result()
 
         if goal.request_type == "ENTRY":
             self._publish_state(task_id, "SEARCHING", "입고 예정 차량을 찾는 중")
             self._pause()
             self._publish_state(task_id, "APPROACHING", "차량 하부로 진입 중")
-            self._move_to("entry_wait")
+            self._move_to("entry_wait", robot_ids)
             self._pause()  # 정렬 + 리프트 (내부 동작, 별도 발행 없이 픽업완료로 묶음)
             self._publish_state(task_id, "PICKED_UP", "차량 픽업 완료")
             self._publish_state(task_id, "MOVING", f"{slot_id} 칸으로 이동 중")
-            self._move_to(slot_id)
+            self._move_to(slot_id, robot_ids)
             self._pause()
             self._publish_state(task_id, "ARRIVED", "목적지에 도착")
             self._db.set_slot_status(slot_id, "OCCUPIED")
@@ -149,17 +219,17 @@ class SimOrchestratorNode(Node):
             self._publish_state(task_id, "SEARCHING", "해당 차량을 찾는 중")
             self._pause()
             self._publish_state(task_id, "APPROACHING", "차량 하부로 진입 중")
-            self._move_to(slot_id)
+            self._move_to(slot_id, robot_ids)
             self._pause()
             self._publish_state(task_id, "PICKED_UP", "차량 픽업 완료")
             self._publish_state(task_id, "MOVING", "출차 위치로 이동 중")
-            self._move_to("exit_wait")
+            self._move_to("exit_wait", robot_ids)
             self._pause()
             self._publish_state(task_id, "ARRIVED", "목적지에 도착")
             self._db.set_slot_status(slot_id, "EMPTY")
             self._publish_state(task_id, "UNPARKED", "차량 출차 완료")
 
-        self._return_to_dock(task_id)
+        self._return_to_dock(task_id, robot_ids)
         self._publish_state(task_id, "DONE", "작업 완료")
         goal_handle.succeed()
         result.success = True

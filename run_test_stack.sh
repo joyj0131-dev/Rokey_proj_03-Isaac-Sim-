@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 관제 노드 3개(테스트용 가짜 로봇 포함) + 주차장 도면 대시보드 + 웹 UI를
+# 관제 노드 4개(입·출차 테스트용 가짜 로봇 포함) + 주차장 도면 대시보드 + 웹 UI를
 # 한 번에 띄우는 스크립트. 더미 데이터로 입고/출차 전체 흐름을 눈으로
 # 확인하기 위한 테스트 전용 도구다 (실제 로봇 동작은 아직 B/C 미구현).
 #
@@ -10,33 +10,91 @@
 WS="$(cd "$(dirname "$0")" && pwd)"
 DB="mysql -u parking -pparking1234 parking"
 LOG_DIR="$(mktemp -d /tmp/parking_test_stack.XXXX)"
+CLEANED_UP=0
 
 cleanup() {
+    if [ "$CLEANED_UP" -eq 1 ]; then
+        return
+    fi
+    CLEANED_UP=1
     echo
     echo "[정리] 모든 프로세스 종료 중..."
     pkill -f "install/[p]arking" 2>/dev/null
     pkill -f "bin/[r]os2 run" 2>/dev/null
     pkill -f "scripts/[d]ashboard.py" 2>/dev/null
     pkill -f "[u]vicorn main:app" 2>/dev/null
+    sleep 0.2
+    # 백그라운드 대시보드의 rclpy 스핀 스레드가 종료 신호를 붙잡는 경우가
+    # 있어, 이 테스트 스택의 정확한 프로세스만 마지막에 강제 정리한다.
+    pkill -KILL -f "src/parking_control/scripts/[d]ashboard.py" 2>/dev/null
     echo "[정리] 완료. 로그는 $LOG_DIR 에 남아있습니다. (DB 데이터는 유지됨)"
 }
+
+# 비정상 종료된 예전 테스트 스택의 보조 도면 서버만 정리한다. 8000 포트는
+# 다른 웹 앱일 수 있으므로 임의 종료하지 않고, 점유 중이면 원인을 알려주고 멈춘다.
+pkill -KILL -f "src/parking_control/scripts/[d]ashboard.py" 2>/dev/null
+sleep 0.2
+for port in 8000 8080; do
+    if ss -H -ltn "sport = :$port" | grep -q .; then
+        echo "[오류] $port 포트가 이미 사용 중입니다."
+        echo "       기존 서버를 종료한 뒤 ./run_test_stack.sh를 다시 실행해주세요."
+        exit 1
+    fi
+done
 trap cleanup EXIT INT TERM
 
 echo "=== 1/4: DB를 깨끗한 상태로 리셋 ==="
-echo "    (슬롯 전부 EMPTY, robot_1을 대기 위치로, 이전 작업 이력 삭제)"
+echo "    (V4 스키마/슬롯/로봇 4대 동기화, 이전 테스트 작업 이력 삭제)"
+
+# 예전 단일 로봇 DB로 실행한 뒤 feature/parking-control을 병합한 경우,
+# tasks.follower_robot_id와 zone_locks.task_id가 없다. 이 상태에서는 로봇쌍을
+# 등록하더라도 첫 요청에서 SQL 오류가 나므로 테스트 시작 전에 한 번만 마이그레이션한다.
+if ! $DB -Nse \
+    "SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA='parking' AND TABLE_NAME='tasks'
+       AND COLUMN_NAME='follower_robot_id'" | grep -q 1; then
+    echo "    - 2대 로봇 작업 스키마(004) 적용"
+    $DB < "$WS/src/parking_control/db/004_dual_robot_zone_owner.sql"
+fi
+
+# 현재 parking_map.yaml(V4)의 슬롯/존 좌표를 DB의 단일 기준으로 맞춘다.
+$DB < "$WS/src/parking_control/db/002_seed.sql"
 $DB -e "
-UPDATE parking_slots SET status='EMPTY';
-UPDATE robots SET status='IDLE', x=-15.3, y=-7.8 WHERE robot_id='robot_1';
 DELETE FROM zone_locks;
 DELETE FROM tasks;
-DELETE FROM vehicles;" 2>/dev/null
+DELETE FROM vehicles;
+DELETE FROM parking_slots WHERE slot_id NOT IN ('A1', 'A2', 'A3');
+UPDATE parking_slots SET status='EMPTY';
+INSERT INTO robots
+    (robot_id, status, x, y, battery_percent, target_node)
+VALUES
+    ('entry_lead',   'IDLE', -3.2, -2.2, 100, NULL),
+    ('entry_follow', 'IDLE', -1.2, -2.2, 100, NULL),
+    ('exit_lead',    'IDLE', -3.2,  2.2, 100, NULL),
+    ('exit_follow',  'IDLE', -1.2,  2.2, 100, NULL)
+ON DUPLICATE KEY UPDATE
+    status=VALUES(status),
+    x=VALUES(x),
+    y=VALUES(y),
+    battery_percent=VALUES(battery_percent),
+    target_node=NULL;" 2>/dev/null
 
 cd "$WS"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
-echo "=== 2/4: 관제 노드 3개 실행 (가짜 로봇 sim_orchestrator 포함) ==="
-ros2 run parking_control sim_orchestrator > "$LOG_DIR/orch.log" 2>&1 &
+echo "=== 2/4: 관제 노드 4개 실행 (입·출차 가짜 로봇 포함) ==="
+# task_dispatcher가 사용하는 액션 이름은 /entry/execute_parking_task와
+# /exit/execute_parking_task다. 각 시뮬레이터를 같은 네임스페이스로 띄우고,
+# 진행 상태는 웹 UI가 구독하는 공용 /task_state로 모은다.
+ros2 run parking_control sim_orchestrator --ros-args \
+    -r __ns:=/entry -r __node:=entry_sim_orchestrator \
+    -r task_state:=/task_state -p robot_id:=entry_lead \
+    > "$LOG_DIR/entry_orch.log" 2>&1 &
+ros2 run parking_control sim_orchestrator --ros-args \
+    -r __ns:=/exit -r __node:=exit_sim_orchestrator \
+    -r task_state:=/task_state -p robot_id:=exit_lead \
+    > "$LOG_DIR/exit_orch.log" 2>&1 &
 ros2 run parking_control parking_slot_manager \
     --ros-args -p allow_accessible_slots:=true \
     > "$LOG_DIR/slot.log" 2>&1 &
@@ -66,17 +124,16 @@ cat <<'BANNER'
 
   테스트 방법
   -----------
-  - UI에서 차량번호를 1~18 중 하나로 "입고(PARK_IN)" 요청
-      → 대시보드에서 로봇이 입구까지 갔다가 배정된 칸으로 이동하는
+  - UI에서 차량번호를 입력해 "입고 요청" 등록
+      → 대시보드에서 입차 리더 로봇이 입구까지 갔다가 배정된 칸으로 이동하는
         모습이 실시간으로 보입니다. 도착하면 그 칸이 채워집니다.
-  - 같은 차량번호로 "출차(PARK_OUT)" 요청
-      → 로봇이 그 칸으로 가서 차를 꺼내 나가고, 완료되면 칸이 다시
+  - 같은 차량번호로 "출차 요청" 등록
+      → 출차 리더 로봇이 그 칸으로 가서 차를 꺼내 나가고, 완료되면 칸이 다시
         비워집니다.
   - 주차 기록이 없는 차량번호로 출차를 시도하면 정상적으로 거부됩니다.
-  - 일반 칸 14개(A3~A8, B1~B8)가 다 차면, 다음 입고 요청은 자동으로
-    교통약자 칸(A1/A2)에 배정됩니다 — 장애인 주차 테스트용입니다.
-  - 로봇이 1대뿐이라 요청은 한 번에 하나씩 순서대로 처리되고, 슬롯 위치에
-    따라 왕복 10~25초 정도 걸립니다 (실제 거리만큼 등속으로 이동).
+  - 현재 V4 도면의 주차면은 A1~A3 총 3칸입니다.
+  - 입차/출차는 각 전용 로봇쌍이 담당하므로 서로 동시에 요청할 수 있습니다.
+    시뮬레이터는 각 쌍의 리더와 팔로워 좌표를 편대 간격으로 함께 움직입니다.
 
   Ctrl+C 를 누르면 전부 종료됩니다.
 =====================================================================

@@ -81,6 +81,23 @@ class ParkingDB:
         return self._query(
             "SELECT robot_id, x, y FROM robots WHERE status = 'IDLE'")
 
+    def robot_statuses(self, robot_ids):
+        """요청한 로봇 ID의 현재 상태를 반환한다.
+
+        반환값에 없는 ID는 DB에 등록되지 않은 로봇이다. 디스패처가 이를
+        BUSY와 구분해 운영자에게 정확한 초기화 오류를 알릴 때 사용한다.
+        """
+        robot_ids = tuple(robot_ids)
+        if not robot_ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(robot_ids))
+        rows = self._query(
+            f"SELECT robot_id, status FROM robots"
+            f" WHERE robot_id IN ({placeholders})",
+            robot_ids,
+        )
+        return {row["robot_id"]: row["status"] for row in rows}
+
     def all_robot_positions(self):
         """상태와 무관하게 좌표가 있는 모든 로봇 위치. 장애물 감지에서
         로봇 자신을 장애물로 오인하지 않도록 제외할 때 쓴다 — BUSY 로봇도
@@ -105,6 +122,30 @@ class ParkingDB:
     def update_robot_position(self, robot_id, x, y):
         self._query("UPDATE robots SET x = %s, y = %s WHERE robot_id = %s",
                     (x, y, robot_id))
+
+    def update_robot_positions(self, positions):
+        """여러 로봇 좌표를 한 SQL 문으로 함께 갱신한다.
+
+        협업 운반 화면은 리더/팔로워 좌표를 같은 프레임으로 읽어야 한다.
+        로봇별 UPDATE를 따로 실행하면 DB 폴링이 두 문장 사이를 읽어 한 대만
+        움직인 프레임을 만들 수 있으므로, 다중 VALUES upsert를 사용한다.
+        기존 로봇의 status/battery 등 다른 필드는 건드리지 않는다.
+        """
+        positions = list(positions)
+        if not positions:
+            return
+        placeholders = ", ".join(["(%s, %s, %s)"] * len(positions))
+        params = tuple(
+            value
+            for robot_id, x, y in positions
+            for value in (robot_id, x, y)
+        )
+        self._query(
+            "INSERT INTO robots (robot_id, x, y)"
+            f" VALUES {placeholders}"
+            " ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y)",
+            params,
+        )
 
     def get_robot_position(self, robot_id):
         rows = self._query(

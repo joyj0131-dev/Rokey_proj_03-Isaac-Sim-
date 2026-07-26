@@ -85,8 +85,7 @@ _SLOT_STATUS_FROM_TASK = {
 }
 
 _LIDAR_CONTRACTS = (
-    ("L1", "서쪽", -7.82, 0.0, "/parking/lidar/ceiling_01/points"),
-    ("L2", "동쪽", 7.82, 0.0, "/parking/lidar/ceiling_02/points"),
+    ("L1", "주차장 전체", -7.82, 0.0, "/parking/lidar/points_world"),
 )
 
 
@@ -95,21 +94,58 @@ def _now() -> str:
 
 
 def _extract_map_info(parking_map: ParkingMap) -> dict:
-    """parking_map.yaml에서 실시간 도면용 고정 배치(도크/입구)만 뽑아낸다."""
+    """parking_map.yaml에서 실시간 도면용 v4 고정 배치를 뽑아낸다."""
+    nodes = [
+        {
+            "id": node_id,
+            "kind": attributes.get("kind"),
+            "role": attributes.get("role"),
+            "is_accessible": bool(attributes.get("is_accessible", False)),
+            "x": attributes["x"],
+            "y": attributes["y"],
+        }
+        for node_id, attributes in parking_map.graph.nodes(data=True)
+        if attributes.get("x") is not None and attributes.get("y") is not None
+    ]
     docks = [
         {
+            "id": node_id,
             "role": parking_map.graph.nodes[node_id].get("role"),
             "x": parking_map.graph.nodes[node_id]["x"],
             "y": parking_map.graph.nodes[node_id]["y"],
         }
         for node_id in parking_map.nodes_of_kind("dock")
     ]
-    entrance_nodes = parking_map.nodes_of_kind("entrance")
-    entrance = None
-    if entrance_nodes:
-        node = parking_map.graph.nodes[entrance_nodes[0]]
-        entrance = {"x": node["x"], "y": node["y"]}
-    return {"docks": docks, "entrance": entrance}
+    node_by_id = {node["id"]: node for node in nodes}
+    entrance = node_by_id.get("entry_outer")
+    vehicle_zones = [
+        {
+            "id": "exit_outer",
+            "role": "exit",
+            "label": "출차 차량 대기 구역",
+            **{
+                key: node_by_id["exit_outer"][key]
+                for key in ("x", "y")
+            },
+        },
+        {
+            "id": "entry_outer",
+            "role": "entry",
+            "label": "입차 차량 대기 구역",
+            **{
+                key: node_by_id["entry_outer"][key]
+                for key in ("x", "y")
+            },
+        },
+    ] if "entry_outer" in node_by_id and "exit_outer" in node_by_id else []
+
+    return {
+        "layout": "v4",
+        "nodes": nodes,
+        "docks": docks,
+        "vehicle_zones": vehicle_zones,
+        "entrance": entrance,
+    }
 
 
 class _ParkingDbReader:
@@ -133,6 +169,7 @@ class _ParkingDbReader:
         )
         self._conn = None
         self._lock = threading.Lock()
+        self._has_follower_robot_column: bool | None = None
 
     def _connection(self):
         if self._conn is None or not self._conn.is_connected():
@@ -159,9 +196,21 @@ class _ParkingDbReader:
         )
 
     def fetch_tasks(self, limit: int = 100) -> list[dict]:
+        if self._has_follower_robot_column is None:
+            self._has_follower_robot_column = bool(
+                self._query(
+                    "SHOW COLUMNS FROM tasks LIKE 'follower_robot_id'"
+                )
+            )
+        follower_column = (
+            "follower_robot_id"
+            if self._has_follower_robot_column
+            else "NULL AS follower_robot_id"
+        )
         return self._query(
             "SELECT task_id, request_type, state, vehicle_id, robot_id,"
-            " slot_id, created_at FROM tasks ORDER BY created_at DESC LIMIT %s",
+            f" {follower_column}, slot_id, created_at"
+            " FROM tasks ORDER BY created_at DESC LIMIT %s",
             (limit,),
         )
 
@@ -294,6 +343,20 @@ class Ros2DataSource(DataSource):
         task_rows = self._db.fetch_tasks()
 
         with self.store.lock, self._map_lock:
+            map_node_by_id = {
+                node["id"]: node for node in self._map_info.get("nodes", [])
+            }
+            valid_slot_ids = {
+                node["id"]
+                for node in self._map_info.get("nodes", [])
+                if node.get("kind") == "slot"
+            }
+            if valid_slot_ids:
+                # v3 DB 행(A4~B8)이 남아 있어도 v4 웹 도면에는 현재 지도에
+                # 실제로 존재하는 A1~A3만 노출한다.
+                slot_rows = [
+                    row for row in slot_rows if row["slot_id"] in valid_slot_ids
+                ]
             requests = []
             active_task_by_robot: dict[str, int] = {}
             # slot_id -> (파생 상태, 차량번호). task_rows는 created_at DESC라
@@ -320,7 +383,14 @@ class Ros2DataSource(DataSource):
                         vehicle_number=row["vehicle_id"],
                         slot_id=row["slot_id"],
                         robot_id=row["robot_id"],
-                        robot_ids=[row["robot_id"]] if row["robot_id"] else [],
+                        robot_ids=[
+                            robot_id
+                            for robot_id in (
+                                row["robot_id"],
+                                row["follower_robot_id"],
+                            )
+                            if robot_id
+                        ],
                         status=status,
                         created_at=(
                             created_at.isoformat(timespec="seconds")
@@ -333,6 +403,11 @@ class Ros2DataSource(DataSource):
 
                 if row["robot_id"] and row["state"] in ("WAITING", "PROCESSING"):
                     active_task_by_robot[row["robot_id"]] = internal_id
+                if (
+                    row["follower_robot_id"]
+                    and row["state"] in ("WAITING", "PROCESSING")
+                ):
+                    active_task_by_robot[row["follower_robot_id"]] = internal_id
 
                 if row["slot_id"] and row["slot_id"] not in slot_status_override:
                     derived = _SLOT_STATUS_FROM_TASK.get(
@@ -354,9 +429,19 @@ class Ros2DataSource(DataSource):
                     id=row["slot_id"],
                     status=slot_status_override.get(row["slot_id"], (row["status"], None))[0],
                     vehicle_number=slot_status_override.get(row["slot_id"], (row["status"], None))[1],
-                    x=float(row["x"]) if row["x"] is not None else None,
-                    y=float(row["y"]) if row["y"] is not None else None,
-                    is_accessible=bool(row["is_accessible"]),
+                    # DB에 v3 좌표가 남아 있어도 웹 도면은 현재 로드한
+                    # parking_map.yaml을 단일 좌표 원본으로 사용한다.
+                    x=float(map_node_by_id[row["slot_id"]]["x"])
+                    if row["slot_id"] in map_node_by_id
+                    else (float(row["x"]) if row["x"] is not None else None),
+                    y=float(map_node_by_id[row["slot_id"]]["y"])
+                    if row["slot_id"] in map_node_by_id
+                    else (float(row["y"]) if row["y"] is not None else None),
+                    is_accessible=(
+                        map_node_by_id[row["slot_id"]]["is_accessible"]
+                        if row["slot_id"] in map_node_by_id
+                        else bool(row["is_accessible"])
+                    ),
                 )
                 for row in slot_rows
             )
@@ -564,6 +649,16 @@ class Ros2DataSource(DataSource):
 
             self._db.execute("UPDATE parking_slots SET status='EMPTY'")
             self._db.execute("UPDATE robots SET status='IDLE', target_node=NULL")
+            self._db.execute(
+                "INSERT INTO robots "
+                "(robot_id, status, x, y, battery_percent, target_node) VALUES "
+                "('entry_lead', 'IDLE', -3.2, -2.2, 100, NULL), "
+                "('entry_follow', 'IDLE', -1.2, -2.2, 100, NULL), "
+                "('exit_lead', 'IDLE', -3.2, 2.2, 100, NULL), "
+                "('exit_follow', 'IDLE', -1.2, 2.2, 100, NULL) "
+                "ON DUPLICATE KEY UPDATE status=VALUES(status), "
+                "target_node=NULL"
+            )
             self._db.execute("DELETE FROM zone_locks")
             self._db.execute("DELETE FROM tasks")
             self._db.execute("DELETE FROM vehicles")

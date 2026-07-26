@@ -25,43 +25,37 @@ from core.models import (
 )
 from core.state_store import StateStore
 
-#: 실제 map 좌표가 없는 mock 모드용 가상 배치. 실제 parking_map.yaml과 같은
-#: 규칙(입구 → 대기/충전 도크 → 통로(y=0) → A행(y<0)/B행(y>0))을 따른다.
-_ENTRANCE = (-18.1, 0.0)
-_DOCK_WAIT_A = (-15.3, -7.8)
-_DOCK_WAIT_B = (-15.3, 7.8)
-_DOCK_CHARGE_A = (15.3, -7.8)
-_DOCK_CHARGE_B = (15.3, 7.8)
+#: parking_map.yaml v4와 동일한 입·출차 구역 및 로봇 도크 좌표.
+_ENTRY_VEHICLE_ZONE = (-21.0, -7.075)
+_EXIT_VEHICLE_ZONE = (-21.0, 7.075)
+_DOCK_ENTRY_1 = (-3.2, -2.2)
+_DOCK_ENTRY_2 = (-1.2, -2.2)
+_DOCK_EXIT_1 = (-3.2, 2.2)
+_DOCK_EXIT_2 = (-1.2, 2.2)
+_ENTRY_LANE_Y = -6.875
+_EXIT_LANE_Y = 6.875
+_CROSSING_X = -2.5
 
 #: id, status, battery, (x, y) — 로봇은 각자의 도크 위치에서 시작.
 _DEFAULT_ROBOTS = [
-    ("robot_01", "IDLE", 92, _DOCK_WAIT_A),
-    ("robot_02", "IDLE", 64, _DOCK_WAIT_B),
+    ("entry_lead", "IDLE", 92, _DOCK_ENTRY_1),
+    ("entry_follow", "IDLE", 88, _DOCK_ENTRY_2),
+    ("exit_lead", "IDLE", 84, _DOCK_EXIT_1),
+    ("exit_follow", "IDLE", 80, _DOCK_EXIT_2),
 ]
 
 _WAITING_DOCK_BY_ROBOT = {
-    "robot_01": _DOCK_WAIT_A,
-    "robot_02": _DOCK_WAIT_B,
+    "entry_lead": _DOCK_ENTRY_1,
+    "entry_follow": _DOCK_ENTRY_2,
+    "exit_lead": _DOCK_EXIT_1,
+    "exit_follow": _DOCK_EXIT_2,
 }
 
 #: id, status, vehicle, (x, y), is_accessible
 _DEFAULT_SLOTS = [
-    ("A1", "OCCUPIED", "12가3456", (-11.9, -7.8), True),
-    ("A2", "EMPTY", None, (-8.5, -7.8), True),
-    ("A3", "EMPTY", None, (-5.1, -7.8), False),
-    ("A4", "EMPTY", None, (-1.7, -7.8), False),
-    ("A5", "EMPTY", None, (1.7, -7.8), False),
-    ("A6", "EMPTY", None, (5.1, -7.8), False),
-    ("A7", "EMPTY", None, (8.5, -7.8), False),
-    ("A8", "EMPTY", None, (11.9, -7.8), False),
-    ("B1", "OCCUPIED", "34나7890", (-11.9, 7.8), False),
-    ("B2", "EMPTY", None, (-8.5, 7.8), False),
-    ("B3", "EMPTY", None, (-5.1, 7.8), False),
-    ("B4", "EMPTY", None, (-1.7, 7.8), False),
-    ("B5", "EMPTY", None, (1.7, 7.8), False),
-    ("B6", "EMPTY", None, (5.1, 7.8), False),
-    ("B7", "EMPTY", None, (8.5, 7.8), False),
-    ("B8", "EMPTY", None, (11.9, 7.8), False),
+    ("A1", "OCCUPIED", "12가3456", (2.8, 0.0), False),
+    ("A2", "EMPTY", None, (6.2, 0.0), False),
+    ("A3", "EMPTY", None, (9.6, 0.0), False),
 ]
 
 
@@ -134,17 +128,45 @@ class MockDataSource(DataSource):
             self._route_progress.clear()
 
     def get_map_info(self) -> dict:
+        nodes = [
+            {"id": "A1", "kind": "slot", "x": 2.8, "y": 0.0},
+            {"id": "A2", "kind": "slot", "x": 6.2, "y": 0.0},
+            {"id": "A3", "kind": "slot", "x": 9.6, "y": 0.0},
+            {"id": "entry_outer", "kind": "junction", "x": -21.0, "y": -7.075},
+            {"id": "entry_gate", "kind": "junction", "x": -12.55, "y": -7.075},
+            {"id": "entry_wait", "kind": "junction", "x": -8.5, "y": -7.075},
+            {"id": "crossing_entry", "kind": "junction", "x": -2.5, "y": -6.875},
+            {"id": "entry_a1", "kind": "junction", "x": 2.8, "y": -6.875},
+            {"id": "entry_a2", "kind": "junction", "x": 6.2, "y": -6.875},
+            {"id": "entry_a3", "kind": "junction", "x": 9.6, "y": -6.875},
+            {"id": "crossing_exit", "kind": "junction", "x": -2.5, "y": 6.875},
+            {"id": "exit_wait", "kind": "junction", "x": -8.5, "y": 7.075},
+            {"id": "exit_gate", "kind": "junction", "x": -12.55, "y": 7.075},
+            {"id": "exit_outer", "kind": "junction", "x": -21.0, "y": 7.075},
+            {"id": "exit_a1", "kind": "junction", "x": 2.8, "y": 6.875},
+            {"id": "exit_a2", "kind": "junction", "x": 6.2, "y": 6.875},
+            {"id": "exit_a3", "kind": "junction", "x": 9.6, "y": 6.875},
+            {"id": "dock_entry_1", "kind": "dock", "role": "entry", "x": -3.2, "y": -2.2},
+            {"id": "dock_entry_2", "kind": "dock", "role": "entry", "x": -1.2, "y": -2.2},
+            {"id": "dock_exit_1", "kind": "dock", "role": "exit", "x": -3.2, "y": 2.2},
+            {"id": "dock_exit_2", "kind": "dock", "role": "exit", "x": -1.2, "y": 2.2},
+        ]
         return {
+            "layout": "v4",
+            "nodes": nodes,
             "docks": [
-                {"role": "waiting", "x": _DOCK_WAIT_A[0], "y": _DOCK_WAIT_A[1]},
-                {"role": "waiting", "x": _DOCK_WAIT_B[0], "y": _DOCK_WAIT_B[1]},
-                {"role": "charging", "x": _DOCK_CHARGE_A[0], "y": _DOCK_CHARGE_A[1]},
-                {"role": "charging", "x": _DOCK_CHARGE_B[0], "y": _DOCK_CHARGE_B[1]},
+                {"id": "dock_entry_1", "role": "entry", "x": _DOCK_ENTRY_1[0], "y": _DOCK_ENTRY_1[1]},
+                {"id": "dock_entry_2", "role": "entry", "x": _DOCK_ENTRY_2[0], "y": _DOCK_ENTRY_2[1]},
+                {"id": "dock_exit_1", "role": "exit", "x": _DOCK_EXIT_1[0], "y": _DOCK_EXIT_1[1]},
+                {"id": "dock_exit_2", "role": "exit", "x": _DOCK_EXIT_2[0], "y": _DOCK_EXIT_2[1]},
             ],
-            "entrance": {"x": _ENTRANCE[0], "y": _ENTRANCE[1]},
+            "vehicle_zones": [
+                {"id": "exit_outer", "role": "exit", "label": "출차 차량 대기 구역", "x": _EXIT_VEHICLE_ZONE[0], "y": _EXIT_VEHICLE_ZONE[1]},
+                {"id": "entry_outer", "role": "entry", "label": "입차 차량 대기 구역", "x": _ENTRY_VEHICLE_ZONE[0], "y": _ENTRY_VEHICLE_ZONE[1]},
+            ],
+            "entrance": {"x": _ENTRY_VEHICLE_ZONE[0], "y": _ENTRY_VEHICLE_ZONE[1]},
             "sensors": [
                 {"id": "L1", "zone": "서쪽", "x": -7.82, "y": 0.0},
-                {"id": "L2", "zone": "동쪽", "x": 7.82, "y": 0.0},
             ],
         }
 
@@ -152,14 +174,7 @@ class MockDataSource(DataSource):
         return [
             {
                 "id": "L1",
-                "topic": "/parking/lidar/ceiling_01/points",
-                "status": "MOCK",
-                "rate_hz": None,
-                "last_seen_sec": None,
-            },
-            {
-                "id": "L2",
-                "topic": "/parking/lidar/ceiling_02/points",
+                "topic": "/parking/lidar/ceiling/points",
                 "status": "MOCK",
                 "rate_hz": None,
                 "last_seen_sec": None,
@@ -222,8 +237,13 @@ class MockDataSource(DataSource):
                     )
                 selected_slot_id = slot.id
 
+            team_prefix = (
+                "entry_" if payload.request_type == RequestType.PARK_IN else "exit_"
+            )
             idle_robots = [
-                robot for robot in self.store.robots if robot.status == "IDLE"
+                robot
+                for robot in self.store.robots
+                if robot.status == "IDLE" and robot.id.startswith(team_prefix)
             ][:2]
             has_robot_pair = len(idle_robots) == 2
 
@@ -275,8 +295,15 @@ class MockDataSource(DataSource):
                     )
 
             if request.status == RequestStatus.WAITING:
+                team_prefix = (
+                    "entry_"
+                    if request.request_type == RequestType.PARK_IN
+                    else "exit_"
+                )
                 idle_robots = [
-                    robot for robot in self.store.robots if robot.status == "IDLE"
+                    robot
+                    for robot in self.store.robots
+                    if robot.status == "IDLE" and robot.id.startswith(team_prefix)
                 ][:2]
                 if len(idle_robots) < 2:
                     raise DataSourceError(
@@ -321,36 +348,48 @@ class MockDataSource(DataSource):
         if slot is None or slot.x is None or slot.y is None:
             return []
 
-        dock_to_aisle = [
-            (_DOCK_WAIT_A[0], -self._PAIR_HALF_GAP_M),
-            (_DOCK_WAIT_B[0], self._PAIR_HALF_GAP_M),
-        ]
+        is_entry = request.request_type == RequestType.PARK_IN
+        waiting_docks = (
+            [_DOCK_ENTRY_1, _DOCK_ENTRY_2]
+            if is_entry
+            else [_DOCK_EXIT_1, _DOCK_EXIT_2]
+        )
+        vehicle_zone = _ENTRY_VEHICLE_ZONE if is_entry else _EXIT_VEHICLE_ZONE
+        lane_y = _ENTRY_LANE_Y if is_entry else _EXIT_LANE_Y
+        dock_to_lane = self._formation((_CROSSING_X, lane_y))
         slot_center = (slot.x, slot.y)
-        slot_aisle = (slot.x, 0.0)
+        slot_lane = (slot.x, lane_y)
 
         if request.status == RequestStatus.APPROACHING:
-            if request.request_type == RequestType.PARK_IN:
-                return [dock_to_aisle, self._formation(_ENTRANCE)]
+            if is_entry:
+                return [dock_to_lane, self._formation(vehicle_zone)]
             return [
-                dock_to_aisle,
-                self._formation(slot_aisle),
+                dock_to_lane,
+                self._formation(slot_lane),
                 self._formation(slot_center),
             ]
 
         if request.status == RequestStatus.MOVING_TO_SLOT:
-            if request.request_type == RequestType.PARK_IN:
-                return [self._formation(slot_aisle), self._formation(slot_center)]
-            return [self._formation(slot_aisle), self._formation(_ENTRANCE)]
+            if is_entry:
+                return [
+                    self._formation((_CROSSING_X, lane_y)),
+                    self._formation(slot_lane),
+                    self._formation(slot_center),
+                ]
+            return [
+                self._formation(slot_lane),
+                self._formation((_CROSSING_X, lane_y)),
+                self._formation(vehicle_zone),
+            ]
 
         if request.status == RequestStatus.RETURNING:
-            waiting_docks = [_DOCK_WAIT_A, _DOCK_WAIT_B]
-            if request.request_type == RequestType.PARK_IN:
+            if is_entry:
                 return [
-                    self._formation(slot_aisle),
-                    dock_to_aisle,
+                    self._formation(slot_lane),
+                    dock_to_lane,
                     waiting_docks,
                 ]
-            return [dock_to_aisle, waiting_docks]
+            return [dock_to_lane, waiting_docks]
         return []
 
     def _move_robot(self, robot: Robot, target: tuple[float, float], elapsed: float) -> bool:

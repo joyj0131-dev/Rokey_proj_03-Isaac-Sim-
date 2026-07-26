@@ -65,12 +65,19 @@ class DataSource(ABC):
             alert.active = False
 
     def get_map_info(self) -> dict:
-        """실시간 도면 패널용 정적 레이아웃 정보 (대기/충전 도크, 입구 위치).
+        """실시간 도면 패널용 정적 레이아웃 정보.
 
         슬롯/로봇처럼 매번 바뀌는 값이 아니라 지도 자체의 고정 배치라
         StateStore가 아니라 여기서 별도로 제공한다. 기본값은 빈 레이아웃.
         """
-        return {"docks": [], "entrance": None, "sensors": []}
+        return {
+            "layout": None,
+            "nodes": [],
+            "docks": [],
+            "vehicle_zones": [],
+            "entrance": None,
+            "sensors": [],
+        }
 
     def get_sensor_status(self) -> list[dict]:
         """웹 도면에 표시할 센서 연결 상태. 구현이 없으면 빈 목록."""

@@ -52,30 +52,61 @@ const robotAnimations = new Map(); // robot_id -> {fromX, fromY, toX, toY, start
 let robotAnimationFrame = null;
 
 function shortRobotName(robotId) {
+  const v4Labels = {
+    entry_lead: "입차 L",
+    entry_follow: "입차 F",
+    exit_lead: "출차 L",
+    exit_follow: "출차 F",
+  };
+  if (v4Labels[robotId]) return v4Labels[robotId];
   const match = String(robotId).match(/(\d+)$/);
   return match ? `R${Number(match[1])}` : robotId;
 }
 
 const ROS_EXPECTED_ROBOTS = [
-  { id: "robot_1", x: -15.3, y: -7.8 },
-  { id: "robot_2", x: -15.3, y: 7.8 },
+  { id: "entry_lead", x: -3.2, y: -2.2 },
+  { id: "entry_follow", x: -1.2, y: -2.2 },
+  { id: "exit_lead", x: -3.2, y: 2.2 },
+  { id: "exit_follow", x: -1.2, y: 2.2 },
 ];
 
 function normalizeRosDashboardRobots(data) {
   if (data.system?.mode !== "ros2") return data;
 
-  const robots = [...(data.robots || [])];
+  const expectedIds = new Set(ROS_EXPECTED_ROBOTS.map((robot) => robot.id));
+  const legacyIdleDocks = [
+    { x: -3.2, y: -2.2 },
+    { x: -1.2, y: -2.2 },
+  ];
+  const receivedRobots = [...(data.robots || [])];
+  const hasV4Robot = receivedRobots.some((robot) => expectedIds.has(robot.id));
+  // 이전 테스트 스택(robot_1 등)만 실행 중이면 해당 로봇을 그대로 보여준다.
+  // v4 로봇이 하나라도 수신되면 오래된 DB 행은 숨기고 4대 편성만 표시한다.
+  let robots = hasV4Robot
+    ? receivedRobots.filter((robot) => expectedIds.has(robot.id))
+    : receivedRobots;
+  if (!hasV4Robot) {
+    robots = robots.map((robot, index) => {
+      const idleDock = legacyIdleDocks[index];
+      if (!idleDock || robot.status !== "IDLE" || robot.current_task_id != null) {
+        return robot;
+      }
+      return { ...robot, ...idleDock };
+    });
+  }
   const receivedNames = new Set(robots.map((robot) => shortRobotName(robot.id)));
 
-  for (const expected of ROS_EXPECTED_ROBOTS) {
-    if (receivedNames.has(shortRobotName(expected.id))) continue;
-    robots.push({
-      ...expected,
-      status: "OFFLINE",
-      battery: 0,
-      current_task_id: null,
-      error_message: "ROS2 상태 데이터 미수신",
-    });
+  if (hasV4Robot || robots.length === 0) {
+    for (const expected of ROS_EXPECTED_ROBOTS) {
+      if (receivedNames.has(shortRobotName(expected.id))) continue;
+      robots.push({
+        ...expected,
+        status: "OFFLINE",
+        battery: 0,
+        current_task_id: null,
+        error_message: "ROS2 상태 데이터 미수신",
+      });
+    }
   }
 
   data.robots = robots.sort((left, right) =>
@@ -198,49 +229,70 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-function renderSummary(summary, robots, sensors, system, alerts = []) {
+function renderSummary(summary, robots, sensors, system, alerts = [], requests = []) {
   const robotHealthy = robots.filter((robot) => !["ERROR", "OFFLINE"].includes(robot.status)).length;
   const lidarOnline = sensors.filter((sensor) => sensor.status === "ONLINE").length;
   const lidarHealthy = system.mode === "mock" ? sensors.length : lidarOnline;
   const totalSlots = summary.total_slots;
+  const reservedSlots = Math.max(
+    0,
+    totalSlots - summary.empty_slots - summary.occupied_slots
+  );
+  const activeRequest = requests.find(
+    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  );
+  const unavailableRobots = robots.filter(
+    (robot) => ["ERROR", "OFFLINE"].includes(robot.status)
+  );
+  const unavailableSensors = sensors.filter(
+    (sensor) => system.mode !== "mock" && sensor.status !== "ONLINE"
+  );
+  const hasCriticalAlert = alerts.some((alert) => alert.level === "ERROR");
   const items = [
     {
       icon: "P",
-      label: "빈 주차면",
+      label: "주차 현황",
       value: `${summary.empty_slots} / ${totalSlots}`,
-      badge: "가용",
+      badge: "사용 가능",
+      detail: `점유 ${summary.occupied_slots} · 예약 ${reservedSlots}`,
+      progress: totalSlots ? (summary.empty_slots / totalSlots) * 100 : 0,
       tone: "success",
     },
     {
-      icon: "🚗",
-      label: "주차 차량",
-      value: summary.occupied_slots,
-      unit: "대",
-      badge: "정상",
-      tone: "occupied",
-    },
-    {
       icon: "▤",
-      label: "진행 요청",
+      label: "작업 현황",
       value: summary.active_requests,
       unit: "건",
       badge: summary.active_requests > 0 ? "진행 중" : "대기",
-      tone: "primary",
+      detail: activeRequest
+        ? `${activeRequest.slot_id || "슬롯 배정 중"} · ${requestStatusLabel(activeRequest)}`
+        : "새 요청 대기 중",
+      tone: hasCriticalAlert ? "danger" : summary.active_requests > 0 ? "primary" : "neutral",
     },
     {
       icon: "🤖",
-      label: "로봇 상태",
+      label: "로봇 팀",
       value: `${robotHealthy} / ${robots.length}`,
       badge: robotHealthy === robots.length ? "정상" : "확인 필요",
+      detail: unavailableRobots.length
+        ? `${unavailableRobots.map((robot) => shortRobotName(robot.id)).join(" · ")} 확인`
+        : robots.length > 1
+          ? `${robots.map((robot) => shortRobotName(robot.id)).join(" · ")} 연결`
+          : robots[0] ? `${shortRobotName(robots[0].id)} 연결` : "로봇 데이터 없음",
       tone: robotHealthy === robots.length ? "success" : "warning",
     },
     {
       icon: "◉",
-      label: "LiDAR 상태",
+      label: "센서",
       value: `${lidarHealthy} / ${sensors.length}`,
       badge: system.mode === "mock"
         ? "MOCK"
         : lidarOnline === sensors.length ? "정상" : "연결 필요",
+      detail: system.mode === "mock"
+        ? "LiDAR 테스트 데이터"
+        : unavailableSensors.length
+          ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 연결 끊김`
+          : sensors.length ? `LiDAR ${sensors.length}대 정상` : "센서 정보 없음",
       tone: system.mode === "mock" ? "primary" : lidarOnline === sensors.length ? "success" : "warning",
     },
   ];
@@ -264,6 +316,12 @@ function renderSummary(summary, robots, sensors, system, alerts = []) {
             ${item.unit ? `<span class="status-overview-unit">${item.unit}</span>` : ""}
             ${item.badge ? `<span class="status-overview-badge">${item.badge}</span>` : ""}
           </div>
+          <span class="status-overview-detail">${item.detail || ""}</span>
+          ${item.progress == null ? "" : `
+            <span class="status-overview-progress" aria-label="사용 가능 ${Math.round(item.progress)}%">
+              <i style="width:${Math.max(0, Math.min(100, item.progress))}%"></i>
+            </span>
+          `}
         </div>
       `
     )
@@ -272,29 +330,28 @@ function renderSummary(summary, robots, sensors, system, alerts = []) {
   `;
 }
 
-// 실제 parking_map.yaml의 A/B 8면 배치를 한 화면에 표시하는 좌표계.
+// 실제 parking_map.yaml v4의 3면(A1~A3) 배치를 한 화면에 표시하는 좌표계.
 // HTML의 viewBox와 항상 같은 값을 유지한다.
 const LOT_MAP_WIDTH = 1174;
-const LOT_MAP_HEIGHT = 430;
-const LOT_SLOT_WIDTH = 82;
-const LOT_SLOT_HEIGHT = 126;
-const LOT_DOCK_WIDTH = 92;
-const LOT_DOCK_HEIGHT = 106;
-// 차량 대기 구역(실제로는 entrance보다 더 바깥, Isaac Sim의
-// VehicleHandoffArea)은 왼쪽 여백 안에 고정 픽셀로만 그린다 — 실측 좌표로
-// 배치하면 다른 요소(슬롯/도크)의 축척이 그만큼 줄어들기 때문.
-const LOT_VEHICLE_ZONE_WIDTH = LOT_SLOT_WIDTH;
-const LOT_VEHICLE_ZONE_HEIGHT = LOT_SLOT_HEIGHT;
-// 왼쪽 캔버스 가장자리(x=0)에서 이만큼 띄운다. 슬롯 사이 간격(~15px)보다는
-// 눈에 띄게 크게 둬서 "더 멀리 떨어져 있다"는 느낌은 유지하되, 이전처럼
-// 빈 공간이 슬롯 간격의 6~9배로 붕 뜨지 않도록 여백 자체를 줄였다.
-const LOT_VEHICLE_ZONE_LEFT_PADDING_PX = 20;
-const LOT_ROBOT_CARD_WIDTH = 84;
-const LOT_ROBOT_CARD_HEIGHT = 84;
+const LOT_MAP_HEIGHT = 520;
+const LOT_SLOT_WIDTH = 108;
+const LOT_SLOT_HEIGHT = 172;
+const LOT_DOCK_WIDTH = 204;
+const LOT_DOCK_HEIGHT = 120;
+const LOT_VEHICLE_ZONE_WIDTH = 142;
+const LOT_VEHICLE_ZONE_HEIGHT = 78;
+const LOT_ROBOT_CARD_WIDTH = 92;
+const LOT_ROBOT_CARD_HEIGHT = 88;
+const ROBOT_VISUAL_X_OFFSET = {
+  entry_lead: -13,
+  entry_follow: 13,
+  exit_lead: -13,
+  exit_follow: 13,
+};
 
 const dockRoleLabels = {
-  waiting: "대기",
-  charging: "충전",
+  entry: "입차 로봇 대기",
+  exit: "출차 로봇 대기",
 };
 
 function computeLotTransform(points) {
@@ -304,12 +361,9 @@ function computeLotTransform(points) {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  // 차량 대기 구역(왼쪽 여백에 고정 픽셀로 그림)을 위한 여백. LOT_MAP_WIDTH를
-  // 늘린 만큼 같이 늘려서 drawableWidth(=956, 슬롯/도크 축척)는 원래 그대로
-  // 유지한다 — 다른 요소는 안 줄어들고 왼쪽 여백만 확보된다.
-  const marginLeft = 170;
-  const marginRight = 48;
-  const marginY = 78;
+  const marginLeft = 82;
+  const marginRight = 70;
+  const marginY = 54;
   const spanX = maxX - minX || 1;
   const spanY = maxY - minY || 1;
   const drawableWidth = LOT_MAP_WIDTH - marginLeft - marginRight;
@@ -345,7 +399,9 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
   const svg = document.getElementById("lotMap");
   const emptyMessage = document.getElementById("lotMapEmpty");
 
+  const nodes = (mapInfo && mapInfo.nodes) || [];
   const docks = (mapInfo && mapInfo.docks) || [];
+  const vehicleZones = (mapInfo && mapInfo.vehicle_zones) || [];
   const sensors = ((mapInfo && mapInfo.sensors) || []).map((sensor) => ({
     ...sensor,
     ...(sensorStatus.find((status) => status.id === sensor.id) || {}),
@@ -366,6 +422,7 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
   // 편대 간격만큼 경계가 늘어나 도면 전체가 흔들린다. 고정 시설물만으로
   // 좌표계를 만들고, 로봇은 고정된 좌표계 위에서만 이동시킨다.
   const fixedPoints = [
+    ...nodes,
     ...placedSlots,
     ...docks,
     ...sensors.filter((sensor) => sensor.x != null && sensor.y != null),
@@ -373,62 +430,207 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
   if (entrance) fixedPoints.push(entrance);
   const layoutPoints = fixedPoints.length ? fixedPoints : placedRobots;
   const { sx, sy } = computeLotTransform(layoutPoints);
-  const parts = [];
+  const parts = [`
+    <defs>
+      <marker id="arrow-entry" viewBox="0 0 10 10" refX="8" refY="5"
+        markerWidth="4.2" markerHeight="4.2" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z"></path>
+      </marker>
+      <marker id="arrow-exit" viewBox="0 0 10 10" refX="8" refY="5"
+        markerWidth="4.2" markerHeight="4.2" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z"></path>
+      </marker>
+    </defs>
+    <rect class="lot-floor" x="4" y="4" width="${LOT_MAP_WIDTH - 8}"
+      height="${LOT_MAP_HEIGHT - 8}" rx="18"></rect>
+  `];
 
-  // 입구는 지도 시작점을 알리는 공간 표지로만 간결하게 표시한다.
-  const aisleY = entrance ? entrance.y : docks[0] && docks[0].y;
-  if (aisleY != null && entrance) {
-    const xs = layoutPoints.map((p) => p.x);
-    const laneY = sy(aisleY);
-    const laneStart = sx(Math.min(...xs));
-    const laneEnd = sx(Math.max(...xs));
-    const b4 = placedSlots.find((slot) => slot.id === "B4");
-    const b5 = placedSlots.find((slot) => slot.id === "B5");
-    const zoneLabelX = b4 && b5
-      ? (sx(b4.x) + sx(b5.x)) / 2
-      : (laneStart + laneEnd) / 2;
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const pointForNode = (nodeId) => {
+    const node = nodeById.get(nodeId);
+    return node ? `${sx(node.x)},${sy(node.y)}` : null;
+  };
+  const pointsForRoute = (nodeIds) => {
+    const points = nodeIds.map(pointForNode);
+    return points.every(Boolean) ? points.join(" ") : null;
+  };
+  const pathForRoute = (nodeIds, finalPoint = null, initialPoint = null) => {
+    const points = nodeIds
+      .map((nodeId) => nodeById.get(nodeId))
+      .filter(Boolean)
+      .map((node) => [sx(node.x), sy(node.y)]);
+    if (initialPoint) points.unshift(initialPoint);
+    if (finalPoint) points.push(finalPoint);
+    if (points.length < 2) return null;
+    return points.map(([x, y], index) => `${index ? "L" : "M"} ${x} ${y}`).join(" ");
+  };
+  const activeMapRequest = requests.find(
+    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  );
+  const activeRouteRole = activeMapRequest
+    ? activeMapRequest.request_type === "PARK_IN" ? "entry" : "exit"
+    : null;
+  const routeDanger = alerts.some((alert) => alert.category === "OBSTACLE");
+  const routeState = (role) => activeRouteRole == null
+    ? "standby"
+    : activeRouteRole === role ? `active ${routeDanger ? "danger" : ""}` : "dimmed";
 
+  // v4는 위쪽이 출차, 아래쪽이 입차 전용 통로다. 각 슬롯은 양쪽
+  // 통로와 연결되어 입차는 아래→슬롯, 출차는 슬롯→위 순서로 이동한다.
+  const entryLane = pointsForRoute([
+    "entry_outer", "entry_gate", "entry_wait", "crossing_entry", "entry_a3",
+  ]);
+  const exitLane = pointsForRoute([
+    "exit_a3", "crossing_exit", "exit_wait", "exit_gate", "exit_outer",
+  ]);
+  if (entryLane && exitLane) {
     parts.push(`
-      <text class="lot-driving-zone-label" x="${zoneLabelX}" y="${laneY + 5}">
-        로봇 주행 구역
-      </text>
+      <polyline class="lot-route-halo" points="${entryLane}"></polyline>
+      <polyline class="lot-route entry ${routeState("entry")}" points="${entryLane}" marker-end="url(#arrow-entry)"></polyline>
+      <polyline class="lot-route-halo" points="${exitLane}"></polyline>
+      <polyline class="lot-route exit ${routeState("exit")}" points="${exitLane}" marker-end="url(#arrow-exit)"></polyline>
     `);
 
-    // 차량 대기 구역: entrance는 로봇이 차를 인계받는 문턱일 뿐이고, 운전자가
-    // 차를 대기시키는 실제 구역(Isaac Sim의 VehicleHandoffArea)은 그보다 더
-    // 바깥에 있다. 다른 요소의 축척에 영향을 주지 않도록 실측 좌표로 배치하지
-    // 않고, 입구 표지처럼 왼쪽 여백에 고정 픽셀로만 더 멀리 떨어뜨려 그린다.
-    const vehicleZoneCx = LOT_VEHICLE_ZONE_LEFT_PADDING_PX + LOT_VEHICLE_ZONE_WIDTH / 2;
+    for (const slot of placedSlots) {
+      const entryPoint = pointForNode(`entry_${slot.id.toLowerCase()}`);
+      const exitPoint = pointForNode(`exit_${slot.id.toLowerCase()}`);
+      const slotTopPoint = `${sx(slot.x)},${sy(slot.y) - LOT_SLOT_HEIGHT / 2}`;
+      const slotBottomPoint = `${sx(slot.x)},${sy(slot.y) + LOT_SLOT_HEIGHT / 2}`;
+      const isActiveTarget = activeMapRequest?.slot_id === slot.id;
+      if (
+        entryPoint
+        && (
+          activeRouteRole == null
+          || (activeRouteRole === "entry" && isActiveTarget)
+        )
+      ) {
+        const branchState = activeRouteRole === "entry" && isActiveTarget
+          ? `active ${routeDanger ? "danger" : ""}`
+          : "standby";
+        parts.push(`
+          <polyline class="lot-route-branch entry ${branchState}"
+            points="${entryPoint} ${slotBottomPoint}"
+            ${branchState.includes("active") ? 'marker-end="url(#arrow-entry)"' : ""}></polyline>
+        `);
+      }
+      if (
+        exitPoint
+        && (
+          activeRouteRole == null
+          || (activeRouteRole === "exit" && isActiveTarget)
+        )
+      ) {
+        const branchState = activeRouteRole === "exit" && isActiveTarget
+          ? `active ${routeDanger ? "danger" : ""}`
+          : "standby";
+        parts.push(`
+          <polyline class="lot-route-branch exit ${branchState}"
+            points="${slotTopPoint} ${exitPoint}"
+            ${branchState.includes("active") ? 'marker-end="url(#arrow-exit)"' : ""}></polyline>
+        `);
+      }
+    }
+
+    if (activeMapRequest?.slot_id) {
+      const targetSlot = placedSlots.find(
+        (slot) => slot.id === activeMapRequest.slot_id
+      );
+      if (targetSlot) {
+        const targetNodeId = `${activeRouteRole}_${targetSlot.id.toLowerCase()}`;
+        const activePath = activeRouteRole === "entry"
+          ? pathForRoute(
+              ["entry_outer", "entry_gate", "entry_wait", "crossing_entry", targetNodeId],
+              [sx(targetSlot.x), sy(targetSlot.y) + LOT_SLOT_HEIGHT / 2]
+            )
+          : pathForRoute(
+              [targetNodeId, "crossing_exit", "exit_wait", "exit_gate", "exit_outer"],
+              null,
+              [sx(targetSlot.x), sy(targetSlot.y) - LOT_SLOT_HEIGHT / 2]
+            );
+        if (activePath) {
+          parts.push(`
+            <circle class="lot-route-runner ${activeRouteRole} ${routeDanger ? "danger" : ""}" r="4.5">
+              <animateMotion dur="4s" repeatCount="indefinite" path="${activePath}"></animateMotion>
+            </circle>
+          `);
+        }
+      }
+    }
+
+    const entryWait = nodeById.get("entry_wait");
+    const exitWait = nodeById.get("exit_wait");
+    if (entryWait && exitWait) {
+      parts.push(`
+        <text class="lot-route-label entry" x="${sx(entryWait.x)}" y="${sy(entryWait.y) - 13}">
+          입차 동선
+        </text>
+        <text class="lot-route-label exit" x="${sx(exitWait.x)}" y="${sy(exitWait.y) + 22}">
+          출차 동선
+        </text>
+      `);
+    }
+  }
+
+  for (const zone of vehicleZones) {
+    const cx = sx(zone.x);
+    const cy = sy(zone.y);
+    const directionLabel = zone.role === "entry" ? "입차 대기" : "출차 대기";
+    const zoneRequest = requests.find((request) => {
+      if (["COMPLETED", "CANCELLED"].includes(request.status)) return false;
+      const requestRole = request.request_type === "PARK_IN" ? "entry" : "exit";
+      if (requestRole !== zone.role) return false;
+      if (zone.role === "entry") {
+        return ["WAITING", "ROBOT_ASSIGNED", "APPROACHING", "LIFTING"].includes(request.status);
+      }
+      return ["MOVING_TO_SLOT", "RETURNING"].includes(request.status);
+    });
     parts.push(`
-      <rect
-        class="lot-vehicle-zone-rect"
-        x="${vehicleZoneCx - LOT_VEHICLE_ZONE_WIDTH / 2}" y="${laneY - LOT_VEHICLE_ZONE_HEIGHT / 2}"
-        width="${LOT_VEHICLE_ZONE_WIDTH}" height="${LOT_VEHICLE_ZONE_HEIGHT}"
-        rx="8"
-      ></rect>
-      <text class="lot-vehicle-zone-label" x="${vehicleZoneCx}" y="${laneY + 4}">
-        차량 대기 구역
-      </text>
+      <g class="lot-operation-zone ${zoneRequest ? "active" : ""}">
+        <rect class="lot-vehicle-zone-rect ${zone.role}"
+          x="${cx - LOT_VEHICLE_ZONE_WIDTH / 2}" y="${cy - LOT_VEHICLE_ZONE_HEIGHT / 2}"
+          width="${LOT_VEHICLE_ZONE_WIDTH}" height="${LOT_VEHICLE_ZONE_HEIGHT}"
+          rx="14"></rect>
+        <text class="lot-vehicle-zone-label" x="${cx}" y="${zoneRequest ? cy - 19 : cy + 5}">
+          ${directionLabel}
+        </text>
+        ${zoneRequest ? `
+          <g class="lot-waiting-vehicle ${zone.role}" aria-label="${zoneRequest.vehicle_number}">
+            <rect x="${cx - 22}" y="${cy - 5}" width="44" height="20" rx="7"></rect>
+            <path d="M ${cx - 13} ${cy - 5} L ${cx - 7} ${cy - 13}
+              H ${cx + 8} L ${cx + 15} ${cy - 5} Z"></path>
+            <circle cx="${cx - 13}" cy="${cy + 15}" r="4"></circle>
+            <circle cx="${cx + 13}" cy="${cy + 15}" r="4"></circle>
+            <text x="${cx}" y="${cy + 33}">${zoneRequest.vehicle_number}</text>
+          </g>
+        ` : ""}
+      </g>
     `);
   }
 
-  for (const dock of docks) {
-    const cx = sx(dock.x);
-    const cy = sy(dock.y);
+  for (const role of ["exit", "entry"]) {
+    const roleDocks = docks.filter((dock) => dock.role === role);
+    if (!roleDocks.length) continue;
+    const cx = roleDocks.reduce((sum, dock) => sum + sx(dock.x), 0) / roleDocks.length;
+    const cy = roleDocks.reduce((sum, dock) => sum + sy(dock.y), 0) / roleDocks.length;
+    const dockLabelY = role === "exit"
+      ? cy - LOT_DOCK_HEIGHT / 2 - 8
+      : cy + LOT_DOCK_HEIGHT / 2 + 18;
     parts.push(`
-      <rect
-        class="lot-dock-rect ${dock.role}"
-        x="${cx - LOT_DOCK_WIDTH / 2}" y="${cy - LOT_DOCK_HEIGHT / 2}"
-        width="${LOT_DOCK_WIDTH}" height="${LOT_DOCK_HEIGHT}"
-        rx="8"
-      ></rect>
-      <text class="lot-dock-label" x="${cx}" y="${cy - LOT_DOCK_HEIGHT / 2 + 14}">
-        ${dockRoleLabels[dock.role] || dock.role} 구역
-      </text>
+      <g class="lot-operation-zone">
+        <rect class="lot-dock-rect ${role}"
+          x="${cx - LOT_DOCK_WIDTH / 2}" y="${cy - LOT_DOCK_HEIGHT / 2}"
+          width="${LOT_DOCK_WIDTH}" height="${LOT_DOCK_HEIGHT}" rx="14"></rect>
+        <text class="lot-dock-label" x="${cx}" y="${dockLabelY}">
+          ${dockRoleLabels[role]}
+        </text>
+      </g>
     `);
   }
 
   if (showLidarMarkers) {
+    const obstacleActive = alerts.some(
+      (alert) => alert.category === "OBSTACLE"
+    );
     for (const sensor of sensors) {
       const cx = sx(sensor.x);
       // 센서의 실제 x 좌표는 유지하고, y=0인 주행 구역 중앙선에 표시한다.
@@ -437,12 +639,20 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
       parts.push(`
         <g class="lot-selectable" role="button" tabindex="0"
           data-entity-type="sensor" data-entity-id="${sensor.id}" aria-label="LiDAR ${sensor.id} ${sensor.status}">
+          <circle class="lot-sensor-coverage ${sensor.status} ${obstacleActive ? "alert" : ""}"
+            cx="${cx}" cy="${cy}" r="112"></circle>
           <circle class="lot-sensor-ring ${sensor.status} ${isSelected ? "selected" : ""}"
             cx="${cx}" cy="${cy}" r="16"></circle>
           <circle class="lot-sensor-dot ${sensor.status}" cx="${cx}" cy="${cy}" r="5"></circle>
           <text class="lot-sensor-label" x="${cx}" y="${cy - 23}">
             ${sensor.id} · ${sensor.status === "ONLINE" ? `${sensor.rate_hz ?? "-"} Hz` : sensor.status === "MOCK" ? "테스트" : "수신 대기"}
           </text>
+          ${obstacleActive ? `
+            <g class="lot-sensor-alert">
+              <circle cx="${cx + 62}" cy="${cy - 50}" r="13"></circle>
+              <text x="${cx + 62}" y="${cy - 46}">!</text>
+            </g>
+          ` : ""}
         </g>
       `);
     }
@@ -452,40 +662,110 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
     const cx = sx(slot.x);
     const cy = sy(slot.y);
     const isSelected = selectedMapItem?.type === "slot" && selectedMapItem.id === slot.id;
+    const slotRequest = requests.find(
+      (request) => request.slot_id === slot.id
+        && !["COMPLETED", "CANCELLED"].includes(request.status)
+    );
+    const hasVehicle = slot.status === "OCCUPIED" || (
+      slotRequest?.request_type === "PARK_IN"
+      && ["MOVING_TO_SLOT", "RETURNING"].includes(slotRequest.status)
+    );
+    const movementLabel = slotRequest
+      ? slotRequest.request_type === "PARK_IN" ? "IN" : "OUT"
+      : null;
     parts.push(`
       <g class="lot-selectable" role="button" tabindex="0"
         data-entity-type="slot" data-entity-id="${slot.id}" aria-label="${slot.id} ${statusLabels[slot.status]}">
       <rect
-        class="lot-slot-rect ${slot.status} ${isSelected ? "selected" : ""}"
+        class="lot-slot-rect ${slot.status} ${slotRequest ? "active-target" : ""} ${isSelected ? "selected" : ""}"
         x="${cx - LOT_SLOT_WIDTH / 2}" y="${cy - LOT_SLOT_HEIGHT / 2}"
         width="${LOT_SLOT_WIDTH}" height="${LOT_SLOT_HEIGHT}"
         rx="8"
       ></rect>
-      <text class="lot-slot-label" x="${cx}" y="${cy - 5}">
+      ${hasVehicle ? `
+        <text class="lot-slot-vehicle" x="${cx}" y="${cy - 35}" aria-hidden="true">🚗</text>
+      ` : ""}
+      ${movementLabel ? `
+        <rect class="lot-slot-movement ${slotRequest.request_type}"
+          x="${cx + 18}" y="${cy - 70}" width="30" height="17" rx="8.5"></rect>
+        <text class="lot-slot-movement-label" x="${cx + 33}" y="${cy - 58}">
+          ${movementLabel}
+        </text>
+      ` : ""}
+      <text class="lot-slot-label" x="${cx}" y="${hasVehicle ? cy + 5 : cy - 5}">
         ${slot.id}${slot.is_accessible ? " ♿" : ""}
       </text>
-      <text class="lot-slot-sub" x="${cx}" y="${cy + 14}">
-        ${slot.vehicle_number ? slot.vehicle_number : statusLabels[slot.status]}
+      <text class="lot-slot-sub" x="${cx}" y="${hasVehicle ? cy + 26 : cy + 14}">
+        ${slotRequest ? requestStatusLabel(slotRequest) : statusLabels[slot.status]}
       </text>
       </g>
     `);
   }
 
+  // 작업에 두 로봇이 배정되면 실제 좌표를 연결해 편대 상태를 표시한다.
+  // 별도 거리 센서값이 없으므로 두 ROS map 좌표 사이의 거리를 사용한다.
+  for (const request of requests) {
+    if (["COMPLETED", "CANCELLED"].includes(request.status)) continue;
+    const members = assignedRobotIds(request)
+      .map((robotId) => placedRobots.find((robot) => robot.id === robotId))
+      .filter(Boolean)
+      .slice(0, 2);
+    if (members.length !== 2) continue;
+
+    const [leader, follower] = members;
+    const x1 = sx(leader.x) + (ROBOT_VISUAL_X_OFFSET[leader.id] || 0);
+    const y1 = sy(leader.y);
+    const x2 = sx(follower.x) + (ROBOT_VISUAL_X_OFFSET[follower.id] || 0);
+    const y2 = sy(follower.y);
+    const centerX = (x1 + x2) / 2;
+    const centerY = (y1 + y2) / 2;
+    const displayDistance = Math.hypot(x2 - x1, y2 - y1) || 1;
+    const labelOffset = 48;
+    const labelX = centerX + (-(y2 - y1) / displayDistance) * labelOffset;
+    const labelY = centerY + ((x2 - x1) / displayDistance) * labelOffset;
+    const gap = pointDistance(leader, follower);
+    const obstacleActive = alerts.some(
+      (alert) => alert.category === "OBSTACLE"
+        && (alert.robot_id == null || assignedRobotIds(request).includes(alert.robot_id))
+    );
+    const formationTone = obstacleActive ? "danger" : gap > 3 ? "warning" : "normal";
+    const formationLabel = obstacleActive
+      ? "안전 정지"
+      : gap > 3 ? `간격 조정 · ${gap.toFixed(1)} m` : `협동 정상 · ${gap.toFixed(1)} m`;
+    const labelWidth = Math.max(88, Math.min(132, formationLabel.length * 8 + 18));
+    parts.push(`
+      <g class="lot-formation ${formationTone}" aria-label="${formationLabel}">
+        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
+        <line class="label-guide" x1="${centerX}" y1="${centerY}"
+          x2="${labelX}" y2="${labelY}"></line>
+        <rect x="${labelX - labelWidth / 2}" y="${labelY - 12}"
+          width="${labelWidth}" height="24" rx="12"></rect>
+        <text x="${labelX}" y="${labelY + 4}">${formationLabel}</text>
+      </g>
+    `);
+  }
+
   for (const robot of placedRobots) {
-    const cx = sx(robot.x);
+    const cx = sx(robot.x) + (ROBOT_VISUAL_X_OFFSET[robot.id] || 0);
     const cy = sy(robot.y);
     const isSelected = selectedMapItem?.type === "robot" && selectedMapItem.id === robot.id;
     const currentRequest = robot.current_task_id == null
       ? null
       : requests.find((request) => request.id === robot.current_task_id);
     const pairedRobotIds = currentRequest ? assignedRobotIds(currentRequest) : [robot.id];
+    const cooperationIndex = currentRequest
+      ? pairedRobotIds.indexOf(robot.id)
+      : -1;
+    const cooperationRole = cooperationIndex === 0
+      ? "리더"
+      : cooperationIndex === 1 ? "팔로워" : null;
     const obstacleAlert = alerts.find(
       (alert) => alert.category === "OBSTACLE" &&
         (alert.robot_id == null || pairedRobotIds.includes(alert.robot_id))
     );
     const visualStatus = obstacleAlert ? "PAUSED" : robot.status;
     const statusText = obstacleAlert ? "일시 정지" : statusLabels[robot.status] || robot.status;
-    const badgeWidth = visualStatus === "OFFLINE" ? 46 : statusText.length >= 4 ? 40 : 34;
+    const badgeWidth = visualStatus === "OFFLINE" ? 50 : statusText.length >= 4 ? 44 : 38;
     const badgeX = cx + LOT_ROBOT_CARD_WIDTH / 2 - badgeWidth - 7;
     const speech = robotSpeechBubbles.get(robot.id);
     if (speech && speech.expiresAt <= Date.now()) {
@@ -502,10 +782,10 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
         data-entity-type="robot" data-entity-id="${robot.id}" aria-label="${shortRobotName(robot.id)} ${statusText}">
         ${activeSpeech ? `
           <g class="lot-robot-speech" aria-hidden="true">
-            <rect x="${cx - speechWidth / 2}" y="${cy - 69}"
+            <rect x="${cx - speechWidth / 2}" y="${cy - 75}"
               width="${speechWidth}" height="23" rx="11"></rect>
-            <path d="M ${cx - 5} ${cy - 46} L ${cx} ${cy - 39} L ${cx + 5} ${cy - 46} Z"></path>
-            <text x="${cx}" y="${cy - 53}">${activeSpeech.text}</text>
+            <path d="M ${cx - 5} ${cy - 52} L ${cx} ${cy - 45} L ${cx + 5} ${cy - 52} Z"></path>
+            <text x="${cx}" y="${cy - 59}">${activeSpeech.text}</text>
           </g>
         ` : ""}
         <rect
@@ -513,13 +793,13 @@ function renderLotMap(slots, robots, mapInfo, sensorStatus = [], requests = [], 
           x="${cx - LOT_ROBOT_CARD_WIDTH / 2}" y="${cy - LOT_ROBOT_CARD_HEIGHT / 2}"
           width="${LOT_ROBOT_CARD_WIDTH}" height="${LOT_ROBOT_CARD_HEIGHT}" rx="12"
         ></rect>
-        <text class="lot-robot-name" x="${cx - LOT_ROBOT_CARD_WIDTH / 2 + 9}" y="${cy - 26}">
-          ${shortRobotName(robot.id)}
+        <text class="lot-robot-name" x="${cx - LOT_ROBOT_CARD_WIDTH / 2 + 9}" y="${cy - 30}">
+          ${shortRobotName(robot.id)}${cooperationRole ? ` · ${cooperationRole === "리더" ? "L" : "F"}` : ""}
         </text>
         <rect class="lot-robot-badge ${visualStatus}"
-          x="${badgeX}" y="${cy - 36}" width="${badgeWidth}" height="17" rx="8.5"></rect>
+          x="${badgeX}" y="${cy - 40}" width="${badgeWidth}" height="18" rx="9"></rect>
         <text class="lot-robot-badge-label ${visualStatus}"
-          x="${badgeX + badgeWidth / 2}" y="${cy - 24}">${statusText}</text>
+          x="${badgeX + badgeWidth / 2}" y="${cy - 27}">${statusText}</text>
         <text class="lot-robot-icon" x="${cx}" y="${robotIconY}" aria-hidden="true">🤖</text>
         ${robotSubtitle ? `
           <text class="lot-robot-subtitle" x="${cx}" y="${cy + 33}">
@@ -642,7 +922,7 @@ function toggleLidarMarkers() {
   const button = document.getElementById("lidarVisibilityButton");
   button.classList.toggle("active", showLidarMarkers);
   button.setAttribute("aria-pressed", String(showLidarMarkers));
-  button.textContent = showLidarMarkers ? "LiDAR 위치 끄기" : "LiDAR 위치 켜기";
+  button.textContent = showLidarMarkers ? "센서 영역 숨기기" : "센서 영역 보기";
 
   if (!showLidarMarkers && selectedMapItem?.type === "sensor") {
     selectedMapItem = null;
@@ -666,13 +946,24 @@ function describeRobotLocation(robot, mapInfo, slots) {
     .map((dock) => ({ dock, distance: pointDistance(robot, dock) }))
     .sort((left, right) => left.distance - right.distance)[0];
   if (nearbyDock?.distance <= 1.5) {
-    return nearbyDock.dock.role === "charging" ? "충전 구역" : "대기 구역";
+    return nearbyDock.dock.role === "entry"
+      ? "입차 로봇 대기"
+      : nearbyDock.dock.role === "exit"
+        ? "출차 로봇 대기"
+        : "로봇 대기 구역";
   }
 
-  if (pointDistance(robot, mapInfo?.entrance) <= 1.8) return "입차 구역";
+  const nearbyVehicleZone = (mapInfo?.vehicle_zones || [])
+    .map((zone) => ({ zone, distance: pointDistance(robot, zone) }))
+    .sort((left, right) => left.distance - right.distance)[0];
+  if (nearbyVehicleZone?.distance <= 2.2) {
+    return nearbyVehicleZone.zone.role === "entry"
+      ? "입차 차량 대기 구역"
+      : "출차 차량 대기 구역";
+  }
 
-  const aisleY = mapInfo?.entrance?.y;
-  if (aisleY != null && Math.abs(robot.y - aisleY) <= 1.6) return "중앙 통로";
+  if (Math.abs(robot.y - (-6.875)) <= 1.2) return "입차 전용 통로";
+  if (Math.abs(robot.y - 6.875) <= 1.2) return "출차 전용 통로";
 
   const nearbySlot = slots
     .filter((slot) => slot.x != null && slot.y != null)
@@ -696,9 +987,10 @@ function renderSelectionDetail(dashboard) {
   const sensors = dashboard?.sensors || [];
   if (!selectedMapItem) {
     detail.innerHTML = `
+      <div class="detail-empty-icon" aria-hidden="true">⌖</div>
       <span class="detail-kicker">선택 정보</span>
-      <h3>도면에서 항목을 선택하세요</h3>
-      <p>주차면이나 로봇을 누르면 상태를 자세히 확인할 수 있습니다.</p>
+      <h3>운영 객체를 선택하세요</h3>
+      <p>주차면·로봇·센서를 선택하면 현재 상태와 작업 정보를 확인할 수 있습니다.</p>
     `;
     return;
   }
@@ -716,8 +1008,12 @@ function renderSelectionDetail(dashboard) {
         <h3>${slot.id}${slot.is_accessible ? " ♿" : ""}</h3>
         <span class="badge ${slot.status}">${statusLabels[slot.status]}</span>
       </div>
+      <div class="detail-status-summary ${slot.status}">
+        <span>현재 주차면 상태</span>
+        <strong>${statusLabels[slot.status]}</strong>
+        <small>${slot.vehicle_number || (currentRequest ? `${currentRequest.vehicle_number} 작업 중` : "배정된 차량 없음")}</small>
+      </div>
       <dl class="detail-list">
-        <div><dt>상태</dt><dd>${statusLabels[slot.status]}</dd></div>
         ${slot.vehicle_number ? `
           <div><dt>차량 번호</dt><dd>${slot.vehicle_number}</dd></div>
         ` : ""}
@@ -741,6 +1037,11 @@ function renderSelectionDetail(dashboard) {
       <div class="detail-title-row">
         <h3>${sensor.id}</h3>
         <span class="sensor-state ${sensor.status}">${sensorLabel}</span>
+      </div>
+      <div class="detail-status-summary ${sensor.status}">
+        <span>센서 연결 상태</span>
+        <strong>${sensorLabel}</strong>
+        <small>${sensor.last_seen_sec == null ? "수신 기록 없음" : `${sensor.last_seen_sec}초 전 데이터 수신`}</small>
       </div>
       <dl class="detail-list">
         <div><dt>ROS2 토픽</dt><dd class="topic-value">${sensor.topic}</dd></div>
@@ -781,28 +1082,30 @@ function renderSelectionDetail(dashboard) {
     : "없음";
   const safetyLabel = robotAlert?.message || robot.error_message || "이상 없음";
   const isObstaclePaused = robotAlert?.category === "OBSTACLE";
-  const updateLabel = lastDashboardReceivedAt
-    ? lastDashboardReceivedAt.toLocaleTimeString("ko-KR", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })
-    : "-";
   detail.innerHTML = `
     <span class="detail-kicker">로봇 상세</span>
     <div class="detail-title-row">
-      <h3>🤖 ${shortRobotName(robot.id)}</h3>
+      <h3><span class="detail-robot-icon">🤖</span>${shortRobotName(robot.id)}</h3>
       <span class="badge ${isObstaclePaused ? "PAUSED" : robot.status}">${isObstaclePaused ? "장애물 정지" : robotOperationLabel(robot, currentRequest)}</span>
     </div>
+    <div class="detail-status-summary ${isObstaclePaused ? "PAUSED" : robot.status}">
+      <span>현재 운영 상태</span>
+      <strong>${isObstaclePaused ? "안전 정지" : robotOperationLabel(robot, currentRequest)}</strong>
+      <small>${describeRobotLocation(robot, dashboard.map, slots)}</small>
+    </div>
+    ${currentRequest ? `
+      <div class="robot-task-progress">
+        <span>현재 단계 · ${requestStatusLabel(currentRequest)}</span>
+        ${renderTaskStepper(currentRequest, true)}
+      </div>
+    ` : ""}
     <dl class="detail-list robot-detail-list">
-      <div><dt>시스템 ID</dt><dd>${robot.id}</dd></div>
       <div><dt>현재 위치</dt><dd>${describeRobotLocation(robot, dashboard.map, slots)}</dd></div>
       <div><dt>현재 작업</dt><dd>${taskLabel}</dd></div>
       <div><dt>목표 주차면</dt><dd>${targetLabel}</dd></div>
       <div><dt>할당 요청</dt><dd>${requestLabel}</dd></div>
-      <div><dt>통신 상태</dt><dd>${communicationLabel}</dd></div>
-      <div><dt>안전 상태</dt><dd class="${robotAlert || robot.error_message ? "detail-warning" : ""}">${safetyLabel}</dd></div>
-      <div><dt>화면 갱신</dt><dd>${updateLabel}</dd></div>
+      <div><dt>통신</dt><dd><span class="detail-state ${robot.status === "OFFLINE" ? "warning" : "normal"}">● ${communicationLabel}</span></dd></div>
+      <div><dt>안전</dt><dd><span class="detail-state ${robotAlert || robot.error_message ? "danger" : "normal"}">● ${safetyLabel}</span></dd></div>
     </dl>
   `;
 }
@@ -937,6 +1240,87 @@ function renderRecentEvents(alerts) {
   `).join("");
 }
 
+const taskProgressSteps = [
+  { status: "WAITING", label: "요청 접수" },
+  { status: "ROBOT_ASSIGNED", label: "로봇 할당" },
+  { status: "APPROACHING", label: "차량 접근" },
+  { status: "LIFTING", label: "리프트" },
+  { status: "MOVING_TO_SLOT", label: "주차 이동" },
+  { status: "COMPLETED", label: "완료" },
+];
+
+function requestProgressIndex(status) {
+  if (status === "RETURNING") return 4;
+  const index = taskProgressSteps.findIndex((step) => step.status === status);
+  return index < 0 ? 0 : index;
+}
+
+function formatElapsed(createdAt) {
+  const elapsedSec = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000)
+  );
+  const minutes = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+  const seconds = String(elapsedSec % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function renderTaskStepper(request, compact = false) {
+  const currentIndex = requestProgressIndex(request.status);
+  const completed = request.status === "COMPLETED";
+  return `
+    <ol class="task-stepper ${compact ? "compact" : ""}" aria-label="작업 진행 단계">
+      ${taskProgressSteps.map((step, index) => {
+        const state = completed || index < currentIndex
+          ? "done"
+          : index === currentIndex ? "current" : "pending";
+        return `
+          <li class="${state}">
+            <i>${state === "done" ? "✓" : index + 1}</i>
+            <span>${step.label}</span>
+          </li>
+        `;
+      }).join("")}
+    </ol>
+  `;
+}
+
+function renderActiveTaskBanner(requests, alerts = []) {
+  const banner = document.getElementById("activeTaskBanner");
+  const request = requests.find(
+    (item) => !["COMPLETED", "CANCELLED"].includes(item.status)
+  );
+  if (!request) {
+    banner.classList.add("hidden");
+    banner.innerHTML = "";
+    return;
+  }
+
+  const obstacleActive = alerts.some(
+    (alert) => alert.category === "OBSTACLE"
+      && (alert.robot_id == null || assignedRobotIds(request).includes(alert.robot_id))
+  );
+  const step = requestProgressIndex(request.status) + 1;
+  banner.classList.remove("hidden");
+  banner.classList.toggle("danger", obstacleActive);
+  banner.innerHTML = `
+    <div class="active-task-banner-main">
+      <span class="active-task-banner-kicker">
+        ${obstacleActive ? "안전 정지" : `${requestTypeLabels[request.request_type]} 작업 진행 중`}
+      </span>
+      <strong>${request.vehicle_number} → ${request.slot_id || "슬롯 배정 중"}</strong>
+    </div>
+    <div class="active-task-banner-status">
+      <span>${obstacleActive ? "장애물 감지" : requestStatusLabel(request)}</span>
+      <small>${assignedRobotTableLabel(request)} · 경과 ${formatElapsed(request.created_at)}</small>
+    </div>
+    <div class="active-task-banner-progress">
+      <span>${step} / 6 단계</span>
+      <i><b style="width:${Math.min(100, (step / 6) * 100)}%"></b></i>
+    </div>
+  `;
+}
+
 function renderRequests(requests, system) {
   const container = document.getElementById("requestTable");
   const showManualAdvance = (!system || system.mock_controls) && !system?.mock_auto_advance;
@@ -950,12 +1334,39 @@ function renderRequests(requests, system) {
           입고 또는 출차 요청을 등록하면<br />
           작업 진행 상태가 이곳에 표시됩니다.
         </span>
+        ${renderTaskStepper({ status: "WAITING" }, true)}
       </div>
     `;
     return;
   }
 
+  const activeRequests = requests.filter(
+    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  );
   container.innerHTML = `
+    ${activeRequests.length ? `
+      <div class="active-task-list">
+        ${activeRequests.map((request) => `
+          <article class="active-task-card ${request.request_type}">
+            <div class="active-task-heading">
+              <div>
+                <span>${requestTypeLabels[request.request_type]} 작업 · #${request.id}</span>
+                <h3>${request.vehicle_number} → ${request.slot_id || "슬롯 배정 중"}</h3>
+              </div>
+              <div class="active-task-meta">
+                <span class="badge ${request.status}">${requestStatusLabel(request)}</span>
+                <small>경과 ${formatElapsed(request.created_at)}</small>
+              </div>
+            </div>
+            ${renderTaskStepper(request)}
+            <div class="active-task-team">
+              <span>협동 로봇</span>
+              <strong>${assignedRobotTableLabel(request)}</strong>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    ` : ""}
     <div class="table-wrap">
       <table>
         <thead>
@@ -1058,15 +1469,35 @@ function renderSystem(system) {
 
   const statusBox = document.getElementById("systemStatus");
   const statusText = document.getElementById("systemStatusText");
+  const activeAlerts = latestDashboard?.alerts || [];
+  const offlineSensors = (latestDashboard?.sensors || []).filter(
+    (sensor) => system.mode !== "mock" && sensor.status !== "ONLINE"
+  );
+  const unavailableRobots = (latestDashboard?.robots || []).filter(
+    (robot) => ["ERROR", "OFFLINE"].includes(robot.status)
+  );
+  const warningReason = activeAlerts.find(
+    (alert) => alert.category === "OBSTACLE"
+  )
+    ? "장애물 감지"
+    : activeAlerts.find((alert) => alert.level === "ERROR")
+      ? "로봇·시스템 오류"
+      : offlineSensors.length
+        ? `${offlineSensors.map((sensor) => sensor.id).join("·")} 연결 필요`
+        : unavailableRobots.length
+          ? `${unavailableRobots.map((robot) => shortRobotName(robot.id)).join("·")} 확인 필요`
+          : "주의 필요";
 
   statusBox.classList.remove("warn", "danger");
 
   if (system.health === "ERROR") {
     statusBox.classList.add("danger");
-    statusText.textContent = "시스템 오류";
+    statusText.textContent = warningReason === "주의 필요"
+      ? "시스템 오류"
+      : warningReason;
   } else if (system.health === "WARNING") {
     statusBox.classList.add("warn");
-    statusText.textContent = "주의 필요";
+    statusText.textContent = warningReason;
   } else {
     statusText.textContent = "시스템 정상";
   }
@@ -1117,12 +1548,7 @@ function updateLiveStatus(isOnline, system) {
     return;
   }
 
-  const now = new Date().toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  status.querySelector("span").textContent = `LIVE · ROS2 · ${now}`;
+  status.querySelector("span").textContent = "실시간 연결 · ROS2 · 방금 수신";
 }
 
 async function refreshDashboard() {
@@ -1155,8 +1581,10 @@ async function refreshDashboard() {
       data.robots,
       data.sensors || [],
       data.system,
-      data.alerts || []
+      data.alerts || [],
+      data.requests || []
     );
+    renderActiveTaskBanner(data.requests || [], data.alerts || []);
     captureRequestEvents(data.requests, data.system);
     captureAlertSpeech(data.alerts || [], data.robots, data.system);
     updateRobotAnimationTargets(data.robots);
@@ -1193,6 +1621,24 @@ async function advanceRequest(requestId) {
   }
 }
 
+function updateRequestFlow() {
+  const isParkIn = document.getElementById("requestType").value === "PARK_IN";
+  document.getElementById("requestFlowTitle").textContent = isParkIn
+    ? "입고 요청 처리"
+    : "출차 요청 처리";
+  document.getElementById("requestFlowStart").textContent = isParkIn
+    ? "차량"
+    : "주차장";
+  document.getElementById("requestFlowEnd").textContent = isParkIn
+    ? "주차장"
+    : "차량";
+  document.getElementById("requestFlowDirection").textContent = "→";
+}
+
+document
+  .getElementById("requestType")
+  .addEventListener("change", updateRequestFlow);
+
 document
   .getElementById("requestForm")
   .addEventListener("submit", async (event) => {
@@ -1228,6 +1674,7 @@ document
         pendingFocusRequestId = null;
       }
       event.target.reset();
+      updateRequestFlow();
       await refreshDashboard();
       activateWorkspaceTab("live");
     } catch (error) {
@@ -1319,6 +1766,7 @@ document
 document.querySelectorAll("[data-vehicle-number]").forEach((button) => {
   button.addEventListener("click", () => {
     document.getElementById("requestType").value = "PARK_OUT";
+    updateRequestFlow();
     const input = document.getElementById("vehicleNumber");
     input.value = button.dataset.vehicleNumber;
     input.focus();
@@ -1345,6 +1793,7 @@ window.advanceRequest = advanceRequest;
 window.resolveAlert = resolveAlert;
 
 setupWorkspaceTabs();
+updateRequestFlow();
 
 async function runDashboardRefreshLoop() {
   await refreshDashboard();

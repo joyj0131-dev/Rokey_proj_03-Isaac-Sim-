@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS zones (
 );
 
 CREATE TABLE IF NOT EXISTS parking_slots (
-    slot_id       VARCHAR(8) PRIMARY KEY,   -- 'A1'~'B8' (USD 라벨·그래프 노드 id와 동일 문자열)
+    slot_id       VARCHAR(8) PRIMARY KEY,   -- 'A1'~'A3' (v4 USD 라벨·그래프 노드 id와 동일 문자열)
     x             DECIMAL(7,3) NOT NULL,    -- ROS map 프레임 좌표 (m)
     y             DECIMAL(7,3) NOT NULL,
     is_accessible BOOLEAN NOT NULL DEFAULT FALSE,
