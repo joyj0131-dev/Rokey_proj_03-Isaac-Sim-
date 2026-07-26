@@ -43,6 +43,9 @@ let showLidarMarkers = false;
 let lastDashboardReceivedAt = null;
 let messageHideTimer = null;
 let recentWorkflowEvents = [];
+let selectedTaskEventRequestId = null;
+let selectedEventScope = "all";
+let selectedEventCategory = "all";
 const lastRequestStates = new Map();
 const robotSpeechBubbles = new Map();
 const seenSpeechAlertIds = new Set();
@@ -151,6 +154,34 @@ function formatDateTime(value) {
   });
 }
 
+function formatCompactDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  const now = new Date();
+  const time = [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ].join(":");
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) return `오늘 ${time}`;
+  return `${String(date.getMonth() + 1).padStart(2, "0")}.${
+    String(date.getDate()).padStart(2, "0")
+  } ${time}`;
+}
+
+function formatEventTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ].join(":");
+}
+
 function assignedRobotIds(request) {
   if (request.robot_ids?.length) return request.robot_ids;
   return request.robot_id ? [request.robot_id] : [];
@@ -164,8 +195,15 @@ function assignedRobotLabel(request) {
 function assignedRobotTableLabel(request) {
   const ids = assignedRobotIds(request);
   if (!ids.length) return "대기";
+  const idSet = new Set(ids);
+  if (idSet.has("entry_lead") && idSet.has("entry_follow")) {
+    return "입차 L · F";
+  }
+  if (idSet.has("exit_lead") && idSet.has("exit_follow")) {
+    return "출차 L · F";
+  }
   const names = ids.map(shortRobotName).join(" + ");
-  return ids.length > 1 ? `협업: ${names}` : names;
+  return ids.length > 1 ? names.replaceAll(" + ", " · ") : names;
 }
 
 function requestStatusLabel(request) {
@@ -1212,9 +1250,22 @@ function workflowEventForStatus(request) {
     requestStatusLabel(request),
     request.vehicle_number,
   ];
+  const motionStatuses = new Set([
+    "ROBOT_ASSIGNED",
+    "APPROACHING",
+    "LIFTING",
+    "MOVING_TO_SLOT",
+    "RETURNING",
+  ]);
   return {
     time: new Date().toISOString(),
-    tone: request.status === "CANCELLED" ? "danger" : "primary",
+    tone: request.status === "CANCELLED"
+      ? "danger"
+      : request.status === "COMPLETED"
+        ? "success"
+        : motionStatuses.has(request.status) ? "motion" : "primary",
+    category: motionStatuses.has(request.status) ? "robot" : "task",
+    request_id: request.id,
     label,
     description,
   };
@@ -1266,8 +1317,17 @@ function captureRequestEvents(requests, system) {
   if (!requests.length) {
     lastRequestStates.clear();
     recentWorkflowEvents = [];
+    selectedTaskEventRequestId = null;
+    selectedEventScope = "all";
     robotSpeechBubbles.clear();
     return;
+  }
+  if (
+    selectedTaskEventRequestId != null
+    && !requests.some((request) => request.id === selectedTaskEventRequestId)
+  ) {
+    selectedTaskEventRequestId = null;
+    selectedEventScope = "all";
   }
 
   for (const request of [...requests].reverse()) {
@@ -1276,6 +1336,8 @@ function captureRequestEvents(requests, system) {
       recentWorkflowEvents.push({
         time: request.created_at,
         tone: "primary",
+        category: "task",
+        request_id: request.id,
         label: `${requestTypeLabels[request.request_type]} 요청 #${request.id} 등록`,
         description: request.vehicle_number,
       });
@@ -1295,30 +1357,85 @@ function captureRequestEvents(requests, system) {
   recentWorkflowEvents = recentWorkflowEvents.slice(-20);
 }
 
+function eventCategoryForAlert(alert) {
+  if (alert.category === "SENSOR") return "sensor";
+  if (["EMERGENCY_STOP", "OBSTACLE"].includes(alert.category)) return "safety";
+  if (alert.category === "ROBOT_ERROR") return "robot";
+  return "safety";
+}
+
 function renderRecentEvents(alerts) {
-  const events = [
+  let events = [
     ...alerts.map((alert) => ({
       time: alert.created_at,
       tone: alert.level === "ERROR" ? "danger" : "warning",
+      category: eventCategoryForAlert(alert),
+      request_id: null,
       label: alertLabels[alert.category] || "시스템 이벤트",
       description: alert.message,
     })),
     ...recentWorkflowEvents,
   ]
-    .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .slice(0, 12);
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+
+  if (selectedEventScope === "selected" && selectedTaskEventRequestId != null) {
+    events = events.filter(
+      (event) => event.request_id === selectedTaskEventRequestId
+    );
+  }
+  if (selectedEventCategory !== "all") {
+    events = events.filter(
+      (event) => event.category === selectedEventCategory
+    );
+  }
+  events = events.slice(0, 12);
 
   const container = document.getElementById("recentEventList");
+  const selectedRequest = latestDashboard?.requests?.find(
+    (request) => request.id === selectedTaskEventRequestId
+  );
+  const selectedLabel = document.getElementById("selectedEventTaskLabel");
+  selectedLabel.textContent = (
+    selectedEventScope === "selected" && selectedRequest
+  )
+    ? `#${selectedRequest.id} ${requestTypeLabels[selectedRequest.request_type]} · ${selectedRequest.vehicle_number}`
+    : "전체 시스템 이벤트";
+
+  document.getElementById("allEventsButton").classList.toggle(
+    "active", selectedEventScope === "all"
+  );
+  const selectedButton = document.getElementById("selectedTaskEventsButton");
+  selectedButton.disabled = selectedTaskEventRequestId == null;
+  selectedButton.classList.toggle(
+    "active", selectedEventScope === "selected"
+  );
+
   if (!events.length) {
-    container.innerHTML = `<p class="recent-events-empty">최근 발생한 작업이나 경고가 없습니다.</p>`;
+    container.innerHTML = `
+      <p class="recent-events-empty">
+        ${selectedEventScope === "selected"
+          ? "선택한 작업에 해당하는 이벤트가 없습니다."
+          : "선택한 조건의 최근 이벤트가 없습니다."}
+      </p>
+    `;
     return;
   }
 
+  const eventIcon = (event) => {
+    if (event.tone === "danger" || event.tone === "warning") return "!";
+    if (event.tone === "success") return "✓";
+    if (event.category === "robot") return "↻";
+    return "•";
+  };
+
   container.innerHTML = events.map((event) => `
-    <article class="recent-event-item ${event.tone}">
-      <i></i>
-      <div><strong>${event.label}</strong><span>${event.description}</span></div>
-      <time>${formatDateTime(event.time)}</time>
+    <article class="recent-event-item ${event.tone} ${event.category}">
+      <time>${formatEventTime(event.time)}</time>
+      <i aria-hidden="true">${eventIcon(event)}</i>
+      <div>
+        <strong>${event.label}</strong>
+        <span>${event.description}</span>
+      </div>
     </article>
   `).join("");
 }
@@ -1346,6 +1463,69 @@ function formatElapsed(createdAt) {
   const minutes = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
   const seconds = String(elapsedSec % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function renderTaskActiveFilters(searchValue, statusFilter, typeFilter) {
+  const container = document.getElementById("taskActiveFilters");
+  const filters = [];
+  if (searchValue) {
+    filters.push({
+      label: `검색: ${searchValue}`,
+      controlId: "taskSearchInput",
+      resetValue: "",
+    });
+  }
+  if (statusFilter !== "all") {
+    filters.push({
+      label: `상태: ${document.getElementById("taskStatusFilter").selectedOptions[0].textContent}`,
+      controlId: "taskStatusFilter",
+      resetValue: "all",
+    });
+  }
+  if (typeFilter !== "all") {
+    filters.push({
+      label: `유형: ${document.getElementById("taskTypeFilter").selectedOptions[0].textContent}`,
+      controlId: "taskTypeFilter",
+      resetValue: "all",
+    });
+  }
+
+  container.replaceChildren();
+  container.hidden = filters.length === 0;
+  if (!filters.length) return;
+
+  const summary = document.createElement("strong");
+  summary.textContent = `적용 필터 ${filters.length}개`;
+  container.appendChild(summary);
+
+  filters.forEach((filter) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "task-filter-chip";
+    chip.textContent = `${filter.label} ×`;
+    chip.title = `${filter.label} 필터 해제`;
+    chip.addEventListener("click", () => {
+      document.getElementById(filter.controlId).value = filter.resetValue;
+      if (latestDashboard) {
+        renderRequests(latestDashboard.requests || [], latestDashboard.system);
+      }
+    });
+    container.appendChild(chip);
+  });
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "task-filter-clear";
+  clearButton.textContent = "모두 해제";
+  clearButton.addEventListener("click", () => {
+    document.getElementById("taskSearchInput").value = "";
+    document.getElementById("taskStatusFilter").value = "all";
+    document.getElementById("taskTypeFilter").value = "all";
+    if (latestDashboard) {
+      renderRequests(latestDashboard.requests || [], latestDashboard.system);
+    }
+  });
+  container.appendChild(clearButton);
 }
 
 function renderTaskStepper(request, compact = false) {
@@ -1407,33 +1587,96 @@ function renderActiveTaskBanner(requests, alerts = []) {
 function renderRequests(requests, system) {
   const container = document.getElementById("requestTable");
   const showManualAdvance = (!system || system.mock_controls) && !system?.mock_auto_advance;
+  const searchValue = document
+    .getElementById("taskSearchInput")
+    .value.trim()
+    .toLowerCase();
+  const statusFilter = document.getElementById("taskStatusFilter").value;
+  const typeFilter = document.getElementById("taskTypeFilter").value;
+  const isTerminal = (request) =>
+    ["COMPLETED", "CANCELLED"].includes(request.status);
+  const isError = (request) => request.status === "CANCELLED";
+
+  const activeCount = requests.filter((request) => !isTerminal(request)).length;
+  const completedCount = requests.filter(
+    (request) => request.status === "COMPLETED"
+  ).length;
+  const errorCount = requests.filter(isError).length;
+  document.getElementById("taskStats").innerHTML = `
+    <span>진행 <strong>${activeCount}</strong></span>
+    <span>완료 <strong>${completedCount}</strong></span>
+    <span>오류 <strong>${errorCount}</strong></span>
+  `;
+
+  const filteredRequests = requests.filter((request) => {
+    const searchMatches = !searchValue
+      || request.vehicle_number.toLowerCase().includes(searchValue)
+      || String(request.id).includes(searchValue)
+      || String(request.slot_id || "").toLowerCase().includes(searchValue);
+    const statusMatches = statusFilter === "all"
+      || (statusFilter === "active" && !isTerminal(request))
+      || (statusFilter === "completed" && request.status === "COMPLETED")
+      || (statusFilter === "error" && isError(request));
+    const typeMatches = typeFilter === "all"
+      || request.request_type === typeFilter;
+    return searchMatches && statusMatches && typeMatches;
+  });
+  document.getElementById("taskFilterResult").textContent = (
+    searchValue || statusFilter !== "all" || typeFilter !== "all"
+  )
+    ? `${filteredRequests.length}건 표시 · 전체 ${requests.length}건`
+    : `전체 ${requests.length}건`;
+  renderTaskActiveFilters(searchValue, statusFilter, typeFilter);
 
   if (!requests.length) {
     container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">T</div>
-        <strong>등록된 작업 요청이 없습니다.</strong>
-        <span>
-          입차 또는 출차 요청을 등록하면<br />
-          작업 진행 상태가 이곳에 표시됩니다.
-        </span>
-        ${renderTaskStepper({ status: "WAITING" }, true)}
+      <div class="task-section-heading">
+        <h4>현재 진행 작업</h4>
+        <span>0건</span>
       </div>
+      <div class="tasks-active-empty">
+        <strong>등록된 작업 요청이 없습니다.</strong>
+        <span>입차 또는 출차 요청이 접수되면 진행 단계가 표시됩니다.</span>
+      </div>
+      <div class="task-section-heading history">
+        <h4>완료·취소 기록</h4>
+        <span>0건</span>
+      </div>
+      <div class="filtered-empty">아직 완료된 작업 기록이 없습니다.</div>
     `;
     return;
   }
 
-  const activeRequests = requests.filter(
-    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  const activeRequests = filteredRequests.filter(
+    (request) => !isTerminal(request)
   );
+  const historyRequests = filteredRequests.filter(isTerminal);
+  const showActiveSection = ["all", "active"].includes(statusFilter);
+  const showHistorySection = ["all", "completed", "error"].includes(statusFilter);
+
   container.innerHTML = `
-    ${activeRequests.length ? `
+    ${showActiveSection ? `
+      <div class="task-section-heading">
+        <h4>현재 진행 작업</h4>
+        <span>${activeRequests.length}건</span>
+      </div>
+      ${activeRequests.length ? `
       <div class="active-task-list">
         ${activeRequests.map((request) => `
-          <article class="active-task-card ${request.request_type}">
+          <article
+            class="active-task-card selectable-task ${request.request_type} ${
+              selectedTaskEventRequestId === request.id ? "selected" : ""
+            }"
+            role="button"
+            tabindex="0"
+            data-task-request-id="${request.id}"
+          >
             <div class="active-task-heading">
               <div>
-                <span>${requestTypeLabels[request.request_type]} 작업 · #${request.id}</span>
+                <span class="request-type-label ${request.request_type}">
+                  ${requestTypeLabels[request.request_type]}
+                </span>
+                <small>작업 #${request.id}</small>
                 <h3>${request.vehicle_number} → ${request.slot_id || "슬롯 배정 중"}</h3>
               </div>
               <div class="active-task-meta">
@@ -1444,57 +1687,89 @@ function renderRequests(requests, system) {
             ${renderTaskStepper(request)}
             <div class="active-task-team">
               <span>협동 로봇</span>
-              <strong>${assignedRobotTableLabel(request)}</strong>
+              <strong title="L: 리더 로봇 · F: 팔로워 로봇">
+                ${assignedRobotTableLabel(request)}
+              </strong>
+              ${showManualAdvance ? `
+                <button
+                  class="advance-button"
+                  type="button"
+                  onclick="event.stopPropagation(); advanceRequest(${request.id})"
+                >
+                  다음 단계
+                </button>
+              ` : ""}
             </div>
           </article>
         `).join("")}
       </div>
+      ` : `
+        <div class="tasks-active-empty">
+          <strong>현재 진행 중인 작업이 없습니다.</strong>
+          <span>새 입·출차 요청이 접수되면 이 영역에 우선 표시됩니다.</span>
+        </div>
+      `}
     ` : ""}
-    <div class="table-wrap">
+    ${showHistorySection ? `
+      <div class="task-section-heading history">
+        <h4>완료·취소 기록</h4>
+        <span>${historyRequests.length}건</span>
+      </div>
+      ${historyRequests.length ? `
+      <div class="table-wrap">
       <table>
+        <colgroup>
+          <col class="task-col-id" />
+          <col class="task-col-type" />
+          <col class="task-col-vehicle" />
+          <col class="task-col-slot" />
+          <col class="task-col-robots" />
+          <col class="task-col-status" />
+          <col class="task-col-time" />
+        </colgroup>
         <thead>
           <tr>
             <th>ID</th>
             <th>유형</th>
             <th>차량 번호</th>
             <th>주차면</th>
-            <th>할당 로봇</th>
+            <th>협동 로봇</th>
             <th>진행 상태</th>
             <th>등록 시간</th>
-            ${showManualAdvance ? "<th>제어</th>" : ""}
           </tr>
         </thead>
         <tbody>
-          ${requests
+          ${historyRequests
             .map(
               (request) => `
-                <tr>
+                <tr
+                  class="selectable-task ${
+                    selectedTaskEventRequestId === request.id ? "selected" : ""
+                  }"
+                  role="button"
+                  tabindex="0"
+                  data-task-request-id="${request.id}"
+                >
                   <td>#${request.id}</td>
-                  <td>${requestTypeLabels[request.request_type]}</td>
+                  <td>
+                    <span class="request-type-badge ${request.request_type}">
+                      ${requestTypeLabels[request.request_type]}
+                    </span>
+                  </td>
                   <td>${request.vehicle_number}</td>
                   <td>${request.slot_id || "-"}</td>
-                  <td>${assignedRobotTableLabel(request)}</td>
+                  <td>
+                    <span
+                      class="robot-pair-label"
+                      title="L: 리더 로봇 · F: 팔로워 로봇"
+                    >${assignedRobotTableLabel(request)}</span>
+                  </td>
                   <td>
                     <span class="badge ${request.status}">
                       ${requestStatusLabel(request)}
                     </span>
                   </td>
-                  <td>${formatDateTime(request.created_at)}</td>
-                  ${showManualAdvance ? `<td>
-                    ${
-                      request.status !== "COMPLETED" &&
-                      request.status !== "CANCELLED"
-                        ? `
-                          <button
-                            class="advance-button"
-                            onclick="advanceRequest(${request.id})"
-                          >
-                            다음 단계
-                          </button>
-                        `
-                        : "-"
-                    }
-                  </td>` : ""}
+                  <td>${formatCompactDateTime(request.created_at)}</td>
                 </tr>
               `
             )
@@ -1502,7 +1777,34 @@ function renderRequests(requests, system) {
         </tbody>
       </table>
     </div>
+      ` : `
+        <div class="filtered-empty">
+          선택한 조건에 해당하는 완료·취소 기록이 없습니다.
+        </div>
+      `}
+    ` : ""}
   `;
+
+  container.querySelectorAll("[data-task-request-id]").forEach((element) => {
+    const select = () => selectTaskEvents(
+      Number(element.dataset.taskRequestId)
+    );
+    element.addEventListener("click", select);
+    element.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      select();
+    });
+  });
+}
+
+function selectTaskEvents(requestId) {
+  selectedTaskEventRequestId = requestId;
+  selectedEventScope = "selected";
+  if (latestDashboard) {
+    renderRequests(latestDashboard.requests || [], latestDashboard.system);
+    renderRecentEvents(latestDashboard.alerts || []);
+  }
 }
 
 function sensorConnectionAlerts(sensors, system) {
@@ -1592,8 +1894,11 @@ function renderAlerts(alerts, sensors = [], system = null) {
   const restoreButton = document.getElementById("restoreSensorAlertsButton");
   restoreButton.classList.toggle("hidden", hiddenOfflineSensorCount === 0);
   restoreButton.textContent = hiddenOfflineSensorCount
-    ? `숨긴 센서 알림 ${hiddenOfflineSensorCount}개 다시 보기`
-    : "숨긴 센서 알림 다시 보기";
+    ? `🔔 숨긴 알림 ${hiddenOfflineSensorCount}`
+    : "숨긴 알림";
+  restoreButton.title = hiddenOfflineSensorCount
+    ? `숨긴 센서 연결 알림 ${hiddenOfflineSensorCount}개를 다시 표시합니다.`
+    : "숨긴 센서 연결 알림을 다시 표시합니다.";
 
   const safetyConnectionAlerts = system?.safety?.state === "UNKNOWN"
     ? [{
@@ -1987,6 +2292,41 @@ document
   });
 
 document
+  .getElementById("taskSearchInput")
+  .addEventListener("input", () => {
+    if (latestDashboard) {
+      renderRequests(latestDashboard.requests || [], latestDashboard.system);
+    }
+  });
+["taskStatusFilter", "taskTypeFilter"].forEach((elementId) => {
+  document.getElementById(elementId).addEventListener("change", () => {
+    if (latestDashboard) {
+      renderRequests(latestDashboard.requests || [], latestDashboard.system);
+    }
+  });
+});
+document.getElementById("allEventsButton").addEventListener("click", () => {
+  selectedEventScope = "all";
+  renderRecentEvents(latestDashboard?.alerts || []);
+});
+document
+  .getElementById("selectedTaskEventsButton")
+  .addEventListener("click", () => {
+    if (selectedTaskEventRequestId == null) return;
+    selectedEventScope = "selected";
+    renderRecentEvents(latestDashboard?.alerts || []);
+  });
+document.querySelectorAll("[data-event-category]").forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedEventCategory = button.dataset.eventCategory;
+    document.querySelectorAll("[data-event-category]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    renderRecentEvents(latestDashboard?.alerts || []);
+  });
+});
+
+document
   .getElementById("resetButton")
   .addEventListener("click", async () => {
     if (!window.confirm("Mock 요청과 상태를 모두 초기화할까요?")) return;
@@ -2007,10 +2347,17 @@ document
   .addEventListener("click", async () => {
     if (
       !window.confirm(
-        "테스트 DB를 초기 상태로 되돌릴까요?\n주차면·로봇 상태와 작업 이력이 모두 초기화됩니다. (테스트/개발 환경 전용)"
+        "테스트 DB의 주차면·로봇 상태와 작업 이력을 모두 삭제합니다.\n이 작업은 되돌릴 수 없습니다. 계속할까요?"
       )
     )
       return;
+    const confirmation = window.prompt(
+      "초기화를 실행하려면 아래에 'DB 초기화'를 정확히 입력해주세요."
+    );
+    if (confirmation !== "DB 초기화") {
+      showMessage("DB 초기화가 취소되었습니다.", true);
+      return;
+    }
     try {
       await apiRequest("/ros2/db-reset", {
         method: "POST",
@@ -2091,9 +2438,21 @@ async function resolveAlert(alertId) {
 
 async function activateEmergencyStop() {
   if (latestDashboard?.system?.emergency_stop) return;
+  const activeRequests = (latestDashboard?.requests || []).filter(
+    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  );
+  const assignedTargets = new Set(
+    activeRequests.flatMap((request) => assignedRobotIds(request))
+  );
+  const targetRobotCount = assignedTargets.size || (
+    latestDashboard?.robots || []
+  ).filter((robot) => robot.status !== "OFFLINE").length;
   if (
     !window.confirm(
-      "전체 로봇을 즉시 정지할까요?\n기존 작업은 중단되며, 현장 점검과 별도의 운영 복귀 승인이 필요합니다."
+      "모든 로봇에 비상정지를 요청합니다.\n\n"
+      + `현재 진행 작업: ${activeRequests.length}건\n`
+      + `정지 대상 로봇: ${targetRobotCount}대\n\n`
+      + "진행 중인 작업은 중단되며 현장 점검과 별도의 운영 복귀 승인이 필요합니다."
     )
   )
     return;
