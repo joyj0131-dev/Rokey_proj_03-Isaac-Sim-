@@ -3956,6 +3956,11 @@ def main():
                     unknown = [s for s in cam_robots_bridge if s not in arts]
                     if unknown:
                         raise SystemExit(f"--bridge-cameras: 알 수 없는 로봇 {unknown}")
+        # --bridge-rear: 후방캠(role="rear") 발행 옵트인(기본 off, RTF 비용 회피).
+        # Phase B "후방캠 도크점검"의 marker_localizer_node 가 구독할
+        # /robot_<id>/rear/image_raw 를 --probe=REAR(1569행)와 동일한
+        # attach_camera_graph(role="rear") 호출로 낸다(아래, 뎁스캠 셋업 뒤).
+        bridge_rear = "--bridge-rear" in sys.argv[1:]
         if cam_robots_bridge:
             from pxr import Gf as _bridge_cam_gf, UsdGeom as _bridge_cam_usdgeom
             BRIDGE_CAM_H = 0.15
@@ -4009,6 +4014,23 @@ def main():
                          for r in cam_robots_bridge for side in ("left", "right")]
         print(f"BRIDGE_DEPTH_CAMERAS robots={cam_robots_bridge} "
               f"topics={depth_topics}", flush=True)
+
+        # ---- Task2: 후방캠 발행(--bridge-rear, 옵트인) ----
+        # Phase B "후방캠 도크점검"의 marker_localizer_node 가 구독할
+        # /robot_<id>/rear/image_raw 를 낸다. --probe=REAR(1569행)와 동일한
+        # attach_camera_graph(role="rear") 호출을 재사용한다. 전방/뎁스와 달리
+        # 기본 off(RTF 비용 회피) — --bridge-rear 를 명시해야 cam_robots_bridge
+        # (위, --bridge-cameras 로 조절되는 로봇 목록) 각각에 후방캠을 붙인다.
+        if bridge_rear and cam_robots_bridge:
+            for r in cam_robots_bridge:
+                rear_cam_path = find_rear_camera(stage, r)
+                attach_camera_graph(r, rear_cam_path, role="rear")
+            for _ in range(30):
+                app.update()
+        if bridge_rear:
+            rear_topics = [f"/robot_{r}/rear/image_raw" for r in cam_robots_bridge]
+            print(f"BRIDGE_REAR_CAMERAS robots={cam_robots_bridge} "
+                  f"topics={rear_topics}", flush=True)
 
         joint_pub = {r: ros_node.create_publisher(JointState, f"/robot_{r}/joint_states", 10)
                      for r in arts}
