@@ -93,8 +93,19 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stage",
         type=Path,
-        help=("열 USD 파일. 생략하면 build_integrated_parking_field.py가 생성한 "
-              "/home/rokey/Isaac_envo/parking/parking_robot_field.usd 사용"),
+        help="열 USD 파일. 생략하면 최신 parking_environment_v4.usd 사용",
+    )
+    parser.add_argument(
+        "--with-v4-robots",
+        action="store_true",
+        help=("parking_v4_runner와 같은 방식으로 최신 V4 환경에 "
+              "입차/출차 주차로봇 4대를 동적으로 배치"),
+    )
+    parser.add_argument(
+        "--with-v4-pedestrians",
+        action="store_true",
+        help=("V4 환경에 ssssssss.usd의 Pedestrians 2명과 "
+              "my_navmap Character 1명을 합성"),
     )
     parser.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--headless", action="store_true")
@@ -458,26 +469,46 @@ def _capture(args: argparse.Namespace, app) -> None:
             app.update()
     import omni.replicator.core as rep
     import omni.timeline
-    import omni.usd
-    from isaacsim.core.utils.stage import is_stage_loading
-
     stage_path = _resolve_stage(args.stage)
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    context = omni.usd.get_context()
-    print(f"[lidar] stage 열기: {stage_path}", flush=True)
-    context.open_stage(str(stage_path))
-    # 원격 참조 자산이 있는 USD도 완전히 로드된 뒤 prim을 순회한다.
-    for _ in range(600):
-        app.update()
-        if not is_stage_loading():
-            break
+    if args.with_v4_robots:
+        # 저장된 v4 USD는 환경만 담고 있고, 실제 운영 장면의 로봇 4대는
+        # parking_v4_runner가 도크 마커 좌표에 동적으로 합성한다. LiDAR
+        # 발행기도 같은 함수를 써야 GUI/RViz가 운영 장면과 정확히 일치한다.
+        runner_dir = REPO_ROOT / "isaacpjt" / "Isaac_envo"
+        if str(runner_dir) not in sys.path:
+            sys.path.insert(0, str(runner_dir))
+        import parking_v4_runner
+
+        expected = parking_v4_runner.PARKING_USD.resolve()
+        if stage_path != expected:
+            raise ValueError(
+                f"--with-v4-robots는 최신 V4 장면만 지원합니다: {expected}")
+        print(f"[lidar] V4 환경 + 주차로봇 4대 구성: {stage_path}", flush=True)
+        stage = parking_v4_runner.build_stage(
+            app,
+            keep_lidar=True,
+            with_pedestrians=args.with_v4_pedestrians,
+        )
     else:
-        raise RuntimeError("USD stage 로딩이 600 update 안에 끝나지 않았습니다.")
-    stage = context.get_stage()
-    if stage is None:
-        raise RuntimeError(f"USD stage 열기 실패: {stage_path}")
+        import omni.usd
+        from isaacsim.core.utils.stage import is_stage_loading
+
+        context = omni.usd.get_context()
+        print(f"[lidar] stage 열기: {stage_path}", flush=True)
+        context.open_stage(str(stage_path))
+        # 원격 참조 자산이 있는 USD도 완전히 로드된 뒤 prim을 순회한다.
+        for _ in range(600):
+            app.update()
+            if not is_stage_loading():
+                break
+        else:
+            raise RuntimeError("USD stage 로딩이 600 update 안에 끝나지 않았습니다.")
+        stage = context.get_stage()
+        if stage is None:
+            raise RuntimeError(f"USD stage 열기 실패: {stage_path}")
 
     lidar_prims = _find_lidar_prims(stage)
     resources = []
@@ -526,6 +557,10 @@ def _capture(args: argparse.Namespace, app) -> None:
     try:
         # RTX LiDAR는 Play 중 렌더 프레임이 진행되어야 유효한 scan을 낸다.
         app.update()
+        if args.with_v4_pedestrians:
+            timeline.set_looping(True)
+            print("[people] Pedestrians+Character 시나리오 0~600 frame 반복 재생",
+                  flush=True)
         timeline.play()
         for _ in range(args.warmup_frames):
             app.update()

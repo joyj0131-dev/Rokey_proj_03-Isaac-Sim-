@@ -5,7 +5,7 @@
   - robot_position_bridge: 로봇 실측 odom(/robot_entry_lead/odom 등 4대,
     site_map_v4.ROBOTS)을 받아 DB(robots.x/y)에 기록 — 이게 있어야 웹 대시보드에
     로봇이 실시간으로 움직이는 게 보인다(전에는 이 다리가 없어서 안 보였음).
-  - safety_monitor: 천장 LiDAR(현재 1대 통합, 2026-07-24 확인)로 통로 장애물·슬롯
+  - safety_monitor: 천장 LiDAR 2대의 병합 점군으로 통로 장애물·슬롯
     점유를 실시간 판정 + RViz2 시각화(월드 포인트클라우드 + 슬롯/장애물 MarkerArray) 발행.
 
 sim_orchestrator(가짜 로봇 데모용)/isaac_parking_bridge(예전 ENTRY 전용 다리,

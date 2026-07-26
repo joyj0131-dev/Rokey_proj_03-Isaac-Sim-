@@ -1,0 +1,203 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    endTimeCode = 600
+    metersPerUnit = 1
+    startTimeCode = 0
+    timeCodesPerSecond = 60
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    custom string people:characterSourceFile = "/home/rokey/Downloads/my_navmap.usd"
+    custom string people:contents = "ssssssss.usd:/World/Pedestrians (2); my_navmap.usd:/World/Characters/Character (1); Biped_Setup is a hidden Character animation dependency"
+    custom string people:sourceFile = "/home/rokey/Downloads/ssssssss.usd"
+
+    def Xform "Characters"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        double xformOp:rotateX:unitsResolve = -90
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, -23.793809736764164)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale", "xformOp:rotateX:unitsResolve"]
+
+        def Xform "Biped_Setup" (
+            prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/Characters/Biped_Setup.usd@
+        )
+        {
+            token visibility = "invisible"
+            quatf xformOp:orient = (0.70710677, 0.70710677, 0, 0)
+            double xformOp:rotateX:unitsResolve = 90
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Xform "Character" (
+            prepend apiSchemas = ["NavMeshExcludeAPI"]
+            prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/Characters//original_male_adult_construction_05/male_adult_construction_05.usd@
+        )
+        {
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (-0.9816728234291077, -0.9394693374633789, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+            over "ManRoot"
+            {
+                over "male_adult_construction_05" (
+                    delete apiSchemas = ["AnimationGraphAPI", "OmniScriptingAPI"]
+                    prepend apiSchemas = ["SemanticsAPI:Semantics_metrosim", "AnimationGraphAPI", "OmniScriptingAPI"]
+                )
+                {
+                    custom string anim:graph:variable:Action (
+                        customData = {
+                            string default = ""
+                        }
+                    )
+                    custom float anim:graph:variable:lookAround
+                    custom float3[] anim:graph:variable:PathPoints
+                    custom float anim:graph:variable:SitWeight
+                    custom float anim:graph:variable:Value0
+                    custom float anim:graph:variable:Walk
+                    rel animationGraph = </World/Characters/Biped_Setup/CharacterAnimation/AnimationGraph>
+                    uniform asset[] omni:scripting:scripts = [@/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/extscache/omni.anim.people-0.7.9+107.3.3/omni/anim/people/scripts/character_behavior.py@] (
+                        customData = {
+                            dictionary fileExts = {
+                                string "*.py" = "Python File"
+                            }
+                        }
+                    )
+                    string semantic:Semantics_metrosim:params:semanticData = "character"
+                    string semantic:Semantics_metrosim:params:semanticType = "class"
+                }
+            }
+        }
+    }
+
+    def Xform "Pedestrians"
+    {
+        custom string anim:pedestrianNote = "보행자 2명의 이동 속도를 더 자연스럽게 보정하고, 충돌 감지용 캡슐 Collider를 추가했다. 다만 별도의 걷기 애니메이션 클립(SkelAnimation / Animation Graph)은 아직 연결하지 않았으므로, 현재는 위치 키프레임 기반 이동이다. 즉 기존보다 속도와 충돌 설정은 좋아졌지만 팔·다리 보행 주기는 후속 연결이 필요하다."
+        custom string anim:scenario = "입차 도착(프레임 420) 시 사람 소환 후 퇴장 / 출차 대기 차량 탑승 연출용 보행자 등장 — 순수 키프레임 기반"
+        custom float anim:targetWalkSpeedMps = 1.5
+        custom string anim:timingNote = "ExitPedestrian은 기존 출차 시나리오를 크게 깨지 않도록 프레임 길이를 일부만 늘렸다. 차량과 사람의 완전한 탑승 동기화가 필요하면 /World/Vehicles/OutboundVehicle 시작 프레임도 함께 늦추는 것을 권장한다."
+
+        def Xform "EntryPedestrian" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float3 anim:appearPose = (-8.5, 0, 7.075)
+            custom float anim:estimatedSpeedMps = 1.57
+            custom float2 anim:motionFrames = (420, 595)
+            custom string anim:role = "입차: InboundVehicle 도착 지점(-8.5,0,7.075)에서 소환되어 안쪽(Z 감소 방향)으로 걸어나가며 퇴장"
+            custom float3 anim:vanishPose = (-8.5, 0, 2.5)
+            rel material:binding = </World/Looks/Blue>
+            token visibility.timeSamples = {
+                0: "invisible",
+                419: "invisible",
+                420: "inherited",
+                594: "inherited",
+                595: "invisible",
+            }
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate.timeSamples = {
+                0: (-8.5, 0, 7.075),
+                198: (-8.5, 0, 7.075),
+                420: (-8.5, 0, 7.075),
+                455: (-8.5, 0, 6.16),
+                490: (-8.5, 0, 5.245),
+                525: (-8.5, 0, 4.33),
+                560: (-8.5, 0, 3.415),
+                595: (-8.5, 0, 2.5),
+                600: (-8.5, 0, 2.5),
+            }
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+            def Xform "Body" (
+                prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/Characters/male_adult_construction_03/male_adult_construction_03.usd@
+            )
+            {
+                float3 xformOp:rotateXYZ = (-90, 0, 0)
+                double3 xformOp:translate = (0, 0.16, 0)
+                uniform token[] xformOpOrder = ["xformOp:rotateXYZ", "xformOp:translate"]
+
+                over "male_adult_construction_03"
+                {
+                    over "ManRoot"
+                    {
+                        over "male_adult_construction_03"
+                        {
+                            custom rel inputs:pose
+                        }
+                    }
+                }
+            }
+
+            def Capsule "Collider" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                uniform token axis = "Y"
+                double height = 0.95
+                bool physics:collisionEnabled = 1
+                double radius = 0.32
+                token visibility = "invisible"
+                double3 xformOp:translate = (0, 0.95, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+
+        def Xform "ExitPedestrian" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float3 anim:appearPose = (-8.5, 0, -2.5)
+            custom float anim:estimatedSpeedMps = 1.83
+            custom float2 anim:motionFrames = (10, 160)
+            custom string anim:role = "출차: 안쪽에서 등장해 대기 중인 OutboundVehicle(-8.5,0,-7.075) 쪽으로 걸어가 탑승 연출"
+            custom float3 anim:vanishPose = (-8.5, 0, -7.075)
+            rel material:binding = </World/Looks/Orange>
+            token visibility.timeSamples = {
+                0: "invisible",
+                9: "invisible",
+                10: "inherited",
+                159: "inherited",
+                160: "invisible",
+            }
+            double3 xformOp:translate.timeSamples = {
+                0: (-8.5, 0, -2.5),
+                10: (-8.5, 0, -2.5),
+                40: (-8.5, 0, -3.415),
+                70: (-8.5, 0, -4.33),
+                100: (-8.5, 0, -5.245),
+                130: (-8.5, 0, -6.16),
+                160: (-8.5, 0, -7.075),
+                600: (-8.5, 0, -7.075),
+            }
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Xform "Body" (
+                prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/Characters/female_adult_police_02/female_adult_police_02.usd@
+            )
+            {
+                float3 xformOp:rotateXYZ = (-90, 0, 0)
+                double3 xformOp:translate = (0, 0.15, 0)
+                uniform token[] xformOpOrder = ["xformOp:rotateXYZ", "xformOp:translate"]
+            }
+
+            def Capsule "Collider" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                uniform token axis = "Y"
+                double height = 0.95
+                bool physics:collisionEnabled = 1
+                double radius = 0.32
+                token visibility = "invisible"
+                double3 xformOp:translate = (0, 0.95, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+    }
+}

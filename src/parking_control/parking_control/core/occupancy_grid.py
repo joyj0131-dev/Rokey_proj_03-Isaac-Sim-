@@ -45,7 +45,7 @@ def rasterize_points(
     points,
     spec: GridSpec,
     *,
-    min_height: float = 0.15,
+    min_height: float = 0.05,
     max_height: float = 3.0,
     min_points_per_cell: int = 2,
     inflate_cells: int = 1,

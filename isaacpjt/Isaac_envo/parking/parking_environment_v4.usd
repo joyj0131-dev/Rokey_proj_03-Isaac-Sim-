@@ -2214,7 +2214,7 @@ def Xform "World" (
         def Xform "CeilingLidarCenterMount"
         {
             custom token sensor:coverageZone = "all"
-            custom string sensor:role = "주차장 전체 커버리지(1대 통합)"
+            custom string sensor:role = "주차장 중앙 기본 커버리지"
 
             def Cube "Bracket" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
@@ -2249,6 +2249,47 @@ def Xform "World" (
             quatf xformOp:orient = (0.70710677, 0.70710677, 0, 0)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.5, 5.12, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Xform "CeilingLidarEastMount"
+        {
+            custom token sensor:coverageZone = "east"
+            custom string sensor:role = "낮은 주차로봇·보행자 및 중앙 센서 사각지대 보완"
+
+            def Cube "Bracket" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Dark>
+                color3f[] primvars:displayColor = [(0.025, 0.032, 0.045)]
+                double size = 1
+                float3 xformOp:scale = (0.62, 0.26, 0.62)
+                double3 xformOp:translate = (6, 5.46, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cylinder "SafetyRing" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                uniform token axis = "Y"
+                double height = 0.16
+                rel material:binding = </World/Looks/Yellow>
+                color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                double radius = 0.31
+                double3 xformOp:translate = (6, 5.34, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+
+        def Xform "CeilingLidarEast" (
+            prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Sensors/SICK/multiScan136/SICK_multiScan136.usd@
+        )
+        {
+            quatf xformOp:orient = (0.70710677, 0.70710677, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (6, 5.12, 0)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
     }
@@ -2915,4 +2956,3 @@ def "Render" (
         }
     }
 }
-

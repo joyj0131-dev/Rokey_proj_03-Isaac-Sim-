@@ -28,7 +28,9 @@ class LidarOccupancyGridNode(Node):
         self.declare_parameter("origin_y", -12.0)
         self.declare_parameter("width", 400)
         self.declare_parameter("height", 240)
-        self.declare_parameter("min_height", 0.15)
+        # 주차로봇 차체 상단이 약 0.20m라 기존 0.15m 필터에서는 점이 거의
+        # 남지 않는다. 바닥(0m)은 제외하면서 낮은 로봇을 보존한다.
+        self.declare_parameter("min_height", 0.05)
         self.declare_parameter("max_height", 3.0)
         self.declare_parameter("min_points_per_cell", 2)
         self.declare_parameter("inflate_cells", 1)

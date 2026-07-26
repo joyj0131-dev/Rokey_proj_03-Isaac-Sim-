@@ -7,12 +7,14 @@
 좌표 규약은 site_map_v4 가 전담한다(입차=z양수, 에셋 라벨과 반대).
 
 실행: parking_v4_runner.sh [--gui] [--headless-test] [--keep-lidar]
+                             [--with-pedestrians]
 
 --keep-lidar(2026-07-25 추가): probe들은 기본적으로 천장 RTX LiDAR를 끈다
 (무겁고 불필요해서, _disable_sensors 참고) — 이 플래그를 주면 끄지 않는다.
 `--gui --keep-lidar`로 실행하면(probe 없이) Isaac Sim GUI 창이 뜬 채로
-v4 씬이 Play 상태로 유지되므로, /World/Sensors/CeilingLidarCenter 프림을
-선택해 Isaac Sim 자체 뷰포트에서 LiDAR 포인트클라우드를 눈으로 볼 수 있다
+v4 씬이 Play 상태로 유지되므로, /World/Sensors/CeilingLidarCenter와
+/World/Sensors/CeilingLidarEast 프림을 선택해 Isaac Sim 자체 뷰포트에서
+LiDAR 포인트클라우드를 눈으로 볼 수 있다
 — ROS/rviz2 없이 순수 Isaac Sim GUI로 확인하고 싶을 때 쓴다(시스템 ROS를
 이 프로세스와 같은 셸에서 source할 필요가 없다 — 재실행되는 Isaac
 python.sh가 자체 번들 rclpy를 쓰기 때문에 시스템 ROS Humble을 섞으면
@@ -30,6 +32,7 @@ REPO_ROOT = WORK_DIR.parent.parent
 PARKING_USD = WORK_DIR / "parking" / "parking_environment_v4.usd"
 ROBOT_USD = (WORK_DIR.parent / "hwia_parking_robot_final_caster_package"
              / "hwia_depth_cam_mecha_roller_lowered.usd")
+PEDESTRIAN_LAYER = WORK_DIR / "animation" / "pedestrians_v4.usda"
 ISAAC_PYTHON = Path("/home/rokey/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/python.sh")
 
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
@@ -132,7 +135,7 @@ def robot_prim_path(robot_id):
     return f"/World/Robots/{robot_id}"
 
 
-def build_stage(app, keep_lidar=False):
+def build_stage(app, keep_lidar=False, with_pedestrians=False):
     from pxr import Gf, UsdGeom
     import omni.usd
 
@@ -147,6 +150,19 @@ def build_stage(app, keep_lidar=False):
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
     stage.SetTimeCodesPerSecond(RENDER_HZ)
     stage.GetRootLayer().subLayerPaths.append(str(PARKING_USD))
+    if with_pedestrians:
+        if not PEDESTRIAN_LAYER.is_file():
+            raise RuntimeError(
+                f"보행자 V4 오버레이 없음: {PEDESTRIAN_LAYER}\n"
+                "  animation/extract_pedestrians_v4.py를 먼저 실행하세요.")
+        # ssssssss.usd에서 가져온 Character의 OmniScripting 동작이 stage
+        # composition 직후 실행된다. 먼저 People 확장을 켜야 그 의존성인
+        # omni.anim.graph.core 모듈을 정상적으로 import할 수 있다.
+        from isaacsim.core.utils.extensions import enable_extension
+        enable_extension("omni.anim.people")
+        for _ in range(5):
+            app.update()
+        stage.GetRootLayer().subLayerPaths.append(str(PEDESTRIAN_LAYER))
     world = stage.GetPrimAtPath("/World")
     if not world or not world.IsValid():
         raise RuntimeError(f"{PARKING_USD.name} 에서 /World 를 찾지 못했습니다.")
@@ -180,7 +196,11 @@ def build_stage(app, keep_lidar=False):
         app.update()
 
     placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in sm.ROBOTS}
-    print(f"V4_STAGE_READY robots={placed} disabled_lidar={n_lidar} "
+    pedestrian_count = 2 if with_pedestrians else 0
+    character_count = 1 if with_pedestrians else 0
+    print(f"V4_STAGE_READY robots={placed} pedestrians={pedestrian_count} "
+          f"characters={character_count} "
+          f"disabled_lidar={n_lidar} "
           f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
           f"physics={PHYSICS_HZ:.0f}Hz", flush=True)
     return stage
@@ -409,7 +429,11 @@ def main():
     import omni.timeline
     from isaacsim.core.prims import Articulation
 
-    stage = build_stage(app, keep_lidar="--keep-lidar" in sys.argv[1:])
+    stage = build_stage(
+        app,
+        keep_lidar="--keep-lidar" in sys.argv[1:],
+        with_pedestrians="--with-pedestrians" in sys.argv[1:],
+    )
 
     # probe B 는 측정 대상 외 로봇을 화면·물리에서 뺀다(사용자 요청 + 개루프 주행 중
     # 옆 도크 로봇과의 충돌 제거). 반드시 timeline.play()/Articulation.initialize() '전에'

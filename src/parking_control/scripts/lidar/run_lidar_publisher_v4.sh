@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Isaac Sim PC용: 최신 v4 중앙 LiDAR 1대를 ROS 2 PointCloud2로 발행한다.
+# Isaac Sim PC용: 최신 v4 천장 LiDAR 2대를 ROS 2 PointCloud2로 발행한다.
 set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,5 +28,16 @@ export ROS_DISTRO=humble
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export LD_LIBRARY_PATH="$ISAAC_REL/exts/isaacsim.ros2.bridge/humble/lib"
 
+headless_args=(--headless)
+capture_args=()
+for arg in "$@"; do
+    if [[ "$arg" == "--gui" ]]; then
+        headless_args=()
+    else
+        capture_args+=("$arg")
+    fi
+done
+
 exec "$ISAAC_REL/python.sh" "$CAPTURE_SCRIPT" \
-    --stage "$V4_STAGE" --live --headless --ros2 "$@"
+    --stage "$V4_STAGE" --with-v4-robots --with-v4-pedestrians --live --ros2 \
+    "${headless_args[@]}" "${capture_args[@]}"
