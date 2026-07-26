@@ -110,9 +110,10 @@ def _ros2_node_stack():
 
 
 def generate_launch_description():
+    gui = ["--gui"] if os.environ.get("GUI") else []  # GUI=1 이면 Isaac 창 띄움
     bridge = ExecuteProcess(
         cmd=["bash", os.path.join(ENVO, "sim_bridge.sh"),
-             f"--bridge-cameras={CAM_ROBOTS}"],
+             *gui, f"--bridge-cameras={CAM_ROBOTS}"],
         output="screen",
     )
 
