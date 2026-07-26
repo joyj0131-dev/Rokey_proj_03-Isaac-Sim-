@@ -17,6 +17,61 @@ from collections import namedtuple
 # trough_index 는 phase=='ingress' 일 때만 의미 있음(그 외 None).
 CorridorStep = namedtuple('CorridorStep', ['phase', 'robot_id', 'trough_index'])
 
+# ---- Phase B(도크 스폰→XN 융합주행) 순수 시퀀싱 (R6/T3) ----------------------
+#
+# 인프로세스 러너(parking_v4_runner.py `_run_entry_lead_b`(2956)/`_run_entry_follow_b`
+# (2878)/`_mission_setup`(2715))의 로봇별 6단계를 ROS2 경로용 순수 스텝으로 이식한다.
+# 값·순서·근거는 전부 그 러너에서 그대로 가져온다("reuse, don't rebuild").
+#
+#   seed_dock   : localizer ref_ids=[dock_id] 로 하드필터 + 위치전용 보정 모드.
+#                 (러너 `_mission_setup` ⑤: filt 를 도크 좌표로 시딩. ROS2 융합
+#                  localizer 는 첫 마커 fix 로 자기 시딩하므로 여기선 ref 전환만.)
+#   rotate_90   : 제자리 90° 회전(+X→+Z, filt-yaw 90→0, 북향). **오도 인스턴스**로
+#                 실행(단일 전방캠이 회전 중 마커를 잃어 융합만으론 회전 불가 —
+#                 R3c §7 실측). 러너 `rotate_in_place(target_yaw=0.0)`.
+#   dock_check  : 후방캠 융합, correct_yaw=False, 도크 데칼 위치보정하며 북진.
+#                 러너 Step3 `drive_to_pose(rear_ctx, ..., correct_yaw=False)`.
+#   xn_align_x  : ref_ids=[xn_id] 로 전환 + 전방캠, x 만 XN 축선(xn_x)으로 정렬
+#                 (z 유지). 러너 Step4a `drive_to_pose(front_ctx, (xn_x, cur_z, 0))`.
+#   xn_align_z  : x=xn_x 고정한 채 순수 북진해 XN 남쪽 standoff 로(검출창 통과).
+#                 러너 Step4b `drive_to_pose((xn_x, xn_z-xn_standoff, 0))`.
+#                 (대각 주행 금지 — 검출창 진입 시 횡오차로 n_fix=0 났던 실측 때문에
+#                  x 정렬과 z 접근을 분리한다.)
+#   offset      : **entry_lead(leader)만** — 충돌회피 x 오프셋(final_x_offset=-1.7).
+#                 러너 Step5 `drive_to_pose((xn_x+final_x_offset, xn_z-standoff, 0))`.
+#                 entry_follow(follower)는 XN 축선에 정지(오프셋 없음).
+PhaseBStep = namedtuple('PhaseBStep', ['phase', 'robot_id'])
+
+# leader(entry_lead) 는 6단계 전체, follower(entry_follow) 는 offset 을 뺀 5단계.
+_PHASE_B_LEADER_PHASES = (
+    'seed_dock', 'rotate_90', 'dock_check', 'xn_align_x', 'xn_align_z', 'offset')
+_PHASE_B_FOLLOWER_PHASES = (
+    'seed_dock', 'rotate_90', 'dock_check', 'xn_align_x', 'xn_align_z')
+
+
+def phase_b_robot_phases(is_leader):
+    """한 로봇이 밟을 Phase B 단계 이름 리스트. leader 면 offset 포함(6), follower
+    면 offset 제외(5). 오케스트레이터 `_run_phase_b` 가 이 순서를 그대로 실행한다."""
+    return list(_PHASE_B_LEADER_PHASES if is_leader else _PHASE_B_FOLLOWER_PHASES)
+
+
+def phase_b_plan(leader_id, follower_id):
+    """스태거링된 Phase B 전체 계획 — **leader(entry_lead) 6단계 전체가 먼저** 끝나고,
+    그 다음에야 follower(entry_follow) 5단계가 시작되는 순서로 반환한다.
+
+    **왜 leader 먼저인가**(corridor_plan 은 follower 먼저와 반대): 러너
+    `_run_mission_c_choreo`(3128행 부근)가 정확히 이 순서(entry_lead 먼저 완주 →
+    entry_follow)를 쓴다 — entry_lead 의 Phase B 종점(XN 서쪽 x 오프셋)이 확정돼야
+    entry_follow 가 XN 축선으로 안전하게 들어오고, 두 종점이 x 로 |−1.7|=1.7m 벌어져
+    HARD REQUIREMENT(분리 ≥1.5m)를 만족한다. entry_follow 가 먼저 XN 축선에 서면
+    아직 대피 안 한 entry_lead 의 접근 대각선과 겹칠 위험이 있다.
+
+    반환: `PhaseBStep(phase, robot_id)` 리스트. leader 6개 + follower 5개, 이 순서.
+    """
+    steps = [PhaseBStep(p, leader_id) for p in _PHASE_B_LEADER_PHASES]
+    steps += [PhaseBStep(p, follower_id) for p in _PHASE_B_FOLLOWER_PHASES]
+    return steps
+
 
 def corridor_plan(leader_id, follower_id, leader_trough_index=0, follower_trough_index=1):
     """스태거링된 전체 안무 계획 -- follower 의 회랑 전체(approach+align+ingress)가
