@@ -20,7 +20,6 @@ OCCUPIED/EMPTY로 바꾸므로, 대시보드(dashboard.py)와 웹 UI 양쪽에�
 응답할지 불명확하다). 테스트할 때는 이 노드가 그 자리를 대신한다.
 """
 
-import math
 import time
 
 import rclpy
@@ -49,8 +48,7 @@ class SimOrchestratorNode(Node):
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
         self.declare_parameter("robot_id", "robot_1")
-        self.declare_parameter("move_step_sec", 0.15)   # 좌표 갱신(DB write) 주기
-        self.declare_parameter("move_speed_mps", 4.0)   # 이동 속도 (mock과 동일하게 맞춤)
+        self.declare_parameter("move_step_sec", 0.15)   # 이동 한 칸(waypoint)당 시간
         self.declare_parameter("stage_pause_sec", 0.5)  # 인식/픽업/도착 등 정지 시간
 
         p = self.get_parameter
@@ -79,35 +77,11 @@ class SimOrchestratorNode(Node):
             return "dock_wait_A"
         return self._map.nearest_node(*pos)
 
-    def _walk_segment(self, from_x, from_y, to_x, to_y, tick, speed):
-        """한 구간을 등속 직선(수평 또는 수직)으로 이동하며 좌표를 갱신한다."""
-        dist = math.hypot(to_x - from_x, to_y - from_y)
-        if dist == 0:
-            return
-        duration = dist / speed if speed > 0 else 0.0
-        steps = max(1, round(duration / tick))
-        for step in range(1, steps + 1):
-            ratio = step / steps
-            self._db.update_robot_position(
-                self._robot_id,
-                from_x + (to_x - from_x) * ratio,
-                from_y + (to_y - from_y) * ratio,
-            )
-            time.sleep(tick)
-
     def _move_to(self, target_node):
         """target_node까지 경로를 따라 좌표를 조금씩 갱신한다.
 
-        웨이포인트당 고정 시간이 아니라 실제 구간 거리 ÷ 속도로 이동 시간을
-        계산해서 등속으로 움직인다 — 그래야 웹 대시보드가 1.5초 간격으로
-        DB를 폴링해도 중간 경로(꺾이는 지점)를 놓치지 않고 잡아낸다.
         이동 중에는 robots.target_node를 채워 대시보드가 "가야 할 경로"를
         계산할 수 있게 하고, 도착하면 비운다.
-
-        그래프 인접 노드끼리도 좌표가 대각선으로 놓인 경우가 있는데, 실제
-        로봇은 대각선으로 못 움직이므로 x를 먼저 맞추고(통로 이동) 그 다음
-        y로 진입하는 두 구간으로 쪼갠다 — 주차면 진입 방식(먼저 통로를 타고
-        칸 앞까지 간 뒤 직각으로 들어감)과 같은 규칙이다.
         """
         start = self._current_node()
         path = self._pathfinder.find_path(start, target_node)
@@ -115,19 +89,10 @@ class SimOrchestratorNode(Node):
             self.get_logger().warn(f"경로 없음: {start} → {target_node}")
             return
         self._db.update_robot_target(self._robot_id, target_node)
-
-        tick = self.get_parameter("move_step_sec").value
-        speed = self.get_parameter("move_speed_mps").value
-        current_x, current_y = path.waypoints[0]
-
-        for next_x, next_y in path.waypoints[1:]:
-            if current_x != next_x and current_y != next_y:
-                self._walk_segment(current_x, current_y, next_x, current_y, tick, speed)
-                self._walk_segment(next_x, current_y, next_x, next_y, tick, speed)
-            else:
-                self._walk_segment(current_x, current_y, next_x, next_y, tick, speed)
-            current_x, current_y = next_x, next_y
-
+        delay = self.get_parameter("move_step_sec").value
+        for x, y in path.waypoints[1:]:
+            self._db.update_robot_position(self._robot_id, x, y)
+            time.sleep(delay)
         self._db.update_robot_target(self._robot_id, None)
 
     def _nearest_dock(self):
@@ -171,7 +136,7 @@ class SimOrchestratorNode(Node):
             self._publish_state(task_id, "SEARCHING", "입고 예정 차량을 찾는 중")
             self._pause()
             self._publish_state(task_id, "APPROACHING", "차량 하부로 진입 중")
-            self._move_to("entrance")
+            self._move_to("entry_wait")
             self._pause()  # 정렬 + 리프트 (내부 동작, 별도 발행 없이 픽업완료로 묶음)
             self._publish_state(task_id, "PICKED_UP", "차량 픽업 완료")
             self._publish_state(task_id, "MOVING", f"{slot_id} 칸으로 이동 중")
@@ -188,7 +153,7 @@ class SimOrchestratorNode(Node):
             self._pause()
             self._publish_state(task_id, "PICKED_UP", "차량 픽업 완료")
             self._publish_state(task_id, "MOVING", "출차 위치로 이동 중")
-            self._move_to("entrance")
+            self._move_to("exit_wait")
             self._pause()
             self._publish_state(task_id, "ARRIVED", "목적지에 도착")
             self._db.set_slot_status(slot_id, "EMPTY")

@@ -1,140 +1,180 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1524 1075" width="1524" height="1075">
-<rect width="1524" height="1075" fill="#0b1220"/>
-<rect x="74.0" y="74.0" width="1375.6" height="927.2" fill="#141c2e" stroke="#334155" stroke-width="2"/>
-<rect x="74.0" y="366.6" width="1375.6" height="342.0" fill="#18233a"/>
-<rect x="117.9" y="115.8" width="125.0" height="250.8" fill="none" stroke="#eab308" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="180.4" y="246.2" font-size="13" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">대기</text>
-<rect x="247.1" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="309.6" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A1</text>
-<rect x="376.3" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="438.8" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A2</text>
-<rect x="505.5" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="568.0" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A3</text>
-<rect x="634.7" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="697.2" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A4</text>
-<rect x="763.9" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="826.4" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A5</text>
-<rect x="893.1" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="955.6" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A6</text>
-<rect x="1022.3" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="1084.8" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A7</text>
-<rect x="1151.5" y="115.8" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="1214.0" y="246.2" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A8</text>
-<rect x="1280.7" y="115.8" width="125.0" height="250.8" fill="none" stroke="#eab308" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="1343.2" y="246.2" font-size="13" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">충전</text>
-<rect x="117.9" y="708.6" width="125.0" height="250.8" fill="none" stroke="#eab308" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="180.4" y="839.0" font-size="13" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">대기</text>
-<rect x="247.1" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="309.6" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B1</text>
-<rect x="376.3" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="438.8" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B2</text>
-<rect x="505.5" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="568.0" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B3</text>
-<rect x="634.7" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="697.2" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B4</text>
-<rect x="763.9" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="826.4" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B5</text>
-<rect x="893.1" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="955.6" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B6</text>
-<rect x="1022.3" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="1084.8" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B7</text>
-<rect x="1151.5" y="708.6" width="125.0" height="250.8" fill="none" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray=""/>
-<text x="1214.0" y="839.0" font-size="13" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B8</text>
-<rect x="1280.7" y="708.6" width="125.0" height="250.8" fill="none" stroke="#eab308" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="1343.2" y="839.0" font-size="13" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">충전</text>
-<rect x="106.7" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="365.1" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="623.5" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="881.9" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="1140.3" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="1398.7" y="115.8" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="106.7" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="365.1" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="623.5" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="881.9" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="1140.3" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<rect x="1398.7" y="941.2" width="18.2" height="18.2" fill="#64748b"/>
-<line x1="180.4" y1="442.6" x2="1343.2" y2="442.6" stroke="#22c55e" stroke-width="1.4" stroke-dasharray="7 6" opacity="0.65"/>
-<line x1="180.4" y1="632.6" x2="1343.2" y2="632.6" stroke="#22c55e" stroke-width="1.4" stroke-dasharray="7 6" opacity="0.65"/>
-<rect x="792.2" y="402.7" width="68.4" height="182.4" fill="#38bdf8" fill-opacity="0.10" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="4 4"/>
-<text x="826.4" y="497.9" font-size="10" fill="#38bdf8" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">적재 차량 예시</text>
-<circle cx="180.4" cy="442.6" r="9" fill="#3b82f6" opacity="0.16"/>
-<rect x="175.7" y="437.8" width="9.5" height="9.5" fill="#3b82f6" stroke="#0b1220" stroke-width="0.6"/>
-<text x="180.4" y="431.6" font-size="9" fill="#3b82f6" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A·W</text>
-<circle cx="309.6" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="304.9" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="309.6" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A1</text>
-<circle cx="438.8" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="434.1" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="438.8" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A2</text>
-<circle cx="568.0" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="563.2" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="568.0" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A3</text>
-<circle cx="697.2" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="692.4" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="697.2" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A4</text>
-<circle cx="826.4" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="821.6" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="826.4" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A5</text>
-<circle cx="955.6" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="950.9" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="955.6" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A6</text>
-<circle cx="1084.8" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="1080.1" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1084.8" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A7</text>
-<circle cx="1214.0" cy="442.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="1209.2" y="437.8" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1214.0" y="431.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A8</text>
-<circle cx="1343.2" cy="442.6" r="9" fill="#3b82f6" opacity="0.16"/>
-<rect x="1338.5" y="437.8" width="9.5" height="9.5" fill="#3b82f6" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1343.2" y="431.6" font-size="9" fill="#3b82f6" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">A·E</text>
-<circle cx="180.4" cy="632.6" r="9" fill="#3b82f6" opacity="0.16"/>
-<rect x="175.7" y="627.9" width="9.5" height="9.5" fill="#3b82f6" stroke="#0b1220" stroke-width="0.6"/>
-<text x="180.4" y="650.6" font-size="9" fill="#3b82f6" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B·W</text>
-<circle cx="309.6" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="304.9" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="309.6" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B1</text>
-<circle cx="438.8" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="434.1" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="438.8" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B2</text>
-<circle cx="568.0" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="563.2" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="568.0" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B3</text>
-<circle cx="697.2" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="692.4" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="697.2" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B4</text>
-<circle cx="826.4" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="821.6" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="826.4" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B5</text>
-<circle cx="955.6" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="950.9" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="955.6" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B6</text>
-<circle cx="1084.8" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="1080.1" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1084.8" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B7</text>
-<circle cx="1214.0" cy="632.6" r="9" fill="#22c55e" opacity="0.16"/>
-<rect x="1209.2" y="627.9" width="9.5" height="9.5" fill="#22c55e" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1214.0" y="650.6" font-size="9" fill="#22c55e" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B8</text>
-<circle cx="1343.2" cy="632.6" r="9" fill="#3b82f6" opacity="0.16"/>
-<rect x="1338.5" y="627.9" width="9.5" height="9.5" fill="#3b82f6" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1343.2" y="650.6" font-size="9" fill="#3b82f6" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">B·E</text>
-<circle cx="180.4" cy="537.6" r="9" fill="#f97316" opacity="0.16"/>
-<rect x="175.7" y="532.8" width="9.5" height="9.5" fill="#f97316" stroke="#0b1220" stroke-width="0.6"/>
-<text x="180.4" y="526.6" font-size="9" fill="#f97316" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">W</text>
-<circle cx="761.8" cy="537.6" r="9" fill="#f97316" opacity="0.16"/>
-<rect x="757.1" y="532.8" width="9.5" height="9.5" fill="#f97316" stroke="#0b1220" stroke-width="0.6"/>
-<text x="761.8" y="526.6" font-size="9" fill="#f97316" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">C</text>
-<circle cx="1343.2" cy="537.6" r="9" fill="#f97316" opacity="0.16"/>
-<rect x="1338.5" y="532.8" width="9.5" height="9.5" fill="#f97316" stroke="#0b1220" stroke-width="0.6"/>
-<text x="1343.2" y="526.6" font-size="9" fill="#f97316" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">E</text>
-<text x="761.8" y="91.1" font-size="12" fill="#64748b" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">36.2 m × 24.4 m</text>
-<text x="161.4" y="406.5" font-size="10" fill="#22c55e" text-anchor="start" font-weight="400" font-family="ui-monospace,Menlo,monospace">차선 z=+2.5</text>
-<text x="161.4" y="653.5" font-size="10" fill="#22c55e" text-anchor="start" font-weight="400" font-family="ui-monospace,Menlo,monospace">차선 z=−2.5</text>
-<rect x="74" y="999.1999999999998" width="9" height="9" fill="#22c55e"/>
-<text x="90" y="1007.1999999999998" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">슬롯 마커 16 — 슬롯 입구에서 2.0 m 앞, 3.4 m 간격</text>
-<rect x="74" y="1016.1999999999998" width="9" height="9" fill="#3b82f6"/>
-<text x="90" y="1024.1999999999998" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">도크 마커 4 — 로봇 대기/충전 구역</text>
-<rect x="74" y="1033.1999999999998" width="9" height="9" fill="#f97316"/>
-<text x="90" y="1041.1999999999998" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">횡단 마커 3 — A열↔B열 전환 (위치 제안, 미확정)</text>
-<text x="1449.6000000000001" y="44" font-size="12" fill="#64748b" text-anchor="end" font-family="ui-monospace,Menlo,monospace">마커 실제 크기 0.25 m (placeholder) · 총 23장</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 589" width="1180" height="589">
+<rect width="1180" height="589" fill="#0b1220"/>
+<rect x="87.0" y="197.5" width="391.0" height="193.8" fill="#131d2c" stroke="#3f6212" stroke-width="2"/>
+<text x="282.5" y="209.4" font-size="11" fill="#65a30d" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">DRIVER DROP-OFF / HANDOFF</text>
+<rect x="360.3" y="222.6" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="414.2" y="258.4" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H1_SUV</text>
+<rect x="360.3" y="302.5" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="414.2" y="338.3" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H2_Wagon</text>
+<rect x="240.4" y="222.6" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="294.4" y="258.4" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H3_Sport</text>
+<rect x="240.4" y="302.5" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="294.4" y="338.3" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H4_Offroad</text>
+<rect x="120.6" y="222.6" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="174.5" y="258.4" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H5_Hatchback</text>
+<rect x="120.6" y="302.5" width="107.9" height="63.8" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray="4 3"/>
+<text x="174.5" y="338.3" font-size="10" fill="#cbd5e1" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">H6_Minivan</text>
+<rect x="478.0" y="87.0" width="615.4" height="414.8" fill="#141c2e" stroke="#334155" stroke-width="2"/>
+<rect x="478.0" y="217.9" width="615.4" height="153.0" fill="#18233a"/>
+<line x1="478.0" y1="217.9" x2="478.0" y2="370.9" stroke="#f43f5e" stroke-width="3" stroke-dasharray="6 4"/>
+<rect x="497.6" y="105.7" width="55.9" height="112.2" fill="none" stroke="#eab308" stroke-width="1.0" stroke-dasharray="5 4"/>
+<text x="525.6" y="165.8" font-size="11" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">대기</text>
+<rect x="555.4" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="583.4" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A1</text>
+<rect x="613.2" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="641.2" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A2</text>
+<rect x="671.0" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="699.0" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A3</text>
+<rect x="728.8" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="756.8" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A4</text>
+<rect x="786.6" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="814.6" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A5</text>
+<rect x="844.4" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="872.4" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A6</text>
+<rect x="902.2" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="930.2" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A7</text>
+<rect x="960.0" y="105.7" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="988.0" y="165.8" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">A8</text>
+<rect x="1017.8" y="105.7" width="55.9" height="112.2" fill="none" stroke="#eab308" stroke-width="1.0" stroke-dasharray="5 4"/>
+<text x="1045.8" y="165.8" font-size="11" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">충전</text>
+<rect x="497.6" y="370.9" width="55.9" height="112.2" fill="none" stroke="#eab308" stroke-width="1.0" stroke-dasharray="5 4"/>
+<text x="525.6" y="431.0" font-size="11" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">대기</text>
+<rect x="555.4" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="583.4" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B1</text>
+<rect x="613.2" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="641.2" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B2</text>
+<rect x="671.0" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="699.0" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B3</text>
+<rect x="728.8" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="756.8" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B4</text>
+<rect x="786.6" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="814.6" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B5</text>
+<rect x="844.4" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="872.4" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B6</text>
+<rect x="902.2" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="930.2" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B7</text>
+<rect x="960.0" y="370.9" width="55.9" height="112.2" fill="none" stroke="#e2e8f0" stroke-width="1.0" stroke-dasharray=""/>
+<text x="988.0" y="431.0" font-size="11" fill="#e2e8f0" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">B8</text>
+<rect x="1017.8" y="370.9" width="55.9" height="112.2" fill="none" stroke="#eab308" stroke-width="1.0" stroke-dasharray="5 4"/>
+<text x="1045.8" y="431.0" font-size="11" fill="#eab308" text-anchor="middle" font-weight="600" font-family="ui-monospace,Menlo,monospace">충전</text>
+<rect x="492.6" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="608.2" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="723.8" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="839.4" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="955.0" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="1070.6" y="105.7" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="492.6" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="608.2" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="723.8" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="839.4" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="955.0" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<rect x="1070.6" y="474.9" width="8.2" height="8.2" fill="#64748b"/>
+<line x1="525.6" y1="251.9" x2="1045.8" y2="251.9" stroke="#22c55e" stroke-width="1.3" stroke-dasharray="7 6" opacity="0.6"/>
+<line x1="112.5" y1="210.0" x2="444.0" y2="210.0" stroke="#8b5cf6" stroke-width="1.3" stroke-dasharray="7 6" opacity="0.6"/>
+<line x1="525.6" y1="336.9" x2="1045.8" y2="336.9" stroke="#22c55e" stroke-width="1.3" stroke-dasharray="7 6" opacity="0.6"/>
+<line x1="112.5" y1="378.8" x2="444.0" y2="378.8" stroke="#8b5cf6" stroke-width="1.3" stroke-dasharray="7 6" opacity="0.6"/>
+<circle cx="525.6" cy="251.9" r="7" fill="#3b82f6" opacity="0.18"/>
+<rect x="523.5" y="249.8" width="4.2" height="4.2" fill="#3b82f6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="583.4" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="581.3" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="641.2" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="639.1" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="699.0" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="696.9" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="756.8" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="754.7" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="814.6" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="812.5" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="872.4" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="870.3" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="930.2" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="928.1" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="988.0" cy="251.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="985.9" y="249.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="1045.8" cy="251.9" r="7" fill="#3b82f6" opacity="0.18"/>
+<rect x="1043.7" y="249.8" width="4.2" height="4.2" fill="#3b82f6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="525.6" cy="336.9" r="7" fill="#3b82f6" opacity="0.18"/>
+<rect x="523.5" y="334.8" width="4.2" height="4.2" fill="#3b82f6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="583.4" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="581.3" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="641.2" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="639.1" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="699.0" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="696.9" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="756.8" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="754.7" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="814.6" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="812.5" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="872.4" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="870.3" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="930.2" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="928.1" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="988.0" cy="336.9" r="7" fill="#22c55e" opacity="0.18"/>
+<rect x="985.9" y="334.8" width="4.2" height="4.2" fill="#22c55e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="1045.8" cy="336.9" r="7" fill="#3b82f6" opacity="0.18"/>
+<rect x="1043.7" y="334.8" width="4.2" height="4.2" fill="#3b82f6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="525.6" cy="294.4" r="7" fill="#f97316" opacity="0.18"/>
+<rect x="523.5" y="292.3" width="4.2" height="4.2" fill="#f97316" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="641.2" cy="294.4" r="7" fill="#f97316" opacity="0.18"/>
+<rect x="639.1" y="292.3" width="4.2" height="4.2" fill="#f97316" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="930.2" cy="294.4" r="7" fill="#f97316" opacity="0.18"/>
+<rect x="928.1" y="292.3" width="4.2" height="4.2" fill="#f97316" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="1045.8" cy="294.4" r="7" fill="#f97316" opacity="0.18"/>
+<rect x="1043.7" y="292.3" width="4.2" height="4.2" fill="#f97316" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="478.0" cy="251.9" r="7" fill="#f43f5e" opacity="0.18"/>
+<rect x="475.9" y="249.8" width="4.2" height="4.2" fill="#f43f5e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="478.0" cy="336.9" r="7" fill="#f43f5e" opacity="0.18"/>
+<rect x="475.9" y="334.8" width="4.2" height="4.2" fill="#f43f5e" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="468.2" cy="254.4" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="466.1" y="252.3" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="468.2" cy="334.3" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="466.1" y="332.2" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="348.4" cy="254.4" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="346.2" y="252.3" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="348.4" cy="334.3" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="346.2" y="332.2" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="228.5" cy="254.4" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="226.4" y="252.3" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="228.5" cy="334.3" r="7" fill="#eab308" opacity="0.18"/>
+<rect x="226.4" y="332.2" width="4.2" height="4.2" fill="#eab308" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="444.0" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="441.9" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="386.2" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="384.1" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="328.4" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="326.3" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="270.6" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="268.5" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="212.8" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="210.7" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="155.0" cy="210.0" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="152.9" y="207.9" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="444.0" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="441.9" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="386.2" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="384.1" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="328.4" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="326.3" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="270.6" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="268.5" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="212.8" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="210.7" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<circle cx="155.0" cy="378.8" r="7" fill="#8b5cf6" opacity="0.18"/>
+<rect x="152.9" y="376.6" width="4.2" height="4.2" fill="#8b5cf6" stroke="#0b1220" stroke-width="0.5"/>
+<text x="785.7" y="97.2" font-size="11" fill="#64748b" text-anchor="middle" font-weight="400" font-family="ui-monospace,Menlo,monospace">실내 36.2 x 24.4 m</text>
+<text x="513.7" y="238.3" font-size="10" fill="#22c55e" text-anchor="start" font-weight="400" font-family="ui-monospace,Menlo,monospace">차선 z=+2.5</text>
+<text x="513.7" y="343.7" font-size="10" fill="#22c55e" text-anchor="start" font-weight="400" font-family="ui-monospace,Menlo,monospace">차선 z=-2.5</text>
+<rect x="70" y="520.8" width="9" height="9" fill="#22c55e"/>
+<text x="86" y="528.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">슬롯 마커 — 슬롯 입구에서 2 m 앞, 3.40 m 간격. 이것만으로 통로 차선이 된다 (16장)</text>
+<rect x="70" y="536.8" width="9" height="9" fill="#3b82f6"/>
+<text x="86" y="544.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">도크 마커 — 로봇 대기/충전 구역 (4장)</text>
+<rect x="70" y="552.8" width="9" height="9" fill="#f97316"/>
+<text x="86" y="560.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">횡단 마커 — A열↔B열 전환 (위치 미확정) (4장)</text>
+<rect x="70" y="568.8" width="9" height="9" fill="#f43f5e"/>
+<text x="86" y="576.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">게이트 마커 — 실내↔인계장 경계 (서측 개구부 9 m) (2장)</text>
+<rect x="70" y="584.8" width="9" height="9" fill="#eab308"/>
+<text x="86" y="592.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">인계 베이 기준점 — 베이 길이축이 x라 로봇이 x에서 진입 (6장)</text>
+<rect x="70" y="600.8" width="9" height="9" fill="#8b5cf6"/>
+<text x="86" y="608.8" font-size="11" fill="#94a3b8" font-family="ui-monospace,Menlo,monospace">인계장 우회 차선 — 베이 열 사이가 0.70 m라 통과 불가 (라우팅 미확정) (12장)</text>
+<text x="1110" y="44" font-size="12" fill="#64748b" text-anchor="end" font-family="ui-monospace,Menlo,monospace">마커 타일 0.25 m · 총 44장</text>
 </svg>

@@ -13,7 +13,7 @@ cleanup() {
     pkill -f "install/[p]arking" 2>/dev/null
     pkill -f "bin/[r]os2 run" 2>/dev/null
     $DB -e "UPDATE parking_slots SET status='EMPTY';
-            UPDATE robots SET status='IDLE' WHERE robot_id='robot_1';
+            UPDATE robots SET status='IDLE' WHERE robot_id IN ('robot_1','robot_2');
             DELETE FROM zone_locks;" 2>/dev/null
     echo "[정리] 완료. 로그: $LOG_DIR"
 }
@@ -40,8 +40,12 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 echo "=== 준비: DB 초기화 + 노드 3개 실행 ==="
+# 차량 1대는 로봇 2대(front/rear)가 함께 옮기는 구조라 dispatch에는
+# IDLE 로봇이 항상 2대 필요하다. robot_2는 여기서 미리 만들어둔다.
 $DB -e "UPDATE parking_slots SET status='EMPTY';
         UPDATE robots SET status='IDLE', x=-15.3, y=-7.8 WHERE robot_id='robot_1';
+        INSERT INTO robots (robot_id,status,x,y) VALUES ('robot_2','IDLE',-14.3,-7.8)
+            ON DUPLICATE KEY UPDATE status='IDLE', x=-14.3, y=-7.8;
         DELETE FROM zone_locks;" 2>/dev/null
 ros2 run parking_robot_system robot_task_orchestrator > "$LOG_DIR/orch.log" 2>&1 &
 ros2 run parking_control parking_slot_manager          > "$LOG_DIR/slot.log" 2>&1 &
@@ -51,7 +55,9 @@ echo "노드 준비 완료"
 echo
 
 echo "=== 시나리오 1: 승용차 입고 요청 (정상 흐름) ==="
-echo " 기대: accepted=True, robot_1 배정, 슬롯 B1"
+echo " 기대: accepted=True, 리더/팔로워(robot_1, robot_2) 배정, 슬롯 B1"
+echo " 주의: sim_orchestrator는 아직 robot_1 하나만 흉내 내어 이동한다"
+echo "       (robot_2는 BUSY로 표시만 되고 화면상 안 움직임 — 다음 단계에서 보완)"
 req ENTRY CAR_DEMO1
 sleep 2
 

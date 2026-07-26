@@ -2,11 +2,17 @@
 # 2026-07-19 수정안(Team A): 목표 슬롯 정보를 goal에 추가.
 #   이유: dispatcher가 find_empty_slot로 정한 슬롯을 로봇에게 전달할 필드가
 #   없었음. 로봇이 DB를 직접 조회하지 않도록 goal에 포함한다.
+# 2026-07-21 수정안(Team A): 로봇 2대(리더/팔로워) 편성을 goal에 추가.
+#   이유: 차량을 팔 4개로 집어 옮기는 하드웨어 구조상 항상 로봇 2대가 팀으로
+#   일해야 한다. follower_robot_id가 빈 문자열이면 로봇 1대짜리 기존 흐름
+#   그대로 동작한다(MVP/테스트 호환).
 string task_id
 string request_type   # ENTRY, EXIT
 string vehicle_id
 string slot_id                  # 목표 주차면 (예: 'B1')
 geometry_msgs/Pose slot_pose    # 목표 주차면 좌표 (map 프레임)
+string leader_robot_id
+string follower_robot_id        # 로봇 1대 MVP 흐름에서는 빈 문자열
 ---
 bool success
 string message

@@ -1,0 +1,152 @@
+{
+  "dictionary": "DICT_5X5_100",
+  "code_size_m": 0.19444445,
+  "source": "parking_environment_v4.usd (decal xformOp:translate)",
+  "note": "마커 x,z 는 데칼 실좌표(translate). 도크 마커는 aruco:position 과 z 로 0.7m 다르므로 데칼을 써야 측위가 맞는다.",
+  "markers": [
+    {
+      "id": 0,
+      "serves": "A1",
+      "kind": "slot",
+      "x": 2.8,
+      "z": -6.875,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 1,
+      "serves": "A2",
+      "kind": "slot",
+      "x": 6.2,
+      "z": -6.875,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 2,
+      "serves": "A3",
+      "kind": "slot",
+      "x": 9.6,
+      "z": -6.875,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 3,
+      "serves": "A1'",
+      "kind": "lane",
+      "x": 2.8,
+      "z": 6.875,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 4,
+      "serves": "A2'",
+      "kind": "lane",
+      "x": 6.2,
+      "z": 6.875,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 5,
+      "serves": "A3'",
+      "kind": "lane",
+      "x": 9.6,
+      "z": 6.875,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 20,
+      "serves": "D_IN_1",
+      "kind": "dock",
+      "x": -3.2,
+      "z": -2.9000000432133675,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 21,
+      "serves": "D_OUT_1",
+      "kind": "dock",
+      "x": -3.2,
+      "z": 2.9000000432133675,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 22,
+      "serves": "D_IN_2",
+      "kind": "dock",
+      "x": -1.2,
+      "z": -2.9000000432133675,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 23,
+      "serves": "D_OUT_2",
+      "kind": "dock",
+      "x": -1.2,
+      "z": 2.9,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 30,
+      "serves": "XS",
+      "kind": "crossing",
+      "x": -2.5,
+      "z": -6.875,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 31,
+      "serves": "XN",
+      "kind": "crossing",
+      "x": -2.5,
+      "z": 6.875,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 40,
+      "serves": "GATE_IN",
+      "kind": "gateway",
+      "x": -12.55,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 41,
+      "serves": "GATE_OUT",
+      "kind": "gateway",
+      "x": -12.55,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 50,
+      "serves": "W_IN",
+      "kind": "handoff_bay",
+      "x": -8.5,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 51,
+      "serves": "W_OUT",
+      "kind": "handoff_bay",
+      "x": -8.5,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    }
+  ]
+}

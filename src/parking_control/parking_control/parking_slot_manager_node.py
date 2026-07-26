@@ -42,7 +42,10 @@ class ParkingSlotManagerNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        self.declare_parameter("origin_node", "entrance")
+        # v3 레이아웃(2026-07-24)의 "entrance"에 대응하는 지점은 입차 인계 지점
+        # (entry_wait) — 차량이 로봇에게 실제로 인계되는 곳부터 슬롯까지 도달
+        # 가능한지를 기준으로 판단한다.
+        self.declare_parameter("origin_node", "entry_wait")
         self.declare_parameter("allow_accessible_slots", False)
         self.declare_parameter("fit_margin_m", 0.3)
 

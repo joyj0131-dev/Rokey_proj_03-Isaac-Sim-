@@ -7,8 +7,19 @@
   - acquire_zones / release_zones (AcquireZones/ReleaseZones): 존 락.
     zone_lock_mode 파라미터가 'stub'이면 무조건 승인(로봇 1대 MVP),
     'db'이면 zone_locks 테이블 INSERT 성패로 판정 (다중로봇 단계).
+    요청자는 robot_id(로봇 개인, 통로 구간용) 또는 task_id(로봇 2대 팀,
+    슬롯처럼 함께 점유해야 하는 zone용) 중 정확히 하나를 채운다.
 
-로봇 선택은 Allocator 전략(allocator 파라미터: nearest | hungarian)에 위임한다.
+로봇 선택: 입차 전용 로봇쌍 / 출차 전용 로봇쌍이 물리적으로 고정돼 있어서
+(2026-07-24, 하드웨어 배치 완료) 매 요청마다 "누구를 배정할지" 계산할 필요가
+없다 — request_type(ENTRY/EXIT)에 따라 파라미터로 고정된 쌍(entry_rear_id/
+entry_front_id, exit_rear_id/exit_front_id)을 그대로 쓴다. 각 쌍은 서로 다른
+네임스페이스(entry/, exit/)에 떠 있는 robot_task_orchestrator에 goal을 보낸다.
+
+작업이 시작되면(goal 전송 시점) formation_assignment 토픽으로 리더/팔로워
+로봇 각각에게 역할·파트너를 배정해 formation_gap_controller(간격유지+공동
+정지)를 활성화하고, 작업이 끝나거나 실패하면 같은 토픽으로 배정을
+해제한다(각 로봇은 idle로 복귀).
 """
 
 import uuid
@@ -19,14 +30,16 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 
 from parking_robot_interfaces.action import ExecuteParkingTask
+from parking_robot_interfaces.msg import FormationAssignment
 from parking_robot_interfaces.srv import AcquireZones, FindEmptySlot, \
     ReleaseZones, RequestParkingTask
 
-from parking_control.core.allocator import RobotState, TaskRequest, make_allocator
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
-from parking_control.core.pathfinder import PathFinder
 from parking_control.parking_slot_manager_node import _default_map_yaml
+
+# entry/exit execute_parking_task 액션서버(robot_task_orchestrator) 기동 대기 상한.
+EXECUTE_SERVER_WAIT_TIMEOUT = 5.0
 
 
 class TaskDispatcherNode(Node):
@@ -39,25 +52,40 @@ class TaskDispatcherNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        self.declare_parameter("allocator", "nearest")
         self.declare_parameter("zone_lock_mode", "stub")   # stub | db
         self.declare_parameter("zone_retry_sec", 1.0)
+        # 입차/출차 전용 로봇쌍(고정) — site_map_v4.ROBOTS/ROBOT_DOCK_MARKER가 유일한
+        # 출처(2026-07-25 수정 — 이전엔 robot_rear/robot_front/robot_rear2/robot_front2라는
+        # 잘못된 이름을 썼다).
+        self.declare_parameter("entry_rear_id", "entry_lead")
+        self.declare_parameter("entry_front_id", "entry_follow")
+        self.declare_parameter("exit_rear_id", "exit_lead")
+        self.declare_parameter("exit_front_id", "exit_follow")
 
         p = self.get_parameter
         self._db = ParkingDB(
             host=p("db_host").value, user=p("db_user").value,
             password=p("db_password").value, database=p("db_name").value)
         self._map = ParkingMap.load(p("map_yaml").value)
-        self._pathfinder = PathFinder(self._map)
-        self._allocator = make_allocator(p("allocator").value)
         self._stub_held = {}   # robot_id -> set(zone_ids), stub 모드 전용
+        self._robot_pairs = {
+            "ENTRY": (p("entry_rear_id").value, p("entry_front_id").value),
+            "EXIT": (p("exit_rear_id").value, p("exit_front_id").value),
+        }
 
         group = ReentrantCallbackGroup()
         self._find_slot_client = self.create_client(
             FindEmptySlot, "find_empty_slot", callback_group=group)
-        self._execute_client = ActionClient(
-            self, ExecuteParkingTask, "execute_parking_task",
-            callback_group=group)
+        self._execute_clients = {
+            "ENTRY": ActionClient(
+                self, ExecuteParkingTask, "entry/execute_parking_task",
+                callback_group=group),
+            "EXIT": ActionClient(
+                self, ExecuteParkingTask, "exit/execute_parking_task",
+                callback_group=group),
+        }
+        self._formation_pub = self.create_publisher(
+            FormationAssignment, "formation_assignment", 10)
 
         self.create_service(RequestParkingTask, "dispatch_parking_task",
                             self._handle_dispatch, callback_group=group)
@@ -67,7 +95,8 @@ class TaskDispatcherNode(Node):
                             self._handle_release, callback_group=group)
 
         self.get_logger().info(
-            f"task_dispatcher 시작 (allocator={p('allocator').value}, "
+            f"task_dispatcher 시작 (entry={self._robot_pairs['ENTRY']}, "
+            f"exit={self._robot_pairs['EXIT']}, "
             f"zone_lock_mode={p('zone_lock_mode').value})")
 
     # ---- 작업 접수 ----
@@ -89,60 +118,79 @@ class TaskDispatcherNode(Node):
                     "(입고 완료된 차량만 출차할 수 있습니다)")
                 return response
 
-        robots = [RobotState(r["robot_id"], float(r["x"] or 0), float(r["y"] or 0))
-                  for r in self._db.idle_robots()]
-        if not robots:
-            response.message = "가용(IDLE) 로봇 없음"
+        leader_id, follower_id = self._robot_pairs[request.request_type]
+        idle_ids = {r["robot_id"] for r in self._db.idle_robots()}
+        if leader_id not in idle_ids or follower_id not in idle_ids:
+            response.message = (
+                f"{request.request_type} 전용 로봇쌍({leader_id}/{follower_id})이 "
+                "사용 중입니다")
             return response
 
         task_id = str(uuid.uuid4())
-        target_node = exit_slot_id or "entrance"
-        task = TaskRequest(task_id=task_id, target_node=target_node)
-        assignments = self._allocator.assign(robots, [task], self._cost)
-        if not assignments:
-            response.message = "도달 가능한 로봇 없음"
-            return response
-        robot_id = assignments[0].robot_id
 
         self._db.upsert_vehicle(request.vehicle_id)
         self._db.create_task(task_id, request.request_type, request.vehicle_id)
-        self._db.update_task(task_id, robot_id=robot_id)
-        self._db.set_robot_status(robot_id, "BUSY")
+        self._db.update_task(task_id, robot_id=leader_id,
+                             follower_robot_id=follower_id)
+        self._db.set_robot_status(leader_id, "BUSY")
+        self._db.set_robot_status(follower_id, "BUSY")
 
         if exit_slot_id is not None:
             # 슬롯을 이미 알고 있으니(EXIT) find_empty_slot을 건너뛰고 바로 진행.
             self._db.update_task(task_id, slot_id=exit_slot_id, state="PROCESSING")
             x, y = self._map.node_pos(exit_slot_id)
-            self._send_execute_goal(task_id, request, robot_id, exit_slot_id, x, y)
+            self._send_execute_goal(
+                task_id, request, leader_id, follower_id, exit_slot_id, x, y)
         else:
             # 접수 응답은 여기서 끝. 슬롯 확보부터는 비동기 파이프라인.
             future = self._find_slot_client.call_async(FindEmptySlot.Request())
             future.add_done_callback(
-                lambda f: self._on_slot_found(f, task_id, request, robot_id))
+                lambda f: self._on_slot_found(
+                    f, task_id, request, leader_id, follower_id))
 
         response.accepted = True
         response.task_id = task_id
-        response.message = f"{robot_id} 배정 (거리 {assignments[0].cost:.2f}m)"
+        response.message = f"리더 {leader_id} / 팔로워 {follower_id} 배정"
         self.get_logger().info(f"작업 접수 {task_id[:8]}: {response.message}")
         return response
 
-    def _cost(self, robot, task):
-        start = self._map.nearest_node(robot.x, robot.y)
-        path = self._pathfinder.find_path(start, task.target_node)
-        return None if path is None else path.length
+    def _publish_formation(self, task_id, leader_id, follower_id, active):
+        """로봇 2대의 formation_gap_controller에게 역할/파트너를 배정(또는
+        해제)한다. 각 로봇이 자기 robot_id로 필터링해서 받아간다."""
+        pairs = ((leader_id, "leader", follower_id),
+                (follower_id, "follower", leader_id))
+        for robot_id, role, partner_id in pairs:
+            self._formation_pub.publish(FormationAssignment(
+                robot_id=robot_id, task_id=task_id if active else "",
+                role=role if active else "", partner_robot_id=partner_id,
+                active=active))
 
-    def _on_slot_found(self, future, task_id, request, robot_id):
+    def _on_slot_found(self, future, task_id, request, leader_id, follower_id):
         result = future.result()
         if result is None or not result.success:
-            self._fail_task(task_id, robot_id, "빈 슬롯 확보 실패")
+            self._fail_task(task_id, leader_id, follower_id, "빈 슬롯 확보 실패")
             return
         self._db.update_task(task_id, slot_id=result.slot_id,
                              state="PROCESSING")
         self._send_execute_goal(
-            task_id, request, robot_id, result.slot_id,
+            task_id, request, leader_id, follower_id, result.slot_id,
             result.slot_pose.position.x, result.slot_pose.position.y)
 
-    def _send_execute_goal(self, task_id, request, robot_id, slot_id, x, y):
+    def _send_execute_goal(self, task_id, request, leader_id, follower_id,
+                           slot_id, x, y):
+        client = self._execute_clients[request.request_type]
+        # wait_for_server는 그래프 이벤트 기반 자체 폴링이라 재진입 spin이 필요
+        # 없다(robot_task_orchestrator._call_action과 같은 근거). 이걸 안 하면
+        # orchestrator가 아직 안 떠 있을 때 보낸 goal이 send_goal_async에서
+        # 조용히 유실돼 작업이 PROCESSING에 영원히 멈춘다(2026-07-25 실측으로
+        # 확인 — dispatcher를 orchestrator보다 먼저 띄우고 요청을 보내면 재현됨).
+        if not client.wait_for_server(timeout_sec=EXECUTE_SERVER_WAIT_TIMEOUT):
+            self._fail_task(
+                task_id, leader_id, follower_id,
+                f"{request.request_type} orchestrator 미기동"
+                f"({EXECUTE_SERVER_WAIT_TIMEOUT:.0f}s)")
+            return
+
         goal = ExecuteParkingTask.Goal()
         goal.task_id = task_id
         goal.request_type = request.request_type
@@ -151,46 +199,66 @@ class TaskDispatcherNode(Node):
         goal.slot_pose.position.x = float(x)
         goal.slot_pose.position.y = float(y)
         goal.slot_pose.orientation.w = 1.0
+        goal.leader_robot_id = leader_id
+        goal.follower_robot_id = follower_id
+        self._publish_formation(task_id, leader_id, follower_id, active=True)
         self.get_logger().info(
-            f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송")
-        send_future = self._execute_client.send_goal_async(goal)
+            f"작업 {task_id[:8]}: 슬롯 {slot_id} → goal 전송 "
+            f"(리더 {leader_id}, 팔로워 {follower_id})")
+        send_future = client.send_goal_async(goal)
         send_future.add_done_callback(
-            lambda f: self._on_goal_response(f, task_id, robot_id))
+            lambda f: self._on_goal_response(f, task_id, leader_id, follower_id))
 
-    def _on_goal_response(self, future, task_id, robot_id):
+    def _on_goal_response(self, future, task_id, leader_id, follower_id):
         goal_handle = future.result()
         if goal_handle is None or not goal_handle.accepted:
-            self._fail_task(task_id, robot_id, "orchestrator가 goal 거부")
+            self._fail_task(task_id, leader_id, follower_id, "orchestrator가 goal 거부")
             return
         goal_handle.get_result_async().add_done_callback(
-            lambda f: self._on_task_result(f, task_id, robot_id))
+            lambda f: self._on_task_result(f, task_id, leader_id, follower_id))
 
-    def _on_task_result(self, future, task_id, robot_id):
+    def _on_task_result(self, future, task_id, leader_id, follower_id):
         result = future.result().result
         state = "DONE" if result.success else "FAILED"
         self._db.update_task(task_id, state=state)
-        self._db.set_robot_status(robot_id, "IDLE")
+        self._db.set_robot_status(leader_id, "IDLE")
+        self._db.set_robot_status(follower_id, "IDLE")
+        self._publish_formation(task_id, leader_id, follower_id, active=False)
         self.get_logger().info(
             f"작업 {task_id[:8]} 종료: {state} ({result.message})")
 
-    def _fail_task(self, task_id, robot_id, reason):
+    def _fail_task(self, task_id, leader_id, follower_id, reason):
         self._db.update_task(task_id, state="FAILED")
-        self._db.set_robot_status(robot_id, "IDLE")
+        self._db.set_robot_status(leader_id, "IDLE")
+        self._db.set_robot_status(follower_id, "IDLE")
+        self._publish_formation(task_id, leader_id, follower_id, active=False)
         self.get_logger().warn(f"작업 {task_id[:8]} 실패: {reason}")
 
     # ---- 존 락 ----
 
+    def _owner(self, request):
+        """robot_id(로봇 개인)/task_id(로봇 2대 팀) 중 정확히 하나를 뽑는다.
+        both/neither면 (None, None)을 반환해 호출부가 거부하게 한다."""
+        owner_robot = request.robot_id or None
+        owner_task = request.task_id or None
+        if (owner_robot is None) == (owner_task is None):
+            return None, None
+        return owner_robot, owner_task
+
     def _handle_acquire(self, request, response):
         mode = self.get_parameter("zone_lock_mode").value
         zone_ids = list(request.zone_ids)
-        if zone_ids != sorted(zone_ids):
-            # 데드락 방지 규칙: 오름차순 획득만 허용
+        owner_robot, owner_task = self._owner(request)
+        owner_key = owner_robot or owner_task
+        if owner_key is None or zone_ids != sorted(zone_ids):
+            # robot_id/task_id 둘 다(또는 둘 다 아님) 왔거나, 오름차순이 아님
+            # (오름차순 규칙은 데드락 방지용)
             response.granted = False
             response.retry_after_sec = 0.0
             return response
 
         if mode == "stub":
-            held = self._stub_held.setdefault(request.robot_id, set())
+            held = self._stub_held.setdefault(owner_key, set())
             held.update(zone_ids)
             response.granted = True
             response.held_zones = sorted(held)
@@ -198,11 +266,13 @@ class TaskDispatcherNode(Node):
 
         acquired = []
         for zone_id in zone_ids:
-            if self._db.try_acquire_zone(zone_id, request.robot_id):
+            if self._db.try_acquire_zone(
+                    zone_id, robot_id=owner_robot, task_id=owner_task):
                 acquired.append(zone_id)
             else:
                 # 전부 못 잡으면 잡은 것도 되돌린다 (부분 보유 대기 = 데드락 씨앗)
-                self._db.release_zones(request.robot_id, acquired)
+                self._db.release_zones(
+                    robot_id=owner_robot, task_id=owner_task, zone_ids=acquired)
                 response.granted = False
                 response.retry_after_sec = float(
                     self.get_parameter("zone_retry_sec").value)
@@ -214,11 +284,18 @@ class TaskDispatcherNode(Node):
     def _handle_release(self, request, response):
         mode = self.get_parameter("zone_lock_mode").value
         zone_ids = list(request.zone_ids)
+        owner_robot, owner_task = self._owner(request)
+        owner_key = owner_robot or owner_task
+        if owner_key is None:
+            response.success = False
+            return response
+
         if mode == "stub":
-            held = self._stub_held.setdefault(request.robot_id, set())
+            held = self._stub_held.setdefault(owner_key, set())
             held.difference_update(zone_ids or set(held))
         else:
-            self._db.release_zones(request.robot_id, zone_ids or None)
+            self._db.release_zones(
+                robot_id=owner_robot, task_id=owner_task, zone_ids=zone_ids or None)
         response.success = True
         return response
 

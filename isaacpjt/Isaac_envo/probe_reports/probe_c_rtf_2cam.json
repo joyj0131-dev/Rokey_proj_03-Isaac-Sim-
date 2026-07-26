@@ -1,0 +1,8 @@
+{
+  "cameras": 2,
+  "robots": [
+    "entry_lead",
+    "exit_lead"
+  ],
+  "rtf": 1.5471899522802868
+}

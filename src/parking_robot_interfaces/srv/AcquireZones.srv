@@ -2,7 +2,14 @@
 # 로봇은 다음 통로 구간에 진입하기 전에 이 서비스로 존을 확보한다.
 # 데드락 방지: zone_ids는 반드시 오름차순으로 요청한다 (관제가 정렬 검증).
 # MVP(로봇 1대) 단계에서는 관제가 무조건 granted=true를 반환하는 스텁으로 동작.
+#
+# [2026-07-21 추가] robot_id / task_id 중 정확히 하나만 채운다.
+#   robot_id: 통로 구간처럼 로봇 개인이 배타적으로 점유하는 zone.
+#   task_id : 로봇 2대가 팀으로 함께 점유해야 하는 zone(예: 차량이 있는 슬롯).
+#             이 경우 dispatcher가 task 단위로 한 번만 요청하고, 그 밑의
+#             로봇 두 대는 이 zone에 대해 각자 다시 요청하지 않는다.
 string robot_id
+string task_id
 string[] zone_ids
 ---
 bool granted

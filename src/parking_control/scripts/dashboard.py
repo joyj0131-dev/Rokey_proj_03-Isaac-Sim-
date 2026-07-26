@@ -255,18 +255,32 @@ function render(s) {
     if (SLOT_MARK[slot.status]) svg.push(`<text x="${sx(n.x)}" y="${sy(n.y)+14}"
       text-anchor="middle" font-size="11" fill="var(--ink)">${SLOT_MARK[slot.status]}</text>`);
   }
-  // 도크·입구
+  // 도크·차량 대기 장소·입출차 구역 라벨 (2026-07-25: 전엔 도크만 박스로 그려서
+  // entry_wait/exit_wait — 실제 Isaac 씬의 "인계 베이"(사진 속 파란 사각형, 차량이
+  // 대기하는 곳) — 는 그래프에 있는데도 화면에 안 보였다. 도크와 똑같이 실제
+  // 박스로 그려야 사진과 비교할 수 있다)
+  const DOCK_LABEL = { entry: '입차 대기', exit: '출차 대기', charging: '충전' };
+  const VEHICLE_BAY = {
+    entry_wait: { label: '▼ 입차 구역 (차량 대기)', color: 'var(--warn)' },
+    exit_wait: { label: '▲ 출차 구역 (차량 대기)', color: 'var(--accent)' },
+  };
   for (const [id, n] of Object.entries(s.nodes)) {
     if (n.kind === 'dock') {
       svg.push(`<rect x="${sx(n.x)-30}" y="${sy(n.y)-28}" width="60" height="56" rx="6"
         fill="none" stroke="${n.role==='charging'?'var(--accent)':'var(--warn)'}"
         stroke-width="2" stroke-dasharray="6 3"/>
         <text x="${sx(n.x)}" y="${sy(n.y)+4}" text-anchor="middle" font-size="10"
-        fill="var(--ink2)">${n.role==='charging'?'충전':'대기'}</text>`);
+        fill="var(--ink2)">${DOCK_LABEL[n.role] || '대기'}</text>`);
     }
-    if (n.kind === 'entrance')
-      svg.push(`<text x="${sx(n.x)-4}" y="${sy(n.y)+4}" text-anchor="end"
-        font-size="12" fill="var(--ink2)">입구 ▶</text>`);
+    const bay = VEHICLE_BAY[id];
+    if (bay) {
+      // 사진 속 파란 인계 베이 사각형과 같은 자리 — 차량 1대가 서는 크기(대략 5m x 2.4m).
+      const bw = 5.0 * 20, bh = 2.4 * 20;
+      svg.push(`<rect x="${sx(n.x)-bw/2}" y="${sy(n.y)-bh/2}" width="${bw}" height="${bh}"
+        rx="6" fill="${bay.color}" fill-opacity="0.18" stroke="${bay.color}" stroke-width="2"/>
+        <text x="${sx(n.x)}" y="${sy(n.y)-bh/2-10}" text-anchor="middle"
+        font-size="13" font-weight="700" fill="${bay.color}">${bay.label}</text>`);
+    }
   }
   // 로봇 — 지나온 경로(실선) + 가야 할 경로(점선) + 현재 위치
   for (const r of s.robots) {

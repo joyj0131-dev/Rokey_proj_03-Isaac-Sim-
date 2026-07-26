@@ -56,6 +56,46 @@ SIGN_YAW = +1.0
 YAW_SCALE = 1.12
 
 
+def _move_toward(current, target, max_delta):
+    """Move one scalar toward its target without overshooting."""
+    delta = target - current
+    if abs(delta) <= max_delta:
+        return target
+    return current + math.copysign(max_delta, delta)
+
+
+def slew_twist(current, target, dt, linear_accel=0.5, linear_decel=0.8,
+               angular_accel=0.8):
+    """Apply a simulation-time acceleration limit to a body twist.
+
+    Linear X/Y are limited as one vector so diagonal motion does not receive
+    sqrt(2) times more acceleration.  A command that removes velocity uses the
+    higher deceleration limit; top speed is not changed.
+    """
+    current = tuple(float(v) for v in current)
+    target = tuple(float(v) for v in target)
+    dt = max(0.0, float(dt))
+    if dt == 0.0:
+        return current
+
+    cvx, cvy, cwz = current
+    tvx, tvy, twz = target
+    dvx, dvy = tvx - cvx, tvy - cvy
+    delta_norm = math.hypot(dvx, dvy)
+    # current·delta < 0 means the command is braking or reversing.
+    linear_rate = linear_decel if cvx * dvx + cvy * dvy < 0.0 else linear_accel
+    max_linear_delta = max(0.0, linear_rate) * dt
+    if delta_norm > max_linear_delta > 0.0:
+        scale = max_linear_delta / delta_norm
+        cvx += dvx * scale
+        cvy += dvy * scale
+    else:
+        cvx, cvy = tvx, tvy
+
+    cwz = _move_toward(cwz, twz, max(0.0, angular_accel) * dt)
+    return cvx, cvy, cwz
+
+
 def wheel_velocities_from_cmd_vel(vx, vy, wz):
     """Map a robot-frame holonomic /cmd_vel to hub angular velocities [rad/s].
 
@@ -71,6 +111,23 @@ def wheel_velocities_from_cmd_vel(vx, vy, wz):
         "wheel_rl": (fx + sy - wl) / WHEEL_RADIUS,
         "wheel_rr": (fx - sy + wl) / WHEEL_RADIUS,
     }
+
+
+def cmd_vel_from_wheel_velocities(omegas):
+    """IK의 최소자승 역: 휠 각속도 dict -> (vx, vy, wz) 로봇 로컬 twist.
+
+    IK가 선형이므로 4x3 행렬의 pseudo-inverse 로 정확히 복원된다. 계수는
+    IK 함수에서 수치적으로 추출한다(상수 중복 금지 — IK 가 바뀌면 FK 도 따라간다).
+    """
+    import numpy as np
+
+    wheels = list(WHEEL_JOINTS)
+    basis = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    A = np.array([[wheel_velocities_from_cmd_vel(*b)[w] for b in basis]
+                  for w in wheels])                       # (4, 3)
+    vec = np.array([float(omegas[w]) for w in wheels])    # (4,)
+    vx, vy, wz = np.linalg.lstsq(A, vec, rcond=None)[0]
+    return float(vx), float(vy), float(wz)
 
 
 def _quat_from_z_to(direction, Gf):
