@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""pickup_mission.launch.py — 도크→XN→베이→픽업→리프트 전체 미션을 launch 하나로.
+"""nodes.launch.py — 순수 ROS2(py3.10) 노드 스택만 기동한다. Isaac 은 별개.
 
-두 프로세스 그래프(docs/concepts/ros2-node-architecture.md)를 ROS2 launch 로 기동:
-  1) sim_bridge.sh — Isaac(py3.11) 시뮬 브리지(씬/로봇/차량/마커 스폰, /odom·
-     image·depth 발행, /cmd_vel·/lift_cmd 구독). stdout 에 BRIDGE_READY 를 찍는다.
-  2) BRIDGE_READY 를 감지하면(OnProcessIO) 시스템 ROS2(py3.10) 노드 스택을 기동:
-     marker_localizer×2(전후방 이중카메라·seed·ref전환), pose_controller×4(odom/
-     융합), axle_detector×2, ingress×2, lift×2, pickup_orchestrator(auto_start).
-  3) pickup_orchestrator 는 auto_start=true 라 노드 디스커버리 후 스스로 미션을
-     실행한다 — 외부 트리거(스모크 스크립트) 없음.
+Isaac 시뮬(sim_bridge)과 ROS2 노드는 **다른 컴퓨터**라 생각하고 각자 실행한다 —
+둘은 DDS(도메인 126)로만 대화하므로 순서·프로세스 공유가 필요없다.
 
-실행:  ros2 launch isaacpjt/Isaac_envo/launch/pickup_mission.launch.py
-정리:  Ctrl-C (launch 가 모든 자식 프로세스에 시그널). 잔여는
-       pkill -9 -f 'sim_bridge.py|parkbot_(aruco|motion)'.
+  [컴퓨터 A · Isaac py3.11]  bash isaacpjt/Isaac_envo/sim_bridge.sh [--gui]
+        → 씬/로봇/차량/마커 스폰, /odom·image·depth 발행, /cmd_vel 구독.
+          BRIDGE_READY 가 뜰 때까지 기다린다(콜드스타트 ~2분).
+
+  [컴퓨터 B · ROS2 py3.10]   ros2 launch isaacpjt/Isaac_envo/launch/nodes.launch.py
+        → 이 파일. marker_localizer×2 / pose_controller×4 / axle×2 / ingress×2 /
+          lift×2 / pickup_orchestrator(auto_start) 를 띄운다. 노드들은 토픽을
+          구독하며 대기하므로 브리지가 먼저 떠 있으면 바로 붙는다. orchestrator
+          는 auto_start 로 스스로 미션을 실행한다(외부 트리거 없음).
+
+정리: 각 터미널 Ctrl-C. 잔여는 pkill -9 -f 'sim_bridge.py' / 'parkbot_(aruco|motion)'.
 """
 import os
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, RegisterEventHandler, LogInfo
-from launch.event_handlers import OnProcessIO
+from launch.actions import ExecuteProcess
 
 # 이 파일: <ws>/isaacpjt/Isaac_envo/launch/pickup_mission.launch.py
 _LAUNCH_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +29,6 @@ MARKER_MAP = os.path.join(WS, "src/parkbot_aruco/data/marker_map_v4.json")
 
 GOAL_TIMEOUT = "300.0"      # pose_controller/ingress 서버측 상한(RTF 저하 여유)
 RAMP_WAIT = "10.0"          # lift_action_server 벽시계 대기
-CAM_ROBOTS = "entry_lead,entry_follow"
 
 
 def _wrap(script, *args):
@@ -41,7 +41,7 @@ def _wrap(script, *args):
 
 
 def _ros2_node_stack():
-    """BRIDGE_READY 뒤에 기동할 시스템 ROS2 노드들(bringup_pickup_e2e.sh 와 동일 배선)."""
+    """시스템 ROS2 노드들(로봇별 배선). Isaac 브리지와 무관하게 독립 기동."""
     nodes = []
 
     # ── marker_localizer ×2: 로봇 네임스페이스로 FQN 구분 + 전후방 이중카메라 +
@@ -110,29 +110,4 @@ def _ros2_node_stack():
 
 
 def generate_launch_description():
-    gui = ["--gui"] if os.environ.get("GUI") else []  # GUI=1 이면 Isaac 창 띄움
-    bridge = ExecuteProcess(
-        cmd=["bash", os.path.join(ENVO, "sim_bridge.sh"),
-             *gui, f"--bridge-cameras={CAM_ROBOTS}"],
-        output="screen",
-    )
-
-    # BRIDGE_READY 를 브리지 stdout 에서 감지하면 노드 스택을 1회 기동한다.
-    _fired = {"done": False}
-
-    def _on_bridge_output(event):
-        if _fired["done"]:
-            return None
-        text = event.text.decode(errors="ignore") if isinstance(event.text, bytes) else str(event.text)
-        if "BRIDGE_READY" in text:
-            _fired["done"] = True
-            return [LogInfo(msg="[launch] BRIDGE_READY 감지 → ROS2 노드 스택 기동"),
-                    *_ros2_node_stack()]
-        return None
-
-    return LaunchDescription([
-        LogInfo(msg="[launch] sim_bridge 기동 중… (BRIDGE_READY 대기)"),
-        bridge,
-        RegisterEventHandler(OnProcessIO(target_action=bridge,
-                                         on_stdout=_on_bridge_output)),
-    ])
+    return LaunchDescription(_ros2_node_stack())
