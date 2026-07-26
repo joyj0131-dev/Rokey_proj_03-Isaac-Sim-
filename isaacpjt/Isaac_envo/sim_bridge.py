@@ -1374,6 +1374,8 @@ def main():
 
     _truck_y0 = sum(_wheel_y(wn) for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
 
+    for _r, _a in arts.items():
+        print(f"ROBOT_MASS robot={_r} total_kg={float(np.sum(_a.get_body_masses())):.4f}", flush=True)
     print(f"BRIDGE_READY robots={list(arts)} domain={os.environ.get('ROS_DOMAIN_ID', '0')} "
           f"odom_mode={odom_mode} truck_y0={_truck_y0:.4f}", flush=True)
     prev_sim = timeline.get_current_time()
