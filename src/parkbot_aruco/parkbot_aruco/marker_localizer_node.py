@@ -45,6 +45,44 @@ _DEFAULT_T_BASE_CAM = [
 ]
 
 
+def rear_t_base_cam_from_front(front_t_base_cam):
+    """전방 T_base_cam(행우선 16개 또는 4x4)에서 후방 마운트 기본값을 유도한다.
+
+    저작 근거(`isaacpjt/hwia_parking_robot_final_caster_package/build_rear_camera.py`
+    헤더): "cam_rear 의 마운트는 base_link 수직축(Z) 180° 회전 미러 —
+    T_rear = Rz(180°)·T_front" (에셋의 **네이티브 Z-up** 로컬 프레임 기준, 링크
+    변환에 왼쪽곱으로 적용).
+
+    그런데 `marker_localizer.py`(이 T_base_cam 이 실제 쓰이는 수학 프레임)는
+    "스테이지 up=+Y, 회전축 월드 +Y"(모듈 독스트링) 규약이다 — 로봇을 Z-up
+    에셋에서 Y-up 스테이지에 배치할 때 쓰는 고정 축변환(`parking_v4_runner.py`
+    628행 `AddRotateXOp(-90)`, 즉 X축 둘레 -90°)이 이미 T_base_cam 값 자체에
+    녹아 있다. X축 둘레 회전은 회전각을 보존하면서 네이티브 Z축을 정확히 이
+    프레임의 Y축으로 보내므로(검산: Rx(-90) 하에서 Z_native→Y_new), 저작
+    스크립트의 Rz(180)(네이티브 프레임)는 이 T_base_cam 프레임에서는 Ry(180)
+    에 대응한다.
+
+    T_rear = Ry(180) @ T_front (왼쪽곱 = base_link 원점·수직축 둘레로 마운트
+    전체를 뒤집는다): 위치 (x,z) 는 부호반전, 높이(y) 는 불변, 카메라가
+    바라보는 방향도 180° 돌아 후방을 향한다. 기본값 실측으로 검산: 전방
+    t=(0.924, 0, 0.09) → 후방 t=(-0.924, 0, -0.09)(y=0 유지), 전방 광학 Z축
+    (0.866,0,-0.5)(+X쪽 약간 하향) → 후방 (-0.866,0,0.5)(-X쪽, 같은 하향각) —
+    "뒤를 보되 같은 틸트" 라는 물리적 기대와 일치한다.
+
+    확신도: 축 대응(Z_native→Y_new)은 기하학적으로 검산했으나, 실제 로봇/에셋
+    좌표계가 문서와 정확히 일치하는지는 T5 라이브 검증 대상이다 — 어긋나면
+    `rear_t_base_cam` 파라미터로 오버라이드한다.
+    """
+    front = np.asarray(front_t_base_cam, dtype=np.float64).reshape(4, 4)
+    ry180 = np.eye(4)
+    ry180[:3, :3] = ML.rot_y(180.0)
+    rear = ry180 @ front
+    return rear.reshape(-1).tolist()
+
+
+_DEFAULT_REAR_T_BASE_CAM = rear_t_base_cam_from_front(_DEFAULT_T_BASE_CAM)
+
+
 def filter_detections_by_ref(dets, ref_ids):
     """검출 리스트를 ref_ids 로 하드필터한다.
 
@@ -113,6 +151,14 @@ class MarkerLocalizerNode(Node):
         # 러너 drive_to_pose `_apply_fix` correct_yaw=False(위치전용 보정)의
         # ROS2 이식. 기본 True=기존 filt.update(fix) 그대로(하위호환).
         self.declare_parameter("correct_yaw", True)
+        # Task 3b: 이중카메라(전방+후방)-단일필터. rear_image_topic 이 빈
+        # 문자열(기본)이면 후방 구독을 아예 만들지 않는다 — 기존 단일카메라
+        # 동작이 완전히 그대로 유지된다(하위호환). 채워지면 인프로세스 러너
+        # _run_entry_lead_b(같은 filt 을 rear_ctx/front_ctx 로 번갈아 먹임)를
+        # ROS2 로 그대로 이식: 후방/전방 두 콜백이 같은 self.filt 를 공유한다.
+        self.declare_parameter("rear_image_topic", "")
+        self.declare_parameter("rear_camera_info_topic", "")
+        self.declare_parameter("rear_t_base_cam", _DEFAULT_REAR_T_BASE_CAM)
 
         image_topic = self.get_parameter("image_topic").value
         info_topic = self.get_parameter("camera_info_topic").value
@@ -147,6 +193,24 @@ class MarkerLocalizerNode(Node):
         self.pose_topic = self.get_parameter("pose_topic").value
         self.pub_pose = self.create_publisher(PoseStamped, self.pose_topic, 10)
 
+        # Task 3b: rear_image_topic 이 비어있으면(기본) 후방 구독을 아예 만들지
+        # 않는다 — self.rear_enabled=False 로 남고, 아래 K_rear/dist_rear/T_rear
+        # 도 없다. 채워지면 후방 CameraInfo/Image 를 추가로 구독해 같은
+        # self.filt(전방과 동일 객체) 를 보정한다(_process_frame 공유).
+        rear_image_topic = self.get_parameter("rear_image_topic").value
+        rear_info_topic = self.get_parameter("rear_camera_info_topic").value
+        self.rear_enabled = bool(rear_image_topic)
+        self.K_rear = None
+        self.dist_rear = None
+        if self.rear_enabled:
+            self.T_rear = np.array(
+                self.get_parameter("rear_t_base_cam").value,
+                dtype=np.float64).reshape(4, 4)
+            self.create_subscription(
+                CameraInfo, rear_info_topic, self._on_info_rear, qos_profile_sensor_data)
+            self.create_subscription(
+                Image, rear_image_topic, self._on_image_rear, qos_profile_sensor_data)
+
         # fuse=True 면 상보 필터를 만들고 오도메트리를 구독해 예측에 쓴다.
         # fuse=False 면 self.filt 가 None 으로 남아 기존 마커 단독 경로를 그대로 탄다.
         self.filt = None
@@ -160,12 +224,23 @@ class MarkerLocalizerNode(Node):
         self.get_logger().info(
             f"marker_localizer_node 시작 | image={image_topic} info={info_topic} "
             f"pose_topic={self.pose_topic} | 지도 {len(self.marker_map.by_id)}개 마커 "
-            f"| 카메라 마운트 파라미터 로드")
+            f"| 카메라 마운트 파라미터 로드"
+            + (f" | rear_image={rear_image_topic} rear_info={rear_info_topic}"
+               if self.rear_enabled else " | 후방캠 비활성(단일카메라)"))
+
+    @staticmethod
+    def _parse_camera_info(msg: CameraInfo):
+        """CameraInfo → (K 3x3, dist Nx1). 전방/후방 공용(중복 제거)."""
+        K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
+        dist = (np.array(msg.d, dtype=np.float64).reshape(-1, 1)
+                if len(msg.d) else np.zeros((5, 1)))
+        return K, dist
 
     def _on_info(self, msg: CameraInfo):
-        self.K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
-        self.dist = (np.array(msg.d, dtype=np.float64).reshape(-1, 1)
-                     if len(msg.d) else np.zeros((5, 1)))
+        self.K, self.dist = self._parse_camera_info(msg)
+
+    def _on_info_rear(self, msg: CameraInfo):
+        self.K_rear, self.dist_rear = self._parse_camera_info(msg)
 
     def _on_set_parameters(self, params):
         """`ref_ids`/`correct_yaw` 런타임 갱신(T3 오케스트레이터의 set_parameters 진입점).
@@ -207,11 +282,30 @@ class MarkerLocalizerNode(Node):
         if self.K is None:
             self.get_logger().warn("camera_info 대기 중 — 아직 K 없음", once=True)
             return
+        self._process_frame(msg, self.K, self.dist, self.T_base_cam)
+
+    def _on_image_rear(self, msg: Image):
+        if self.K_rear is None:
+            self.get_logger().warn(
+                "후방 camera_info 대기 중 — 아직 K_rear 없음", once=True)
+            return
+        self._process_frame(msg, self.K_rear, self.dist_rear, self.T_rear)
+
+    def _process_frame(self, msg: Image, K, dist, t_base_cam):
+        """전방/후방 공용 파이프라인: 검출→ref 필터→마커별 fix→filt 공유 보정→발행.
+
+        Task 3b: 인프로세스 러너 `_run_entry_lead_b` 가 하나의 `filt` 을
+        `rear_ctx`/`front_ctx` 로 번갈아 먹이는 것의 ROS2 이식 — `_on_image`/
+        `_on_image_rear` 둘 다 이 함수를 호출하고, 둘 다 같은 `self.filt` 을
+        보정한다(카메라별로 다른 건 인자로 받는 K/dist/t_base_cam 뿐).
+        T1 의 `filter_detections_by_ref`/`apply_fix`(ref_ids, correct_yaw) 를
+        그대로 재사용하므로 후방에도 동일하게 적용된다.
+        """
         import cv2
         img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         poses = AP.detect_and_estimate(
-            gray, self.detector, self.code_size, self.K, self.dist)
+            gray, self.detector, self.code_size, K, dist)
         poses = filter_detections_by_ref(poses, self.ref_ids)
 
         for p in poses:
@@ -221,7 +315,7 @@ class MarkerLocalizerNode(Node):
                 continue
             T_cm = ML.rvec_tvec_to_T(p.rvec, p.tvec)
             fix = ML.robot_pose_from_marker(
-                p.marker_id, T_cm, self.T_base_cam, self.marker_map)
+                p.marker_id, T_cm, t_base_cam, self.marker_map)
             if fix is None:
                 continue
 
