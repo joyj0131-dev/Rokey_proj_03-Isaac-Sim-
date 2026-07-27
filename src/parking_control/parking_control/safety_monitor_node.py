@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
-"""safety_monitor: LiDAR 월드 포인트클라우드 하나로 두 가지를 한다.
+"""safety_monitor: LiDAR 월드 포인트클라우드로 주차 슬롯 점유를 판정한다.
 
-  ① 통로 장애물 감지 → obstacle_alert 토픽 발행 (parking_robot_system의
-     safety_monitor 스켈레톤과 같은 인터페이스)
-  ② 주차 슬롯 점유 판정 → parking_slots.status를 실시간으로 갱신
-  둘의 판정 결과는 parking_status_markers(MarkerArray — 슬롯은 초록/빨강
-  박스, 막힌 통로는 빨강 반투명 박스)로도 발행한다. RViz2에서
-  config/lidar_live.rviz를 열고 Marker Array 디스플레이(토픽:
-  parking_status_markers)만 하나 추가하면 실시간으로 주차 현황·장애물이
-  눈에 보인다.
+주차 슬롯 점유 판정 → parking_slots.status를 실시간으로 갱신하고,
+그 결과를 parking_status_markers(MarkerArray — 슬롯 초록/빨강 박스)로
+발행한다. RViz2에서 config/lidar_live.rviz를 열고 Marker Array 디스플레이
+(토픽: parking_status_markers)만 추가하면 실시간 주차 현황이 눈에 보인다.
 
-같은 LiDAR 데이터를 보는 감시 기능이라 노드 하나로 합쳤다(구독·DB 연결을
+2026-07-27: 원래 이 노드는 통로 장애물 감지(core/obstacle_detector.py의
+zone_boxes/detect_blocked_zones)도 같이 해서 /obstacle_alert·/emergency_stop을
+발행했지만 제거했다. 이유 두 가지:
+  1. zone_boxes()가 v2(통로 하나) 레이아웃 전제로 만들어져 v3/v4(입출차
+     차로 분리) 좌표와 안 맞았다 — 수직 통로(슬롯 진입 엣지)는 박스가
+     x_min=x_max로 퇴화해 항상 "안 막힘"만 반환했다(테스트도 전부 skip
+     처리돼 있었다).
+  2. 설령 박스가 맞았어도 제외 대상이 로봇 자기 위치뿐이라, 로봇이 차량을
+     들고 통로를 지나갈 때 차체(4.8m) 점군이 그대로 "장애물"로 잡혀
+     정상적인 운반 중에 로봇 4대 전부가 멈추는 오작동 경로가 있었다.
+  차량까지 제외하거나 통로 방향(수평/수직)을 다시 설계하는 대신, 깨진 채로
+  방치하느니 완전히 들어냈다 — 슬롯 점유 판정은 이 문제와 무관해 그대로
+  남긴다. parking_control_mvp(팀원 웹 UI)의 "장애물 감지" 패널은 이제
+  /obstacle_alert가 안 들어와 항상 비어 보인다(연결이 끊긴 것이지 UI가
+  고장난 게 아니다). robot_task_orchestrator의 /obstacle_alert 구독도
+  같은 이유로 그냥 대기만 하게 된다 — 인터페이스 자체는 남아 있으니 통로
+  감지를 다시 붙이면(팀 "B" 작업, 로봇 물리 경로 재설계) 그대로 되살릴 수
+  있다.
+
+같은 LiDAR 데이터를 보는 감시 기능이라 노드 하나로 유지한다(구독·DB 연결을
 두 번 만들 이유가 없음). 담당자가 아직 미정인 팀 공유 스켈레톤
 (parking_robot_system)은 건드리지 않고, 이 노드가 그 자리를 대신할 수
 있는 독립 구현이다(sim_orchestrator와 같은 패턴 — 필요하면 팀 합의 후 교체).
-
-무엇이 막았는지/점유했는지(사람/차량/기타)는 구분하지 않는다 —
-ObstacleAlert.msg가 불리언 하나뿐이고, 주차 목적에도 있다/없다면
-충분하기 때문이다.
 
 2026-07-25: 이전 버전은 자체 lidar_topic 파라미터(추정 토픽명)로 raw
 센서 좌표를 구독한 뒤 core/lidar_frame_transform.py(검증 안 된 센서
@@ -41,14 +52,10 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
-from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
-
-from parking_robot_interfaces.msg import ObstacleAlert
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
-from parking_control.core.obstacle_detector import detect_blocked_zones, zone_boxes
 from parking_control.core.slot_occupancy_detector import detect as detect_slot_occupancy
 from parking_control.parking_slot_manager_node import _default_map_yaml
 
@@ -73,15 +80,8 @@ class SafetyMonitorNode(Node):
             host=p("db_host").value, user=p("db_user").value,
             password=p("db_password").value, database=p("db_name").value)
         self._map = ParkingMap.load(p("map_yaml").value)
-        self._zone_boxes = zone_boxes(self._map)
         self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
 
-        self._alert_pub = self.create_publisher(
-            ObstacleAlert, "/obstacle_alert", 10)
-        # Isaac 러너는 커스텀 인터페이스 설치 여부와 관계없이 받을 수 있도록
-        # 표준 Bool 긴급정지 토픽도 함께 사용한다.
-        self._emergency_pub = self.create_publisher(
-            Bool, "/emergency_stop", 10)
         self._marker_pub = self.create_publisher(
             MarkerArray, "parking_status_markers", 10)
         self.create_subscription(
@@ -90,7 +90,7 @@ class SafetyMonitorNode(Node):
         slot_count = len(self._map.nodes_of_kind("slot"))
         self.get_logger().info(
             f"safety_monitor 시작 (lidar_world_topic={p('lidar_world_topic').value}, "
-            f"통로 {len(self._zone_boxes)}개 + 슬롯 {slot_count}개 감시) — "
+            f"슬롯 {slot_count}개 점유 감시) — "
             "캡처+릴레이(scripts/lidar/run_live_rviz.sh)가 연결되기 전까지는 "
             "대기만 합니다.")
 
@@ -106,32 +106,12 @@ class SafetyMonitorNode(Node):
         points = np.column_stack(
             [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
 
-        blocked = self._check_obstacles(points)
         slot_results = self._update_slot_occupancy(points)
-        self._publish_markers(blocked, slot_results)
-
-    def _check_obstacles(self, points):
-        robot_positions = self._db.all_robot_positions()
-        blocked = detect_blocked_zones(points, self._zone_boxes, robot_positions)
-        blocked_zones = sorted(zid for zid, is_blocked in blocked.items() if is_blocked)
-
-        alert = ObstacleAlert()
-        alert.obstacle_detected = bool(blocked_zones)
-        if blocked_zones:
-            x0, x1, y0, y1 = self._zone_boxes[blocked_zones[0]]
-            alert.description = f"통로 막힘: {', '.join(blocked_zones)}"
-            alert.location.x = (x0 + x1) / 2
-            alert.location.y = (y0 + y1) / 2
-            self.get_logger().warn(alert.description)
-        self._alert_pub.publish(alert)
-        self._emergency_pub.publish(
-            Bool(data=bool(alert.obstacle_detected)))
-        return blocked
+        self._publish_markers(slot_results)
 
     def _update_slot_occupancy(self, points):
         # 로봇/차량 구분 없이 판정한다 — 로봇이 슬롯 위에 있다는 것 자체가
-        # 지금 그 칸에 뭔가(차든 로봇이든) 있다는 뜻이라 제외할 이유가 없다
-        # (통로 장애물 감지와 달리 여기서는 robot_positions을 빼지 않는다).
+        # 지금 그 칸에 뭔가(차든 로봇이든) 있다는 뜻이라 제외할 이유가 없다.
         results = detect_slot_occupancy(points, self._map)
         for slot_id, r in results.items():
             new_status = "OCCUPIED" if r["occupied"] else "EMPTY"
@@ -141,13 +121,9 @@ class SafetyMonitorNode(Node):
                 self.get_logger().info(f"슬롯 {slot_id}: {new_status} (LiDAR 판정)")
         return results
 
-    def _publish_markers(self, blocked, slot_results):
-        """슬롯 점유/통로 막힘 판정을 RViz2 MarkerArray로 시각화(2026-07-23).
-
-        슬롯: 초록(빈칸)/빨강(점유) 박스 + 텍스트 라벨.
-        통로: 막힌 구간만 빨강 반투명 박스로 표시(평소엔 안 그림 — 통로 18개를
-        늘 다 그리면 화면이 지저분해지고, "막힘"이야말로 실시간으로 눈에 띄어야
-        하는 정보라 그것만 그린다)."""
+    def _publish_markers(self, slot_results):
+        """슬롯 점유 판정을 RViz2 MarkerArray로 시각화(2026-07-23).
+        초록(빈칸)/빨강(점유) 박스 + 텍스트 라벨."""
         space_w = self._map.meta["params"]["space_width"]
         space_l = self._map.meta["params"]["space_length"]
         markers = MarkerArray()
@@ -175,28 +151,6 @@ class SafetyMonitorNode(Node):
                 m.color.r, m.color.g, m.color.b = 1.0, 0.15, 0.15
             else:
                 m.color.r, m.color.g, m.color.b = 0.15, 0.85, 0.15
-            markers.markers.append(m)
-
-        for zone_id, is_blocked in blocked.items():
-            if not is_blocked:
-                continue
-            x0, x1, y0, y1 = self._zone_boxes[zone_id]
-            m = Marker()
-            m.header.frame_id = "map"
-            m.header.stamp = now
-            m.ns = "blocked_zones"
-            m.id = idx
-            idx += 1
-            m.type = Marker.CUBE
-            m.action = Marker.ADD
-            m.pose.position.x = (x0 + x1) / 2
-            m.pose.position.y = (y0 + y1) / 2
-            m.pose.position.z = 0.1
-            m.pose.orientation.w = 1.0
-            m.scale.x = x1 - x0
-            m.scale.y = y1 - y0
-            m.scale.z = 0.2
-            m.color.r, m.color.g, m.color.b, m.color.a = 1.0, 0.0, 0.0, 0.35
             markers.markers.append(m)
 
         self._marker_pub.publish(markers)

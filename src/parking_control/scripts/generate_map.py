@@ -155,11 +155,11 @@ def build_map():
             # space_length/space_width: v3.usd Spaces 스코프의 parking:length/width
             # (A1/A2/A3 전부 동일, 6.6x3.4 — v4에서도 슬롯 규격 자체는 안 바뀜,
             # v4.usd에는 이 스코프가 없어 v3 실측값을 그대로 유지).
-            # aisle_width: v2 값(9.0)을 임시로 유지 — 통로가 y=0 수평선이
-            # 아니라 core/obstacle_detector.py의 zone_boxes()가 이 값을 쓰는
-            # "모든 통로가 수평"이라는 전제 자체가 안 맞는다(2026-07-24 확인,
-            # 아래 obstacle_detector.py 주석 참고). 로봇 물리 경로 재설계(B) 때
-            # zone_boxes도 같이 다시 설계해야 한다.
+            # aisle_width: v2 값(9.0)을 그대로 유지. scripts/lidar/
+            # visualize_lidar.py, generate_sample_pointcloud.py가 여전히 쓴다.
+            # (2026-07-27: 이 값을 "모든 통로는 y=0 수평선"이라는 전제로 쓰던
+            # core/obstacle_detector.py의 zone_boxes()는 그 전제가 v3/v4 좌표와
+            # 안 맞아 삭제됐다 — safety_monitor_node.py 상단 주석 참고.)
             # half_w_m: 더 이상 안 쓰임(2026-07-24) — LiDAR가 서/동 2대에서
             # 1대로 통합되면서 safety_monitor_node.py가
             # core/lidar_frame_transform.sensor_offset()(인자 없음, v3.usd 실측

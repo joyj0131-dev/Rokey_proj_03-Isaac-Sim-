@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """animation/pedestrians_v4.usda 보행자 통로의 사람/비사람 LiDAR 기하 분류.
 
-safety_monitor의 obstacle_detector(zone_boxes)는 통로가 막혔는지만 보고
-무엇이 막았는지는 구분하지 않는다(ObstacleAlert.msg가 불리언 하나뿐이라
-그걸로 충분함). 이 노드는 그 옆에서 별도 목적으로 돈다: 보행자 대기
-차로(X=-8.5, animation/pedestrians_v4.usda의 EntryPedestrian/
-ExitPedestrian appear/vanishPose 기준)에서 사람과 차량/로봇/기타를
-키(top_height)·풋프린트(width/length)로 구분해 사람 유무·위치·분류
-근거를 별도 토픽으로 낸다.
+safety_monitor는 슬롯 점유만 판정하고(통로 장애물 판정은 로봇이 차량을
+들고 지나갈 때 오히려 스스로를 막힘으로 오인해 2026-07-27에 제거됐다 —
+safety_monitor_node.py 상단 주석 참고) 무엇이 있는지는 구분하지 않는다.
+이 노드는 그 옆에서 별도 목적으로 돈다: 보행자 대기 차로(X=-8.5,
+animation/pedestrians_v4.usda의 EntryPedestrian/ExitPedestrian
+appear/vanishPose 기준)에서 사람과 차량/로봇/기타를 키(top_height)·
+풋프린트(width/length)로 구분해 사람 유무·위치·분류 근거를 별도 토픽으로
+낸다.
 
 scripts/lidar/ros_pointcloud_world_relay.py가 이미 두 LiDAR raw 토픽을
 USD Y-up → ROS map(Z-up)으로 합쳐 /parking/lidar/points_world로 내므로

@@ -1,10 +1,10 @@
 """LiDAR 군집 기하로 사람/비사람을 구분한다 (ROS import 금지).
 
-obstacle_detector.py의 zone 장애물 판정("막혔다/안 막혔다"만 보고 무엇이
-막았는지는 구분하지 않음)과 달리, 여기서는 XY 군집화 후 각 군집의 높이
-(top_height)와 풋프린트(width/length)로 사람인지 차량/로봇/기타인지를
-가른다. 천장 LiDAR는 사람의 전신보다 머리·어깨 최고점을 안정적으로 보므로
-observed_height가 아니라 top_height를 주 높이 특징으로 쓴다.
+slot_occupancy_detector.py의 "막혔다/안 막혔다"류 판정과 달리, 여기서는
+XY 군집화 후 각 군집의 높이(top_height)와 풋프린트(width/length)로
+사람인지 차량/로봇/기타인지를 가른다. 천장 LiDAR는 사람의 전신보다
+머리·어깨 최고점을 안정적으로 보므로 observed_height가 아니라
+top_height를 주 높이 특징으로 쓴다.
 
 animation/pedestrians_v4.usda의 보행자 경로(X=-8.5 고정, USD Z -> ROS
 y=-USD z)를 대상으로 하는 pedestrian_obstacle_node.py에서 쓴다.
