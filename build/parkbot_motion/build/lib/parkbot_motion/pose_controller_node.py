@@ -181,10 +181,17 @@ class PoseControllerNode(Node):
         self.declare_parameter('max_ang', 0.6)
         self.declare_parameter('pos_tol', 0.03)
         self.declare_parameter('yaw_tol', 0.5)
+        # 메카넘 회전 데드밴드 보정[rad/s]. 요 오차가 tol 밖인데 비례 wz 가 이 값보다
+        # 작으면(데드밴드~0.012 아래) 이 최소 속도로 깔아 마지막 <1° 를 인칭한다.
+        # 0=끔(하위호환). 진입 정렬처럼 tight yaw_tol 을 실제로 달성해야 할 때 켠다.
+        self.declare_parameter('yaw_min_cmd', 0.0)
         self.declare_parameter('linear_accel', 0.5)
         self.declare_parameter('linear_decel', 0.8)
         self.declare_parameter('angular_accel', 0.8)
         self.declare_parameter('settle_frames', 30)
+        # settle 결과가 허용오차 밖이면 재제어(도달래치 풀고 다시 DRIVING)하는 최대 횟수.
+        # 회전 중 노이즈로 조기 래치→오차밖 정지 시, 포기(abort) 대신 목표로 다시 몬다.
+        self.declare_parameter('settle_retries', 6)
 
         # 이 ROS2 노드에서만 필요한 파라미터(러너에는 대응 없음) — dt 가드 +
         # 액션 타임아웃/워치독. 러너의 max_steps=2000 은 안전상한이었다;
@@ -220,10 +227,12 @@ class PoseControllerNode(Node):
         self.max_ang = float(gp('max_ang').value)
         self.pos_tol = float(gp('pos_tol').value)
         self.yaw_tol = float(gp('yaw_tol').value)
+        self.yaw_min_cmd = float(gp('yaw_min_cmd').value)
         self.linear_accel = float(gp('linear_accel').value)
         self.linear_decel = float(gp('linear_decel').value)
         self.angular_accel = float(gp('angular_accel').value)
         self.settle_frames = int(gp('settle_frames').value)
+        self.settle_retries = int(gp('settle_retries').value)
         self.max_dt = float(gp('max_dt').value)
         self.goal_timeout_sec = float(gp('goal_timeout_sec').value)
         self.pose_stale_timeout_sec = float(gp('pose_stale_timeout_sec').value)
@@ -323,10 +332,21 @@ class PoseControllerNode(Node):
                 self._publish_twist(0.0, 0.0, 0.0)
                 if active['settle_count'] >= ctrl.settle_frames:
                     final_pose, reached = ctrl.finish(pose)
-                    active['final_pose'] = final_pose
-                    active['reached'] = reached
-                    active['phase'] = 'DONE'
-                    active['done_event'].set()
+                    if not reached and active['settle_retries'] < self.settle_retries:
+                        # 오차 밖 → 포기 말고 재제어. 도달래치 풀고 다시 DRIVING 으로.
+                        active['settle_retries'] += 1
+                        ctrl.resume()
+                        active['phase'] = 'DRIVING'
+                        active['settle_count'] = 0
+                        self.get_logger().info(
+                            f"navigate_to_pose: settle 오차밖 → 재제어 "
+                            f"{active['settle_retries']}/{self.settle_retries} "
+                            f"pose={final_pose}")
+                    else:
+                        active['final_pose'] = final_pose
+                        active['reached'] = reached
+                        active['phase'] = 'DONE'
+                        active['done_event'].set()
             # phase == 'DONE': _execute 가 곧 self._active 를 지운다 — 여기선
             # 아무 것도 하지 않는다(중복 명령 방지).
 
@@ -370,10 +390,20 @@ class PoseControllerNode(Node):
         tyaw_deg = goal_quat_to_yaw_deg(float(q.x), float(q.y), float(q.z), float(q.w))
         target = (tx, tz, tyaw_deg)
 
+        # per-goal yaw_tol override: 미사용 behavior_tree 필드에 "yaw_tol=<deg>" 를 실어
+        # 스텝별 완화(예: dock_check 는 요 정밀 불필요 — final_align 1° 는 노드기본 유지).
+        yaw_tol = self.yaw_tol
+        bt = str(goal.behavior_tree or '')
+        if 'yaw_tol=' in bt:
+            try:
+                yaw_tol = float(bt.split('yaw_tol=', 1)[1].split()[0].strip(',;'))
+            except (ValueError, IndexError):
+                pass
+
         ctrl = PoseController(
             target, pos_gain=self.pos_gain, yaw_gain=self.yaw_gain,
             max_lin=self.max_lin, max_ang=self.max_ang,
-            pos_tol=self.pos_tol, yaw_tol=self.yaw_tol,
+            pos_tol=self.pos_tol, yaw_tol=yaw_tol, yaw_min_cmd=self.yaw_min_cmd,
             linear_accel=self.linear_accel, linear_decel=self.linear_decel,
             angular_accel=self.angular_accel, settle_frames=self.settle_frames)
 
@@ -381,13 +411,14 @@ class PoseControllerNode(Node):
         active = {
             'ctrl': ctrl, 'goal_handle': goal_handle, 'target': target,
             'phase': 'DRIVING', 'settle_count': 0, 'done_event': done_event,
-            'reached': None, 'final_pose': None,
+            'reached': None, 'final_pose': None, 'settle_retries': 0,
         }
         with self._active_lock:
             self._active = active
 
         self.get_logger().info(
-            f'navigate_to_pose: 목표 수락 target=(x={tx:.3f},z={tz:.3f},yaw={tyaw_deg:.2f}deg)')
+            f'navigate_to_pose: 목표 수락 target=(x={tx:.3f},z={tz:.3f},yaw={tyaw_deg:.2f}deg) '
+            f'yaw_tol={yaw_tol:.1f}')
 
         start_wall = time.monotonic()
         outcome = 'timeout'

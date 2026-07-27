@@ -6,6 +6,7 @@ parking_robot_interfaces.egg-info/dependency_links.txt
 parking_robot_interfaces.egg-info/top_level.txt
 parking_robot_interfaces/action/__init__.py
 parking_robot_interfaces/action/_align_vehicle.py
+parking_robot_interfaces/action/_carry_to_slot.py
 parking_robot_interfaces/action/_control_lift.py
 parking_robot_interfaces/action/_detect_vehicle.py
 parking_robot_interfaces/action/_execute_parking_task.py

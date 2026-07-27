@@ -93,6 +93,92 @@ CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosi
   /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/rosidl_typesupport_introspection_c__visibility_control.h \
   /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/service_introspection.h
 
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.c.o: rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.c \
+  /usr/include/stdc-predef.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h \
+  rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/carry_to_slot__rosidl_typesupport_introspection_c.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/message_type_support_struct.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/visibility_control.h \
+  /opt/ros/humble/include/rosidl_typesupport_interface/rosidl_typesupport_interface/macros.h \
+  rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/rosidl_typesupport_introspection_c__visibility_control.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/service_type_support_struct.h \
+  /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/field_types.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h \
+  /usr/include/stdint.h \
+  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
+  /usr/include/features.h \
+  /usr/include/features-time64.h \
+  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
+  /usr/include/x86_64-linux-gnu/bits/timesize.h \
+  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
+  /usr/include/x86_64-linux-gnu/bits/long-double.h \
+  /usr/include/x86_64-linux-gnu/gnu/stubs.h \
+  /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
+  /usr/include/x86_64-linux-gnu/bits/types.h \
+  /usr/include/x86_64-linux-gnu/bits/typesizes.h \
+  /usr/include/x86_64-linux-gnu/bits/time64.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar.h \
+  /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
+  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
+  /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/identifier.h \
+  /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/visibility_control.h \
+  /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/message_introspection.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdbool.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/message_initialization.h \
+  rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h \
+  /usr/include/stdlib.h \
+  /usr/include/x86_64-linux-gnu/bits/waitflags.h \
+  /usr/include/x86_64-linux-gnu/bits/waitstatus.h \
+  /usr/include/x86_64-linux-gnu/bits/floatn.h \
+  /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
+  /usr/include/x86_64-linux-gnu/sys/types.h \
+  /usr/include/x86_64-linux-gnu/bits/types/clock_t.h \
+  /usr/include/x86_64-linux-gnu/bits/types/clockid_t.h \
+  /usr/include/x86_64-linux-gnu/bits/types/time_t.h \
+  /usr/include/x86_64-linux-gnu/bits/types/timer_t.h \
+  /usr/include/endian.h \
+  /usr/include/x86_64-linux-gnu/bits/endian.h \
+  /usr/include/x86_64-linux-gnu/bits/endianness.h \
+  /usr/include/x86_64-linux-gnu/bits/byteswap.h \
+  /usr/include/x86_64-linux-gnu/bits/uintn-identity.h \
+  /usr/include/x86_64-linux-gnu/sys/select.h \
+  /usr/include/x86_64-linux-gnu/bits/select.h \
+  /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/types/__sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/types/struct_timeval.h \
+  /usr/include/x86_64-linux-gnu/bits/types/struct_timespec.h \
+  /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
+  /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h \
+  /usr/include/x86_64-linux-gnu/bits/pthreadtypes-arch.h \
+  /usr/include/x86_64-linux-gnu/bits/atomic_wide_counter.h \
+  /usr/include/x86_64-linux-gnu/bits/struct_mutex.h \
+  /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h \
+  /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  rosidl_generator_c/parking_robot_interfaces/msg/rosidl_generator_c__visibility_control.h \
+  rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/string.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/primitives_sequence.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/detail/uuid__struct.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__struct.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/string_functions.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/uuid.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/detail/uuid__functions.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/rosidl_generator_c__visibility_control.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/detail/uuid__type_support.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/detail/uuid__rosidl_typesupport_introspection_c.h \
+  /opt/ros/humble/include/unique_identifier_msgs/unique_identifier_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h \
+  rosidl_generator_c/parking_robot_interfaces/action/carry_to_slot.h \
+  rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h \
+  /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/action_type_support_struct.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/time.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__functions.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/rosidl_generator_c__visibility_control.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__type_support.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__rosidl_typesupport_introspection_c.h \
+  /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/rosidl_typesupport_introspection_c__visibility_control.h \
+  /opt/ros/humble/include/rosidl_typesupport_introspection_c/rosidl_typesupport_introspection_c/service_introspection.h
+
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/control_lift__type_support.c.o: rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/control_lift__type_support.c \
   /usr/include/stdc-predef.h \
   /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h \
@@ -1332,8 +1418,6 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/find_empt
 
 rosidl_generator_c/parking_robot_interfaces/srv/detail/acquire_zones__struct.h:
 
-rosidl_generator_c/parking_robot_interfaces/srv/detail/acquire_zones__functions.h:
-
 rosidl_generator_c/parking_robot_interfaces/srv/detail/get_task_status__struct.h:
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/acquire_zones__rosidl_typesupport_introspection_c.h:
@@ -1362,11 +1446,23 @@ rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_stop__functions
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_stop__type_support.c:
 
+rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_introspection_c.h:
+
+rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_assignment__type_support.c:
+
+rosidl_generator_c/parking_robot_interfaces/action/ingress_under_truck.h:
+
 /usr/include/x86_64-linux-gnu/bits/atomic_wide_counter.h:
 
 rosidl_generator_c/parking_robot_interfaces/srv/detail/release_zones__functions.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/detect_vehicle__struct.h:
+
+rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__struct.h:
+
+rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__functions.h:
+
+/usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_task_status__rosidl_typesupport_introspection_c.h:
 
@@ -1376,8 +1472,6 @@ rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__f
 
 /usr/include/x86_64-linux-gnu/bits/types/struct_timespec.h:
 
-rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_assignment__rosidl_typesupport_introspection_c.h:
-
 /usr/include/x86_64-linux-gnu/bits/types/struct_timeval.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/__sigset_t.h:
@@ -1385,8 +1479,6 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation
 /usr/include/x86_64-linux-gnu/bits/byteswap.h:
 
 /usr/include/x86_64-linux-gnu/bits/long-double.h:
-
-rosidl_generator_c/parking_robot_interfaces/action/ingress_under_truck.h:
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/detect_vehicle__type_support.c:
 
@@ -1399,8 +1491,6 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/obstacle_
 /usr/include/x86_64-linux-gnu/bits/struct_mutex.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/timer_t.h:
-
-/usr/include/endian.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/time_t.h:
 
@@ -1490,6 +1580,8 @@ rosidl_generator_c/parking_robot_interfaces/msg/rosidl_generator_c__visibility_c
 
 /usr/include/x86_64-linux-gnu/gnu/stubs.h:
 
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h:
+
 rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.c:
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_task_status__type_support.c:
@@ -1499,6 +1591,10 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_task_
 /usr/include/x86_64-linux-gnu/bits/uintn-identity.h:
 
 /opt/ros/humble/include/rosidl_runtime_c/rosidl_runtime_c/message_initialization.h:
+
+/usr/include/endian.h:
+
+rosidl_generator_c/parking_robot_interfaces/action/carry_to_slot.h:
 
 /usr/include/x86_64-linux-gnu/bits/wchar.h:
 
@@ -1516,6 +1612,8 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/get_task_
 
 /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h:
 
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h:
+
 /usr/include/alloca.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__struct.h:
@@ -1527,6 +1625,10 @@ rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__struct.
 rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.h:
 
 /opt/ros/humble/include/geometry_msgs/geometry_msgs/msg/detail/point__struct.h:
+
+rosidl_generator_c/parking_robot_interfaces/srv/detail/acquire_zones__functions.h:
+
+rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.c:
 
 /opt/ros/humble/include/geometry_msgs/geometry_msgs/msg/detail/point__functions.h:
 
@@ -1572,12 +1674,6 @@ rosidl_generator_c/parking_robot_interfaces/action/align_vehicle.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__type_support.h:
 
-/usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
-
-rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__struct.h:
-
-rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__functions.h:
-
 /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/time.h:
 
 /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__functions.h:
@@ -1600,9 +1696,9 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/contro
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__struct.h:
 
-rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__struct.h:
-
 rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.h:
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__struct.h:
 
 rosidl_typesupport_introspection_c/parking_robot_interfaces/srv/detail/park_in_slot__type_support.c:
 
@@ -1617,6 +1713,8 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/vehicle_i
 rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__struct.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__type_support.h:
+
+rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/carry_to_slot__rosidl_typesupport_introspection_c.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/detect_vehicle__type_support.h:
 
@@ -1636,6 +1734,8 @@ rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/execut
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/stdbool.h:
 
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h:
+
 rosidl_typesupport_introspection_c/parking_robot_interfaces/action/detail/execute_parking_task__rosidl_typesupport_introspection_c.h:
 
 /usr/include/features.h:
@@ -1645,5 +1745,3 @@ rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__
 /opt/ros/humble/include/builtin_interfaces/builtin_interfaces/msg/detail/time__struct.h:
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__type_support.h:
-
-rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/formation_assignment__type_support.c:

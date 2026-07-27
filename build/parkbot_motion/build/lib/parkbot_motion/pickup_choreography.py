@@ -42,34 +42,39 @@ CorridorStep = namedtuple('CorridorStep', ['phase', 'robot_id', 'trough_index'])
 #                 entry_follow(follower)는 XN 축선에 정지(오프셋 없음).
 PhaseBStep = namedtuple('PhaseBStep', ['phase', 'robot_id'])
 
-# leader(entry_lead) 는 6단계 전체, follower(entry_follow) 는 offset 을 뺀 5단계.
-_PHASE_B_LEADER_PHASES = (
-    'seed_dock', 'rotate_90', 'dock_check', 'xn_align_x', 'xn_align_z', 'offset')
-_PHASE_B_FOLLOWER_PHASES = (
-    'seed_dock', 'rotate_90', 'dock_check', 'xn_align_x', 'xn_align_z')
+# 2026-07-27 재안무(사용자 확정): 두 로봇 **동시** 실행, 로봇별 회랑마커·최종 방향만
+# 다르다(좌표는 _phase_b_params). 단계는 양쪽 동일 5개.
+#   seed_dock    : ref=[dock_id] 하드필터 + 위치전용(융합 자기시딩).
+#   rotate_90    : 제자리 회전해 북향(+z). 오도 인스턴스(회전 중 마커 상실).
+#   dock_check   : 후방캠 융합, 도크 데칼로 위치보정하며 북진.
+#   corridor_center: ref=[corridor_id] 전환, 도크 x 그대로 북진해 회랑마커(lead=XN31
+#                  @-3.2 / follow=LANE_3 63@-1.2)를 로봇 정중앙(마커 z 라인)에.
+#   final_align  : ref=[final_id] 전환, 제자리 회전해 최종 방향(lead=서쪽 yaw-90 /
+#                  follow=동쪽 yaw+90) 보며 최종 마커(lead=62@-5.0 / follow=64@0.4)로
+#                  yaw+위치 정렬. yaw_tol=1.0 → "1° 이내" 게이트가 여기서 걸린다.
+_PHASE_B_PHASES = (
+    'seed_dock', 'rotate_90', 'dock_check', 'corridor_center', 'final_align')
+# follower 전용 추가 스텝(사용자 지시 2026-07-27): final_align(LANE_4) 뒤에 XN(id31)
+# 으로 yaw 를 한 번 더 정렬한다. follow 가 진입 시작 yaw 가 틀어진 채 들어가 트럭
+# 바퀴에 부딪히던 걸(사용자 실측), 진입 직전 자세를 XN 기준으로 다시 잡아 막는다.
+# leader 는 잘 진입하므로 제외.
+_PHASE_B_FOLLOWER_EXTRA = ('xn_realign',)
 
 
 def phase_b_robot_phases(is_leader):
-    """한 로봇이 밟을 Phase B 단계 이름 리스트. leader 면 offset 포함(6), follower
-    면 offset 제외(5). 오케스트레이터 `_run_phase_b` 가 이 순서를 그대로 실행한다."""
-    return list(_PHASE_B_LEADER_PHASES if is_leader else _PHASE_B_FOLLOWER_PHASES)
+    """한 로봇이 밟을 Phase B 단계 이름 리스트. leader 는 공통 5단계, follower 는 그
+    뒤에 xn_realign(진입 직전 XN 재정렬)을 더한 6단계."""
+    phases = list(_PHASE_B_PHASES)
+    if not is_leader:
+        phases += list(_PHASE_B_FOLLOWER_EXTRA)
+    return phases
 
 
 def phase_b_plan(leader_id, follower_id):
-    """스태거링된 Phase B 전체 계획 — **leader(entry_lead) 6단계 전체가 먼저** 끝나고,
-    그 다음에야 follower(entry_follow) 5단계가 시작되는 순서로 반환한다.
-
-    **왜 leader 먼저인가**(corridor_plan 은 follower 먼저와 반대): 러너
-    `_run_mission_c_choreo`(3128행 부근)가 정확히 이 순서(entry_lead 먼저 완주 →
-    entry_follow)를 쓴다 — entry_lead 의 Phase B 종점(XN 서쪽 x 오프셋)이 확정돼야
-    entry_follow 가 XN 축선으로 안전하게 들어오고, 두 종점이 x 로 |−1.7|=1.7m 벌어져
-    HARD REQUIREMENT(분리 ≥1.5m)를 만족한다. entry_follow 가 먼저 XN 축선에 서면
-    아직 대피 안 한 entry_lead 의 접근 대각선과 겹칠 위험이 있다.
-
-    반환: `PhaseBStep(phase, robot_id)` 리스트. leader 6개 + follower 5개, 이 순서.
-    """
-    steps = [PhaseBStep(p, leader_id) for p in _PHASE_B_LEADER_PHASES]
-    steps += [PhaseBStep(p, follower_id) for p in _PHASE_B_FOLLOWER_PHASES]
+    """진행률 분모용 스텝 목록(leader 5 + follower 6=xn_realign 포함). **실행은
+    동시**(오케스트레이터가 두 레그를 스레드로 병렬 실행) — 순서 의미 없이 개수만 쓴다."""
+    steps = [PhaseBStep(p, leader_id) for p in phase_b_robot_phases(True)]
+    steps += [PhaseBStep(p, follower_id) for p in phase_b_robot_phases(False)]
     return steps
 
 

@@ -71,7 +71,9 @@ def generate_launch_description():
         nodes.append(_node(
             package='parkbot_motion', executable='pose_controller_node',
             name=f'pose_controller_odom_{rid}',
-            parameters=[{'robot_id': rid, 'goal_timeout_sec': GOAL_TIMEOUT}]))
+            # 슬립 감소 다운스케일(2026-07-27): 회전 0.6→0.35, 직진 0.25→0.15.
+            parameters=[{'robot_id': rid, 'goal_timeout_sec': GOAL_TIMEOUT,
+                         'max_lin': 0.15, 'max_ang': 0.35}]))
         nodes.append(_node(
             package='parkbot_motion', executable='pose_controller_node',
             name=f'pose_controller_fused_{rid}',
@@ -79,10 +81,14 @@ def generate_launch_description():
                 'robot_id': rid, 'pose_topic': f'/robot_{rid}/pose',
                 'pose_msg_type': 'posestamped',
                 'action_name': f'/robot_{rid}/navigate_to_pose_fused',
-                # yaw_tol 0.5->1.0: 메카넘 드라이브 데드밴드(잔여 yaw wz≈0.012rad/s
-                # 가 못 돌아감)로 approach 가 0.6°에서 스톨→실패하던 것 방지. 트럭
-                # 진입 정밀정렬은 뎁스 축검출이 맡으므로 1° yaw 는 무관(라이브 실측).
-                'pos_tol': 0.06, 'yaw_tol': 1.0, 'pose_stale_timeout_sec': 15.0,
+                # yaw_tol 0.5: 진입 직전 정렬이 0.5° 넘게 틀어지면 직진 시 트럭 바퀴에
+                # 부딪혀 차밑 진입 실패(사용자 실측). 예전엔 메카넘 데드밴드(wz≈0.012
+                # rad/s 아래 안 돎)로 0.5°를 못 맞춰 스톨→1.0 으로 완화했었으나, 이제
+                # yaw_min_cmd(데드밴드 보정)로 최소 회전속도를 깔아 0.5°까지 인칭 도달.
+                'yaw_min_cmd': 0.05,
+                # 슬립 감소 다운스케일(2026-07-27): 회전 0.6→0.35, 직진 0.25→0.15.
+                'max_lin': 0.15, 'max_ang': 0.35,
+                'pos_tol': 0.06, 'yaw_tol': 0.5, 'pose_stale_timeout_sec': 15.0,
                 'goal_timeout_sec': GOAL_TIMEOUT}]))
 
     # axle_detector ×2, ingress ×2: 픽업 자세원을 융합 /pose 로(드리프트 상쇄).
@@ -102,7 +108,10 @@ def generate_launch_description():
             parameters=[{'robot_id': rid, 'goal_timeout_sec': INGRESS_TIMEOUT,
                          'pose_topic': f'/robot_{rid}/pose',
                          'pose_msg_type': 'posestamped',
-                         'drive_sign': drive_sign}]))
+                         'drive_sign': drive_sign,
+                         # 슬립 감소 다운스케일(2026-07-27): 전진 0.4→0.2, 후진 0.15→0.1, 횡 0.15→0.1.
+                         'forward_speed': 0.2, 'return_speed': 0.1,
+                         'lat_vy_max': 0.1}]))
 
     # lift ×2
     for rid in ('entry_lead', 'entry_follow'):
@@ -120,7 +129,7 @@ def generate_launch_description():
         package='parkbot_motion', executable='pickup_orchestrator_node',
         parameters=[{
             'auto_start': True, 'auto_leader': 'entry_lead',
-            'auto_follower': 'entry_follow',
+            'auto_follower': 'entry_follow', 'auto_delay_sec': 3.0,
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
     return LaunchDescription(nodes)

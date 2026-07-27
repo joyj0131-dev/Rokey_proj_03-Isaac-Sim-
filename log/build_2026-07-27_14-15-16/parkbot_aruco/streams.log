@@ -1,0 +1,22 @@
+[0.349s] Invoking command in '/home/rokey/p3/cobot_ws/build/parkbot_aruco': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_aruco/build --no-deps symlink_data --force
+[0.448s] running develop
+[0.498s] running egg_info
+[0.498s] writing parkbot_aruco.egg-info/PKG-INFO
+[0.498s] writing dependency_links to parkbot_aruco.egg-info/dependency_links.txt
+[0.498s] writing entry points to parkbot_aruco.egg-info/entry_points.txt
+[0.498s] writing requirements to parkbot_aruco.egg-info/requires.txt
+[0.498s] writing top-level names to parkbot_aruco.egg-info/top_level.txt
+[0.498s] reading manifest file 'parkbot_aruco.egg-info/SOURCES.txt'
+[0.499s] writing manifest file 'parkbot_aruco.egg-info/SOURCES.txt'
+[0.499s] running build_ext
+[0.499s] Creating /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot-aruco.egg-link (link to .)
+[0.500s] Installing aruco_detector script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+[0.500s] Installing marker_localizer_node script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+[0.500s] 
+[0.500s] Installed /home/rokey/p3/cobot_ws/build/parkbot_aruco
+[0.500s] running symlink_data
+[0.500s] symbolically linking /home/rokey/p3/cobot_ws/build/parkbot_aruco/resource/parkbot_aruco -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/ament_index/resource_index/packages
+[0.500s] symbolically linking /home/rokey/p3/cobot_ws/build/parkbot_aruco/package.xml -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco
+[0.500s] symbolically linking /home/rokey/p3/cobot_ws/build/parkbot_aruco/data/marker_map.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+[0.500s] symbolically linking /home/rokey/p3/cobot_ws/build/parkbot_aruco/data/marker_map_v4.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+[0.514s] Invoked command in '/home/rokey/p3/cobot_ws/build/parkbot_aruco' returned '0': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_aruco/build --no-deps symlink_data --force

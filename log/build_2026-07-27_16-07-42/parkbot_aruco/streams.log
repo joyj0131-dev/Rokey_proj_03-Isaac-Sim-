@@ -1,0 +1,46 @@
+[0.260s] Invoking command in '/home/rokey/p3/cobot_ws/build/parkbot_aruco': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_aruco/build
+[0.359s] running develop
+[0.413s] Removing /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot-aruco.egg-link (link to .)
+[0.429s] Invoked command in '/home/rokey/p3/cobot_ws/build/parkbot_aruco' returned '0': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_aruco/build
+[0.431s] Invoking command in '/home/rokey/p3/cobot_ws/src/parkbot_aruco': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/parkbot_aruco build --build-base /home/rokey/p3/cobot_ws/build/parkbot_aruco/build install --record /home/rokey/p3/cobot_ws/build/parkbot_aruco/install.log --install-scripts $base/lib/parkbot_aruco --single-version-externally-managed install_data --force
+[0.522s] running egg_info
+[0.523s] writing ../../build/parkbot_aruco/parkbot_aruco.egg-info/PKG-INFO
+[0.523s] writing dependency_links to ../../build/parkbot_aruco/parkbot_aruco.egg-info/dependency_links.txt
+[0.523s] writing entry points to ../../build/parkbot_aruco/parkbot_aruco.egg-info/entry_points.txt
+[0.523s] writing requirements to ../../build/parkbot_aruco/parkbot_aruco.egg-info/requires.txt
+[0.523s] writing top-level names to ../../build/parkbot_aruco/parkbot_aruco.egg-info/top_level.txt
+[0.523s] reading manifest file '../../build/parkbot_aruco/parkbot_aruco.egg-info/SOURCES.txt'
+[0.524s] writing manifest file '../../build/parkbot_aruco/parkbot_aruco.egg-info/SOURCES.txt'
+[0.524s] running build
+[0.524s] running build_py
+[0.524s] copying parkbot_aruco/marker_localizer_node.py -> /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco
+[0.524s] copying parkbot_aruco/marker_localizer.py -> /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco
+[0.524s] running install
+[0.524s] running install_lib
+[0.525s] creating /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/aruco_detector.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/marker_localizer_node.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/site_map_v4.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/marker_localizer.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/aruco_pose.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/__init__.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/pose_estimator.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+[0.525s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/aruco_detector.py to aruco_detector.cpython-310.pyc
+[0.526s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/marker_localizer_node.py to marker_localizer_node.cpython-310.pyc
+[0.528s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/site_map_v4.py to site_map_v4.cpython-310.pyc
+[0.528s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/marker_localizer.py to marker_localizer.cpython-310.pyc
+[0.528s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/aruco_pose.py to aruco_pose.cpython-310.pyc
+[0.529s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/__init__.py to __init__.cpython-310.pyc
+[0.529s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/pose_estimator.py to pose_estimator.cpython-310.pyc
+[0.529s] running install_data
+[0.529s] copying resource/parkbot_aruco -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/ament_index/resource_index/packages
+[0.529s] copying package.xml -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco
+[0.529s] copying data/marker_map.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+[0.529s] copying data/marker_map_v4.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+[0.529s] running install_egg_info
+[0.532s] Copying ../../build/parkbot_aruco/parkbot_aruco.egg-info to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco-0.1.0-py3.10.egg-info
+[0.533s] running install_scripts
+[0.543s] Installing aruco_detector script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+[0.543s] Installing marker_localizer_node script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+[0.543s] writing list of installed files to '/home/rokey/p3/cobot_ws/build/parkbot_aruco/install.log'
+[0.554s] Invoked command in '/home/rokey/p3/cobot_ws/src/parkbot_aruco' returned '0': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_aruco/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/parkbot_aruco build --build-base /home/rokey/p3/cobot_ws/build/parkbot_aruco/build install --record /home/rokey/p3/cobot_ws/build/parkbot_aruco/install.log --install-scripts $base/lib/parkbot_aruco --single-version-externally-managed install_data --force

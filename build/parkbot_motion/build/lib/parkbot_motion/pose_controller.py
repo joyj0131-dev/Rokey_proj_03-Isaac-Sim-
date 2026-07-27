@@ -77,6 +77,7 @@ class PoseController:
 
     def __init__(self, target_xzyaw, *, pos_gain=0.8, yaw_gain=1.2,
                  max_lin=0.25, max_ang=0.6, pos_tol=0.03, yaw_tol=0.5,
+                 yaw_min_cmd=0.0,
                  linear_accel=_DEFAULT_LINEAR_ACCEL,
                  linear_decel=_DEFAULT_LINEAR_DECEL,
                  angular_accel=_DEFAULT_ANGULAR_ACCEL,
@@ -88,6 +89,7 @@ class PoseController:
         self.max_ang = max_ang
         self.pos_tol = pos_tol
         self.yaw_tol = yaw_tol
+        self.yaw_min_cmd = yaw_min_cmd
         self.linear_accel = linear_accel
         self.linear_decel = linear_decel
         self.angular_accel = angular_accel
@@ -114,7 +116,7 @@ class PoseController:
             tvx, tvy, twz, done = body_twist_toward(
                 fused_pose, self.target, pos_gain=self.pos_gain, yaw_gain=self.yaw_gain,
                 max_lin=self.max_lin, max_ang=self.max_ang,
-                pos_tol=self.pos_tol, yaw_tol=self.yaw_tol)
+                pos_tol=self.pos_tol, yaw_tol=self.yaw_tol, yaw_min_cmd=self.yaw_min_cmd)
             if done:
                 self._stopping = True
                 target_tw = (0.0, 0.0, 0.0)
@@ -136,6 +138,18 @@ class PoseController:
         원본의 루프 종료 조건 ``stopping and cur_tw == (0.0, 0.0, 0.0)`` 과 동일.
         """
         return self._stopping and self._cur_tw == (0.0, 0.0, 0.0)
+
+    def resume(self):
+        """settle 결과가 허용오차 밖일 때 **재제어**를 위해 도달래치를 푼다.
+
+        원래 래치(``_stopping``)는 절대 안 풀리는 설계였지만, 그러면 회전 중
+        노이즈 낀 yaw 추정이 한 프레임 tol 안에 들어와 래치→정지→settle 중앙값이
+        tol 밖이면 **재제어 없이 실패**한다(실측 follow 91.34°/목표90°). 노드가
+        settle 후 reached=False 면 이걸 불러 정지래치·현재twist·settle표본을 리셋,
+        다시 DRIVING 으로 돌려 목표로 계속 몬다. steps(총 워치독)는 보존한다."""
+        self._stopping = False
+        self._cur_tw = (0.0, 0.0, 0.0)
+        self._settle_poses = []
 
     def settle_sample(self, fused_pose):
         """settle 창 한 프레임의 관측(fused_pose 또는 None)을 표본에 추가.
