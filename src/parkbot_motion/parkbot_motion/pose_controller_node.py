@@ -370,10 +370,20 @@ class PoseControllerNode(Node):
         tyaw_deg = goal_quat_to_yaw_deg(float(q.x), float(q.y), float(q.z), float(q.w))
         target = (tx, tz, tyaw_deg)
 
+        # per-goal yaw_tol override: 미사용 behavior_tree 필드에 "yaw_tol=<deg>" 를 실어
+        # 스텝별 완화(예: dock_check 는 요 정밀 불필요 — final_align 1° 는 노드기본 유지).
+        yaw_tol = self.yaw_tol
+        bt = str(goal.behavior_tree or '')
+        if 'yaw_tol=' in bt:
+            try:
+                yaw_tol = float(bt.split('yaw_tol=', 1)[1].split()[0].strip(',;'))
+            except (ValueError, IndexError):
+                pass
+
         ctrl = PoseController(
             target, pos_gain=self.pos_gain, yaw_gain=self.yaw_gain,
             max_lin=self.max_lin, max_ang=self.max_ang,
-            pos_tol=self.pos_tol, yaw_tol=self.yaw_tol,
+            pos_tol=self.pos_tol, yaw_tol=yaw_tol,
             linear_accel=self.linear_accel, linear_decel=self.linear_decel,
             angular_accel=self.angular_accel, settle_frames=self.settle_frames)
 
@@ -387,7 +397,8 @@ class PoseControllerNode(Node):
             self._active = active
 
         self.get_logger().info(
-            f'navigate_to_pose: 목표 수락 target=(x={tx:.3f},z={tz:.3f},yaw={tyaw_deg:.2f}deg)')
+            f'navigate_to_pose: 목표 수락 target=(x={tx:.3f},z={tz:.3f},yaw={tyaw_deg:.2f}deg) '
+            f'yaw_tol={yaw_tol:.1f}')
 
         start_wall = time.monotonic()
         outcome = 'timeout'

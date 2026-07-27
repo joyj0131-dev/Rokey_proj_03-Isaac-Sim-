@@ -45,41 +45,20 @@ R4 ``lift_action_server``(``ControlLift``, taskR4-report.md), R5a ``ingress_node
 APPROACHING/PICKED_UP 단계 내부에서 이 안무를 호출하는 식)는 후속 단계 판단
 (설계서 R6 "러너에서 미션 코드 제거·문서 갱신"이 그 판단을 다루기 좋은 시점).
 
-## 안무(``pickup_choreography.corridor_plan`` 그대로 실행)
+## 안무(2026-07-27 재안무: Phase B 동시정렬 → 동시진입 → 리프트 → 운반 → 안착)
 
-1. **스태거링된 회랑 순회**(브리프 필수 지시, 회랑=트럭 밑 통로):
-   follower 전체(approach->align->ingress) 완주 -> 그 다음에야 leader 전체
-   시작. ``pickup_choreography.CorridorStaggerGuard`` 로 명시적으로 강제한다
-   (다른 로봇이 아직 못 비운 회랑에 진입하면 즉시 ``RuntimeError`` -- 이게
-   나면 안무 로직 자체의 버그다, 정상 경로에서는 절대 발생하지 않아야 함).
-   - **approach**: ``/robot_<id>/navigate_to_pose``(``pose_controller_node``
-     기본 인스턴스, ``/robot_<id>/odom`` 자세 소스)로 베이 진입 정렬 자세
-     (기본 x=-3.50,z=7.075,yaw=-90 -- 러너 ``APPROACH_X``/``z_center_truck``/
-     ``APPROACH_YAW`` 실측값과 동일, 파라미터로 오버라이드 가능)까지 이동+회전.
-     **회전 포즈소스 전환 메커니즘**: 이 단계가 바로 브리프가 말한 "회전이
-     필요하면 odom 소스로 전환"이다 -- odom 기반 인스턴스를 쓰는 것 자체가
-     그 전환이다(taskR3c-report.md §5.3: ``YAW_ODOM_SCALE`` 배선 후 스윕
-     오차 +3%, 마커융합으로는 애초에 회전을 못 끝냄, §7). 별도 파라미터
-     set_parameters 호출로 "전환"하지 않는다 -- ``pose_controller_node`` 가
-     구독 토픽을 초기화 시점에 고정하므로(런타임 재구독 미지원), **로봇마다
-     인스턴스 2개**(odom 용/융합용, 서로 다른 ``action_name``)를 띄워두고
-     오케스트레이터가 "이번 단계엔 어느 액션을 부를지"로 전환을 대신한다.
-   - **align**: ``/robot_<id>/navigate_to_pose_fused``(``pose_controller_node``
-     의 두 번째 인스턴스, ``pose_topic=/robot_<id>/pose``(``marker_localizer_node``
-     ``fuse:=true`` 융합), ``pose_msg_type=posestamped``)로 **같은** 목표 자세에
-     한 번 더 수렴 -- approach 가 이미 목표 yaw 에 도달해 있으므로 이 단계의
-     회전 델타는 ~0°(§ 위 회전 메커니즘 설명과 동일 근거로, R3c 가 실패한
-     "±90° 회전을 융합만으로" 케이스에 해당하지 않는다), 위치만 마커 피드백으로
-     정밀 보정한다(taskR3c-report.md §5.4: GT 오차 19cm->2.3~2.6cm). **베스트
-     에포트**: 이 단계가 실패(타임아웃/마커 미검출)해도 전체 태스크를 중단하지
-     않는다 -- approach 가 이미 odom 만으로 도달해 있고(§5.3 스윕 오차 +3%,
-     순수이동 오차도 8cm 대), 통로 여유(±16.5cm)에 여전히 들어가는 근사값이기
-     때문(정직하게: 최종 진입 정밀도가 마커 보정 없이는 다소 떨어질 수 있음,
-     보고서에 실측 기록).
-   - **ingress**: ``/robot_<id>/ingress_under_truck``(trough_index) -- 실패하면
-     (align 과 달리) 태스크 전체를 ``FAILED`` 로 중단한다(이 실패는 로봇이
-     트럭 밑 정위치에 없다는 뜻이라 뒤이은 리프트가 위험하다).
-2. **동시 리프트**(브리프 필수 지시): 두 회랑 순회가 모두 끝난 뒤,
+0. **Phase B 동시 정렬**(``_run_phase_b`` ×2 스레드): 도크 스폰 → 90° 회전 →
+   회랑마커 중앙정렬 → 최종마커 yaw 정렬. 종단에 lead 서향(-90°)/follow 동향
+   (+90°), 둘 다 1° 이내. 상세는 ``pickup_choreography._PHASE_B_PHASES``.
+1. **동시 진입**(``_ingress`` ×2 스레드, 배리어): 두 로봇이 **동시에** world -x 로
+   트럭 밑 진입 — lead 는 서향이라 전진, follow 는 동향이라 후진(``ingress_node``
+   ``drive_sign`` 파라미터가 vx 부호를 처리; 런처가 follow 에 -1 배선).
+   ``/robot_<id>/ingress_under_truck``(trough_index)로 lead 는 2번째(front axle,
+   더 깊이)·follow 는 1번째(rear axle) 트로프에서 측면 뎁스캠 중앙유지하며 정지.
+   lead 가 먼저 출발+더 깊은 축이라 항상 follow 를 앞서 같은 z 중심선이어도
+   충돌 없음(옛 stagger guard 불필요). 어느 한쪽 진입 실패면 태스크 ``FAILED``
+   (로봇이 트럭 밑 정위치에 없다는 뜻이라 뒤이은 리프트가 위험하다).
+2. **동시 리프트**(브리프 필수 지시): 두 진입이 모두 끝난 뒤,
    ``pickup_choreography.run_concurrent`` 로 ``/robot_<id>/control_lift``
    UP 을 **두 로봇에 순서대로 send, 그 다음에야 순서대로 wait**(모든 send 가
    모든 wait 보다 먼저 -- taskR4-report.md §3.4: 순차 send+wait 이면 트럭이
@@ -97,6 +76,7 @@ APPROACHING/PICKED_UP 단계 내부에서 이 안무를 호출하는 식)는 후
 ``main()`` 은 ``MultiThreadedExecutor`` 로 스핀한다.
 """
 import math
+import threading
 import time
 
 import rclpy
@@ -108,11 +88,12 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from nav2_msgs.action import NavigateToPose
+from std_msgs.msg import Bool
 
-from parking_robot_interfaces.action import ControlLift, ExecuteParkingTask, IngressUnderTruck
+from parking_robot_interfaces.action import (
+    CarryToSlot, ControlLift, ExecuteParkingTask, IngressUnderTruck)
 from parkbot_motion.pickup_choreography import (
-    CorridorStaggerGuard, corridor_plan, lift_both_succeeded, phase_b_plan,
-    phase_b_robot_phases, run_concurrent,
+    lift_both_succeeded, phase_b_plan, phase_b_robot_phases, run_concurrent,
 )
 
 # ---- 동시성 패턴 상수(robot_task_orchestrator.py 와 동일 관례) ----
@@ -139,7 +120,8 @@ NAVIGATE_RESULT_TIMEOUT = 330.0
 # 동일 근거) -- approach/align 보다 실제 이동거리가 길어(왕복 최대 ~13m,
 # taskR5a-report.md §5.2) 실행시간도 분 단위로 걸릴 수 있음(브리프 "ingress
 # minutes").
-INGRESS_RESULT_TIMEOUT = 330.0
+INGRESS_RESULT_TIMEOUT = 550.0   # 진입 서버 goal_timeout(500)보다 커야 클라가 먼저 안 포기
+CARRY_RESULT_TIMEOUT = 600.0    # 14m 운반(저RTF 헤드리스)·carry goal_timeout(600)과 맞춤
 # lift_action_server.ramp_wait_sec -- bringup 이 10.0s 로 올려 기동한다(기본
 # 3.0s 는 RTF 저하 미반영) -- 그 위에 discovery/폴링 여유를 넉넉히.
 LIFT_RESULT_TIMEOUT = 30.0
@@ -194,33 +176,30 @@ class PickupOrchestratorNode(Node):
         super().__init__('pickup_orchestrator_node')
 
         self.declare_parameter('action_name', 'execute_pickup_choreography')
-        # 베이 진입 정렬 자세(러너 실측값, parking_v4_runner.py APPROACH_X/
-        # z_center_truck/APPROACH_YAW 와 동일 -- docstring §안무 참고).
-        self.declare_parameter('approach_x', -3.50)
-        self.declare_parameter('approach_z', 7.075)
-        self.declare_parameter('approach_yaw_deg', -90.0)
-        # leader=후축(rear)=trough 0, follower=전축(front)=trough 1
-        # (taskR5a-report.md 실측: entry_lead->index0, entry_follow->index1).
-        self.declare_parameter('leader_trough_index', 0)
-        self.declare_parameter('follower_trough_index', 1)
+        # 2026-07-27 재안무: lead 는 2번째로 뎁스변하는 바퀴(=front axle, 더 깊이),
+        # follow 는 1번째(=rear axle). 둘 다 -x 로 진입하므로 index 0=먼저 만나는
+        # (높은 x) 후축, index 1=다음(낮은 x) 전축. lead 가 먼저 출발+더 깊은 축이라
+        # 항상 follow 를 앞서 같은 z 중심선에서도 충돌 없음.
+        self.declare_parameter('leader_trough_index', 1)
+        self.declare_parameter('follower_trough_index', 0)
         # 로봇별 액션 이름 접미사 -- ROS2 배관 컨벤션(§ 클래스 docstring "회전
         # 포즈소스 전환 메커니즘"). odom 인스턴스는 pose_controller_node 기본값과
         # 일치해야 별도 -p action_name 없이도 바로 붙는다.
         self.declare_parameter('navigate_odom_action', 'navigate_to_pose')
         self.declare_parameter('navigate_fused_action', 'navigate_to_pose_fused')
         self.declare_parameter('ingress_action', 'ingress_under_truck')
+        # Phase D 운반: carry_action_server 액션 + 목표 슬롯 pose(우리 (x,z,yaw) 규약).
+        # 기본 A2'(6.2, 6.875) — UI gateway 연동 전엔 이 파라미터로 목표 지정.
+        # ponytail: goal.slot_pose(Pose) 매핑은 UI gateway 증분에서.
+        self.declare_parameter('carry_action', 'carry_to_slot')
+        # ---- Stage 4 주차: 슬롯 lane(z≈7.075) 도달+회전 → 가운데(z≈0) 진입 ----
+        # 기본 슬롯 A1(x=2.8). lane 마커 id 3(2.8,7.075), 가운데 마커 id 66(2.8,0).
+        self.declare_parameter('park_slot_x', 2.8)          # 슬롯 x(A1=2.8/A2=6.2/A3=9.6)
+        self.declare_parameter('park_lane_z', 7.075)        # 슬롯 앞 lane z(운반 도달선)
+        self.declare_parameter('park_center_z', 0.0)        # 슬롯 가운데 z(최종 정지)
+        # 운반 중 트럭축 yaw≈-90(E-W). 슬롯 진입엔 N-S 로 CCW 90° → 목표 트럭 yaw=-180.
+        self.declare_parameter('park_truck_yaw_deg', -180.0)
         self.declare_parameter('lift_action', 'control_lift')
-        # align(융합) 단계 실패를 치명적으로 볼지 -- 기본 False(베스트에포트,
-        # § 클래스 docstring "align" 절 근거).
-        self.declare_parameter('align_required', False)
-        # approach 자세원을 융합(navigate_fused_action)으로 쓸지 -- 기본 False(오도,
-        # R5b 하위호환: 로봇이 베이 근처에서 시작해 오도 드리프트가 작을 때). Phase B
-        # 를 앞에 붙이면 도크→XN ~12m+회전으로 raw 오도가 ~1m 드리프트하므로(실측),
-        # approach 는 마커보정된 융합 자세(Phase B 종단에서 정확)로 시작해야 한다 --
-        # bringup_pickup_e2e.sh 가 START_AT_DOCK=1 에서 켠다. axle_detector/ingress 도
-        # 같은 융합 프레임을 쓰면(bringup 배선) 뎁스 검출축 기준 상대정지라 절대
-        # 드리프트가 상쇄된다.
-        self.declare_parameter('approach_use_fused', False)
 
         # ---- Phase B(도크 스폰→XN 융합주행) 레그 파라미터 (R6/T3) ----
         # corridor_plan(픽업 회랑) **앞에** 두 로봇의 도크→XN 레그를 붙일지.
@@ -229,8 +208,9 @@ class PickupOrchestratorNode(Node):
         self.declare_parameter('run_phase_b_first', True)
         # XN(크로싱) 마커 — 두 로봇 공용(러너 read_markers["XN"], id31, x=-2.5, z=6.875).
         self.declare_parameter('phase_b_xn_id', 31)
-        self.declare_parameter('phase_b_xn_x', -2.5)
-        self.declare_parameter('phase_b_xn_z', 6.875)
+        # XN 이동(2026-07-26 사용자 재배치): (-2.5,6.875) -> (-3.2,7.075) 회랑 마커.
+        self.declare_parameter('phase_b_xn_x', -3.2)
+        self.declare_parameter('phase_b_xn_z', 7.075)
         # 러너 미션 상수: XN 남쪽 standoff 1.3, 도크체크 standoff 1.4, 오프셋 -1.7.
         self.declare_parameter('phase_b_xn_standoff', 1.3)
         self.declare_parameter('phase_b_dockcheck_standoff', 1.4)
@@ -245,14 +225,15 @@ class PickupOrchestratorNode(Node):
         # (데칼 xformOp:translate z 는 aruco:position 보다 0.7m 북쪽 — 러너
         # marker_visual_center 실측, 기본 2.9). 각 값은 T4/T5 bringup 이 실측으로
         # 오버라이드할 수 있게 파라미터로 노출.
+        # 도크 데칼 z 이동(2026-07-26 사용자 재배치): 2.9 -> 3.8 (도크 마커 북상).
         self.declare_parameter('phase_b_leader_dock_id', 21)
         self.declare_parameter('phase_b_leader_dock_x', -3.2)
         self.declare_parameter('phase_b_leader_dock_z', 2.2)
-        self.declare_parameter('phase_b_leader_dock_decal_z', 2.9)
+        self.declare_parameter('phase_b_leader_dock_decal_z', 3.8)
         self.declare_parameter('phase_b_follower_dock_id', 23)
         self.declare_parameter('phase_b_follower_dock_x', -1.2)
         self.declare_parameter('phase_b_follower_dock_z', 2.2)
-        self.declare_parameter('phase_b_follower_dock_decal_z', 2.9)
+        self.declare_parameter('phase_b_follower_dock_decal_z', 3.8)
         # 융합 localizer 인스턴스의 **완전수식 노드명** — 크로스노드 set_parameters
         # (ref_ids/correct_yaw)의 서비스 대상 `<node_name>/set_parameters`. 빈 값이면
         # 런타임에 `/robot_<id>/marker_localizer_node` 로 유도한다(T4 bringup 이 로봇별
@@ -261,22 +242,33 @@ class PickupOrchestratorNode(Node):
         # 구분해줘야 한다. 보고서 우려 참조).
         self.declare_parameter('phase_b_leader_localizer_node', '')
         self.declare_parameter('phase_b_follower_localizer_node', '')
+        # 2026-07-27 재안무: 로봇별 회랑마커/최종마커/최종 yaw. corridor 는 도크 x 그대로
+        # 북진해 중앙에 두는 회랑마커, final 은 제자리 회전해 정렬하는 진입직전 마커.
+        self.declare_parameter('phase_b_leader_corridor_id', 31)     # XN @ (-3.2,7.075)
+        self.declare_parameter('phase_b_follower_corridor_id', 63)   # LANE_3 @ (-1.2,7.075)
+        self.declare_parameter('phase_b_leader_final_id', 62)        # LANE_2 handoff @ (-5.0)
+        self.declare_parameter('phase_b_leader_final_yaw', -90.0)    # 서쪽(-x) 봄
+        self.declare_parameter('phase_b_follower_final_id', 64)      # LANE_4 @ (0.4)
+        self.declare_parameter('phase_b_follower_final_yaw', 90.0)   # 동쪽(+x) 봄
+        # dock_check 요 허용(도) — 중간 스텝이라 완화(final_align 1° 는 노드기본 유지).
+        self.declare_parameter('dock_check_yaw_tol', 5.0)
 
         gp = self.get_parameter
         self.action_name = gp('action_name').value
-        self.approach_x = float(gp('approach_x').value)
-        self.approach_z = float(gp('approach_z').value)
-        self.approach_yaw_deg = float(gp('approach_yaw_deg').value)
         self.leader_trough_index = int(gp('leader_trough_index').value)
         self.follower_trough_index = int(gp('follower_trough_index').value)
         self.navigate_odom_action = gp('navigate_odom_action').value
         self.navigate_fused_action = gp('navigate_fused_action').value
         self.ingress_action = gp('ingress_action').value
+        self.carry_action = gp('carry_action').value
+        self.park_slot_x = float(gp('park_slot_x').value)
+        self.park_lane_z = float(gp('park_lane_z').value)
+        self.park_center_z = float(gp('park_center_z').value)
+        self.park_truck_yaw_deg = float(gp('park_truck_yaw_deg').value)
         self.lift_action = gp('lift_action').value
-        self.align_required = bool(gp('align_required').value)
-        self.approach_use_fused = bool(gp('approach_use_fused').value)
 
         # ---- Phase B 파라미터 캐시 ----
+        self.dock_check_yaw_tol = float(gp('dock_check_yaw_tol').value)
         self.run_phase_b_first = bool(gp('run_phase_b_first').value)
         self.phase_b_xn_id = int(gp('phase_b_xn_id').value)
         self.phase_b_xn_x = float(gp('phase_b_xn_x').value)
@@ -294,6 +286,12 @@ class PickupOrchestratorNode(Node):
         self.phase_b_follower_dock_decal_z = float(gp('phase_b_follower_dock_decal_z').value)
         self.phase_b_leader_localizer_node = gp('phase_b_leader_localizer_node').value
         self.phase_b_follower_localizer_node = gp('phase_b_follower_localizer_node').value
+        self.phase_b_leader_corridor_id = int(gp('phase_b_leader_corridor_id').value)
+        self.phase_b_follower_corridor_id = int(gp('phase_b_follower_corridor_id').value)
+        self.phase_b_leader_final_id = int(gp('phase_b_leader_final_id').value)
+        self.phase_b_leader_final_yaw = float(gp('phase_b_leader_final_yaw').value)
+        self.phase_b_follower_final_id = int(gp('phase_b_follower_final_id').value)
+        self.phase_b_follower_final_yaw = float(gp('phase_b_follower_final_yaw').value)
 
         self._cbg = ReentrantCallbackGroup()
         # 이름 주의: rclpy.node.Node 가 이미 인스턴스 속성 ``self._clients``
@@ -304,11 +302,15 @@ class PickupOrchestratorNode(Node):
         # 인덱싱하다 ``KeyError: 0`` 로 죽는다(taskR5bfix 진단 그대로). 액션
         # 클라이언트 캐시라 이름도 구분해 ``_action_clients`` 로 둔다.
         self._action_clients = {}  # (robot_id, action_key) -> ActionClient
+        self._carry_client = None  # /carry_to_slot 액션 클라이언트(로봇쌍 공용, 지연 생성)
         # 크로스노드 set_parameters(SetParameters 서비스) 클라이언트 캐시(노드명별).
         # Node.create_client 는 내부 self._clients(서비스 클라이언트 리스트)에도
         # 등록하지만, 우리 캐시는 별도 dict 라 그 리스트를 덮어쓰지 않는다(§ 위
         # _action_clients 이름주의 주석과 동일 근거).
         self._param_clients = {}  # node_name -> SetParameters 서비스 클라이언트
+        # 측면 뎁스캠 게이팅 퍼블리셔(로봇별 캐시). sim_bridge 가 구독 —
+        # 픽업 approach~ingress 구간에만 True 를 쏴 뎁스 렌더를 켠다(그 밖엔 pause).
+        self._depth_enable_pubs = {}  # robot_id -> Bool 퍼블리셔
 
         self._execute_task_server = ActionServer(
             self, ExecuteParkingTask, self.action_name, self._on_execute_parking_task,
@@ -316,7 +318,6 @@ class PickupOrchestratorNode(Node):
 
         self.get_logger().info(
             f'pickup_orchestrator_node 시작: action={self.action_name} '
-            f'approach=(x={self.approach_x},z={self.approach_z},yaw={self.approach_yaw_deg}) '
             f'leader_trough={self.leader_trough_index} follower_trough={self.follower_trough_index}')
 
         # 자율 실행: auto_start=true 면 노드 기동 후 auto_delay_sec 뒤에 스스로
@@ -358,6 +359,16 @@ class PickupOrchestratorNode(Node):
                 SetParameters, f'{node_name}/set_parameters', callback_group=self._cbg)
             self._param_clients[node_name] = client
         return client
+
+    def _depth_enable(self, robot_id, on):
+        """측면 뎁스캠 렌더를 sim_bridge 에 켜/꺼 요청. bridge 가 항상 먼저 떠 있고
+        기본 reliable QoS 라 연결된 구독자에 전달 보장됨(래칭 불필요)."""
+        pub = self._depth_enable_pubs.get(robot_id)
+        if pub is None:
+            pub = self.create_publisher(Bool, f'/robot_{robot_id}/depth_enable', 10)
+            self._depth_enable_pubs[robot_id] = pub
+        pub.publish(Bool(data=bool(on)))
+        self.get_logger().info(f'depth_enable[{robot_id}]={on}')
 
     # ---- 재진입 spin 없는 액션 호출(robot_task_orchestrator.py 와 동일 패턴) ----
 
@@ -403,35 +414,6 @@ class PickupOrchestratorNode(Node):
 
     # ---- 단계별 호출 래퍼 ----
 
-    def _approach(self, robot_id):
-        # approach_use_fused: Phase B 뒤엔 raw 오도가 드리프트하므로 마커보정된
-        # 융합 자세원(nav_fused)으로 시작한다(§ approach_use_fused 파라미터 근거).
-        if self.approach_use_fused:
-            client = self._client(robot_id, 'nav_fused', NavigateToPose, self.navigate_fused_action)
-        else:
-            client = self._client(robot_id, 'nav_odom', NavigateToPose, self.navigate_odom_action)
-        goal = _navigate_goal(self.get_clock(), self.approach_x, self.approach_z,
-                               self.approach_yaw_deg)
-        result, status, reason = self._call_action(
-            client, goal, label=f'approach[{robot_id}]', result_timeout=NAVIGATE_RESULT_TIMEOUT)
-        if result is None:
-            return False, reason
-        if status != GoalStatus.STATUS_SUCCEEDED:
-            return False, f'approach[{robot_id}] 실패(status={status})'
-        return True, None
-
-    def _align(self, robot_id):
-        client = self._client(robot_id, 'nav_fused', NavigateToPose, self.navigate_fused_action)
-        goal = _navigate_goal(self.get_clock(), self.approach_x, self.approach_z,
-                               self.approach_yaw_deg)
-        result, status, reason = self._call_action(
-            client, goal, label=f'align[{robot_id}]', result_timeout=NAVIGATE_RESULT_TIMEOUT)
-        if result is None:
-            return False, reason
-        if status != GoalStatus.STATUS_SUCCEEDED:
-            return False, f'align[{robot_id}] 실패(status={status})'
-        return True, None
-
     def _ingress(self, robot_id, trough_index):
         client = self._client(robot_id, 'ingress', IngressUnderTruck, self.ingress_action)
         goal = IngressUnderTruck.Goal()
@@ -449,6 +431,30 @@ class PickupOrchestratorNode(Node):
             f'ingress[{robot_id}] 완료: stop_x={result.stop_x:.4f} '
             f'target_axle_x={result.target_axle_x:.4f}')
         return True, None
+
+    def _carry(self, leader_id, follower_id, target_x, target_z, target_yaw_deg, label):
+        """가상중심 운반 한 세그먼트: 중심을 (target_x,target_z) 로 직진 후 트럭 yaw 를
+        target_yaw_deg 로 회전(carry_action_server 2페이즈). Stage 4 가 lane→회전,
+        가운데 진입을 각각 한 번씩 부른다."""
+        if self._carry_client is None:
+            self._carry_client = ActionClient(
+                self, CarryToSlot, self.carry_action, callback_group=self._cbg)
+        goal = CarryToSlot.Goal()
+        goal.lead_robot_id = leader_id
+        goal.follow_robot_id = follower_id
+        goal.target_x = float(target_x)
+        goal.target_z = float(target_z)
+        goal.target_yaw_deg = float(target_yaw_deg)
+        result, status, reason = self._call_action(
+            self._carry_client, goal, label=label, result_timeout=CARRY_RESULT_TIMEOUT)
+        if result is None:
+            return False, reason
+        if status != GoalStatus.STATUS_SUCCEEDED:
+            return False, f'{label} 실패(status={status})'
+        if not result.success:
+            return False, f'{label} 실패({result.message})'
+        return True, (f'{label} 완료: final=({result.final_x:.3f},{result.final_z:.3f},'
+                      f'{result.final_yaw_deg:.1f})')
 
     def _lift_concurrent(self, leader_id, follower_id, command):
         """§클래스 docstring "동시 리프트" -- pickup_choreography.run_concurrent 로
@@ -517,11 +523,14 @@ class PickupOrchestratorNode(Node):
             return False, f'{label} set_parameters 거부: {reasons}'
         return True, None
 
-    def _navigate_phase_b(self, robot_id, action_key, action_suffix, x, z, yaw_deg, label):
-        """Phase B 한 세그먼트의 NavigateToPose(USD 프레임) 호출. approach/align 과
-        동일한 ``_client``/``_navigate_goal``/``_call_action`` 을 그대로 재사용한다."""
+    def _navigate_phase_b(self, robot_id, action_key, action_suffix, x, z, yaw_deg, label,
+                          yaw_tol=None):
+        """Phase B 한 세그먼트의 NavigateToPose(USD 프레임) 호출.
+        ``yaw_tol`` 지정 시 goal.behavior_tree 로 실어 그 스텝만 요 허용 완화(dock_check)."""
         client = self._client(robot_id, action_key, NavigateToPose, action_suffix)
         goal = _navigate_goal(self.get_clock(), x, z, yaw_deg)
+        if yaw_tol is not None:
+            goal.behavior_tree = f'yaw_tol={yaw_tol}'
         result, status, reason = self._call_action(
             client, goal, label=label, result_timeout=NAVIGATE_RESULT_TIMEOUT)
         if result is None:
@@ -538,12 +547,18 @@ class PickupOrchestratorNode(Node):
             dock_z = self.phase_b_leader_dock_z
             dock_decal_z = self.phase_b_leader_dock_decal_z
             node = self.phase_b_leader_localizer_node
+            corridor_id = self.phase_b_leader_corridor_id
+            final_id = self.phase_b_leader_final_id
+            final_yaw = self.phase_b_leader_final_yaw
         else:
             dock_id = self.phase_b_follower_dock_id
             dock_x = self.phase_b_follower_dock_x
             dock_z = self.phase_b_follower_dock_z
             dock_decal_z = self.phase_b_follower_dock_decal_z
             node = self.phase_b_follower_localizer_node
+            corridor_id = self.phase_b_follower_corridor_id
+            final_id = self.phase_b_follower_final_id
+            final_yaw = self.phase_b_follower_final_yaw
         if not node:
             node = f'/robot_{robot_id}/marker_localizer_node'
         return {
@@ -552,64 +567,67 @@ class PickupOrchestratorNode(Node):
             'dock_id': dock_id, 'dock_x': dock_x, 'dock_z': dock_z,
             'dock_decal_z': dock_decal_z,
             'dockcheck_standoff': self.phase_b_dockcheck_standoff,
-            'xn_id': self.phase_b_xn_id, 'xn_x': self.phase_b_xn_x,
-            'xn_z': self.phase_b_xn_z, 'xn_standoff': self.phase_b_xn_standoff,
-            'final_x_offset': self.phase_b_final_x_offset,
+            'corridor_id': corridor_id,        # 회랑마커(도크 x 그대로 북진, 중앙에)
+            'xn_z': self.phase_b_xn_z,          # 회랑마커 z 라인(=7.075)
+            'final_id': final_id, 'final_yaw': final_yaw,  # 진입직전 회전+정렬
         }
 
     def _run_phase_b(self, robot_id, params):
         """한 로봇의 Phase B 레그(러너 `_run_entry_lead_b`/`_run_entry_follow_b`)를
         localizer ref 전환 + odom/융합 navigate 로 실행한다.
 
-        단계(phase_b_robot_phases): seed_dock→rotate_90→dock_check→xn_align_x→
-        xn_align_z→(leader 만)offset. 어느 한 단계라도 실패하면 즉시 (False, 사유).
-        모든 목표는 yaw=0(북향), 좌표는 USD 월드 프레임.
+        단계(2026-07-27 재안무): seed_dock→rotate_90→dock_check→corridor_center→
+        final_align. 어느 한 단계라도 실패하면 즉시 (False, 사유). 좌표는 USD 월드 프레임.
+        **동시 실행**: 오케스트레이터가 이 함수를 두 로봇에 대해 스레드로 병렬 호출한다.
         """
         node = params['localizer_node']
-        dock_id, xn_id = params['dock_id'], params['xn_id']
+        dock_id = params['dock_id']
         dock_x, dock_z = params['dock_x'], params['dock_z']
-        # 도크체크 목표 z = 데칼 z + standoff (러너 seg1_target = dock_decal[1]+standoff).
+        # 도크체크 목표 z = 데칼 z + standoff.
         dock_check_z = params['dock_decal_z'] + params['dockcheck_standoff']
-        xn_x = params['xn_x']
-        # XN 정렬/오프셋 종단 z = xn_z - standoff (러너 seg2_target).
-        xn_align_z = params['xn_z'] - params['xn_standoff']
+        corridor_id = params['corridor_id']
+        corridor_z = params['xn_z']         # 회랑마커 z 라인(=7.075). 여기까지 북진.
+        final_id, final_yaw = params['final_id'], params['final_yaw']
 
         for phase in phase_b_robot_phases(params['is_leader']):
             label = f'phase_b:{phase}[{robot_id}]'
             if phase == 'seed_dock':
-                # ref_ids=[dock_id] 하드필터 + 위치전용 보정(correct_yaw=False).
-                # 융합 localizer 는 첫 도크 fix 로 자기 시딩한다(SEED_DOCK 은 ref 전환).
-                ok, reason = self._set_localizer_ref(node, [dock_id], False, label)
+                # ref_ids=[dock_id] 하드필터 + **yaw 보정 ON**(2026-07-27: 위치전용
+                # 으론 다중미터 주행에 yaw 몇 도 드리프트가 안 잡혀 dock_check 가 얼어붙음
+                # — 정면 마커로 yaw까지 보정해야 수렴/1° 달성). rotate_90 은 오도라 무관.
+                ok, reason = self._set_localizer_ref(node, [dock_id], True, label)
             elif phase == 'rotate_90':
-                # 제자리 90° 회전(+X→+Z, yaw 0). **오도 인스턴스**(융합은 회전 중
-                # 마커 상실 — R3c §7). 위치는 도크 스폰(dock_x, dock_z) 유지.
+                # 제자리 회전해 북향(yaw 0). **오도 인스턴스**(회전 중 마커 상실).
                 ok, reason = self._navigate_phase_b(
                     robot_id, 'nav_odom', self.navigate_odom_action,
                     dock_x, dock_z, 0.0, label)
             elif phase == 'dock_check':
-                # 후방캠 융합으로 북진하며 도크 데칼 위치보정(ref 는 seed_dock 에서
-                # 이미 [dock_id]). 융합 인스턴스 사용.
+                # 후방캠 융합으로 북진하며 도크 데칼 위치보정(ref=[dock_id] 유지).
+                # 요 정밀 불필요(다음 corridor_center 가 재정렬) — 메카넘 요 데드밴드(~1°)가
+                # 기본 tol 1.0° 에 딱 걸려 status=6 플레이크(실측) 나므로 완화한다.
+                # final_align 1° 게이트는 노드기본 tol(1.0) 그대로라 영향 없음.
                 ok, reason = self._navigate_phase_b(
                     robot_id, 'nav_fused', self.navigate_fused_action,
-                    dock_x, dock_check_z, 0.0, label)
-            elif phase == 'xn_align_x':
-                # ref 를 XN(31)로 전환(전방캠 검출) 후, x 만 xn_x 로 정렬(z 유지).
-                ok, reason = self._set_localizer_ref(node, [xn_id], False, label)
+                    dock_x, dock_check_z, 0.0, label, yaw_tol=self.dock_check_yaw_tol)
+            elif phase == 'corridor_center':
+                # ref 를 회랑마커(lead=XN31/follow=LANE_3 63)로 전환 후, 도크 x 그대로
+                # 회랑 z 라인(7.075)까지 북진 — 마커를 로봇 정중앙에. yaw=0(북향).
+                ok, reason = self._set_localizer_ref(node, [corridor_id], True, label)
                 if ok:
                     ok, reason = self._navigate_phase_b(
                         robot_id, 'nav_fused', self.navigate_fused_action,
-                        xn_x, dock_check_z, 0.0, label)
-            elif phase == 'xn_align_z':
-                # x=xn_x 고정, 순수 북진해 XN 남쪽 standoff 로(검출창 통과).
-                ok, reason = self._navigate_phase_b(
-                    robot_id, 'nav_fused', self.navigate_fused_action,
-                    xn_x, xn_align_z, 0.0, label)
-            elif phase == 'offset':
-                # leader 전용 충돌회피 x 오프셋 → 최종 대기자세.
-                ok, reason = self._navigate_phase_b(
-                    robot_id, 'nav_fused', self.navigate_fused_action,
-                    xn_x + params['final_x_offset'], xn_align_z, 0.0, label)
-            else:  # pragma: no cover -- phase_b_robot_phases 만이 이 루프를 채운다
+                        dock_x, corridor_z, 0.0, label)
+            elif phase == 'final_align':
+                # ref 를 최종마커(lead=62/follow=64)로 전환 후, 제자리 회전해 최종
+                # 방향(lead=서쪽 -90 / follow=동쪽 +90) 정렬. yaw_tol=1.0 → 1° 게이트.
+                # ponytail: 위치는 (dock_x, corridor_z) 유지 — 회전+마커 yaw보정만.
+                #   진입 정밀은 뎁스가 맡으니 여기선 방향·1° 정렬이 목적.
+                ok, reason = self._set_localizer_ref(node, [final_id], True, label)
+                if ok:
+                    ok, reason = self._navigate_phase_b(
+                        robot_id, 'nav_fused', self.navigate_fused_action,
+                        dock_x, corridor_z, final_yaw, label)
+            else:  # pragma: no cover
                 ok, reason = False, f'알 수 없는 Phase B 단계: {phase}'
             if not ok:
                 return False, f'{label} 실패: {reason}'
@@ -657,31 +675,50 @@ class PickupOrchestratorNode(Node):
             f'execute_pickup_choreography 시작: task_id={goal.task_id} '
             f'leader={leader_id} follower={follower_id}')
 
-        plan = corridor_plan(leader_id, follower_id,
-                              self.leader_trough_index, self.follower_trough_index)
-        # 진행률 분모: 회랑 6단계 + 동시 리프트 1 + (활성 시)Phase B 스텝 수.
+        # 뎁스캠 게이팅 퍼블리셔를 미션 시작(=approach 보다 한참 전, Phase B 앞)에
+        # 미리 만들어 sim_bridge 구독자와 DDS 매칭을 끝내둔다 — approach 에서 처음
+        # publish 할 때 discovery 레이스로 첫 True 가 유실되지 않게(reliable QoS 는
+        # 매칭 이후에만 전달 보장).
+        for rid in (leader_id, follower_id):
+            self._depth_enable(rid, False)
+
+        # 진행률 분모: Phase B 스텝 + 진입 2 + 리프트UP + 운반 + 안착(DOWN).
         pb_steps = phase_b_plan(leader_id, follower_id) if self.run_phase_b_first else []
-        total = len(plan) + 1 + len(pb_steps)
-        guard = CorridorStaggerGuard()
+        total = len(pb_steps) + 2 + 4   # 진입2 +리프트UP +운반(lane+slot 2) +안착DOWN
 
         idx = 0
         fail_reason = None
 
-        # ---- Phase B(도크 스폰→XN) 레그: 픽업 회랑 **앞에** 스태거 실행 ----
-        # leader(entry_lead) 전체가 먼저 끝난 뒤 follower(entry_follow) 시작
-        # (phase_b_plan 스태거 근거). 어느 로봇이라도 실패하면 전체 태스크 FAILED.
+        # ---- Phase B(도크→회랑정렬): 두 로봇 **동시** 실행 ----
+        # 2026-07-27 재안무: lead/follow 를 스레드로 병렬 실행, join = 배리어(둘 다
+        # final_align 1° 이내 정렬해야 진입). MultiThreadedExecutor+ReentrantCallbackGroup
+        # 이라 두 레그의 폴링 액션호출이 동시에 진행된다. 로봇별로 액션클라이언트/토픽/
+        # localizer 노드가 갈려 상호간섭 없음. ponytail: _client 캐시 dict 를 두 스레드가
+        # 채우지만 키가 로봇별로 달라 경합 없음(같은 키 동시생성 나면 lock 추가).
         if self.run_phase_b_first:
-            for rid, is_leader in ((leader_id, True), (follower_id, False)):
-                self._publish_feedback(goal_handle, f'PHASE_B_{rid}', idx, total)
-                self.get_logger().info(f'Phase B 레그 시작: robot={rid} leader={is_leader}')
-                ok, reason = self._run_phase_b(rid, self._phase_b_params(rid, is_leader))
+            self._publish_feedback(goal_handle, 'PHASE_B_CONCURRENT', idx, total)
+            self.get_logger().info(
+                f'Phase B 동시 시작: leader={leader_id} follower={follower_id}')
+            legs = {}   # rid -> (ok, reason)
+
+            def _leg(rid, is_leader):
+                legs[rid] = self._run_phase_b(rid, self._phase_b_params(rid, is_leader))
+
+            threads = [threading.Thread(target=_leg, args=(leader_id, True), daemon=True),
+                       threading.Thread(target=_leg, args=(follower_id, False), daemon=True)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()   # 배리어: 둘 다 정렬 끝나야 다음(진입)
+            idx += 2 * len(phase_b_robot_phases(True))
+            for rid in (leader_id, follower_id):
+                ok, reason = legs.get(rid, (False, f'{rid} Phase B 레그 미완'))
                 if not ok:
                     self._publish_feedback(goal_handle, 'FAILED', idx, total)
                     self.get_logger().warn(f'execute_pickup_choreography 실패(Phase B): {reason}')
                     goal_handle.abort()
                     return ExecuteParkingTask.Result(success=False, message=reason)
-                idx += len(phase_b_robot_phases(is_leader))
-                self.get_logger().info(f'Phase B 레그 완료: robot={rid}')
+            self.get_logger().info('Phase B 동시 완료: 두 로봇 최종 정렬(1° 이내)')
 
             # Phase B 종료 후 픽업 진입 전: 두 로봇 localizer 의 마커 보정을 끈다
             # (ref_ids 를 무매칭값 [-1] 로 -> filter_detections_by_ref 가 아무 마커도
@@ -698,38 +735,36 @@ class PickupOrchestratorNode(Node):
                          else self.phase_b_follower_localizer_node)
                         or f'/robot_{rid}/marker_localizer_node')
                 self._set_localizer_ref(node, [-1], False, f'pickup-marker-off[{rid}]')
-        for step in plan:
-            phase, robot_id, trough_index = step
-            step_label = f'{phase.upper()}_{robot_id}'
-            self._publish_feedback(goal_handle, step_label, idx, total)
+        # ---- 트럭 밑 진입: **순차(스태거)** (2026-07-27 사용자 지시) ----
+        # lead 가 **먼저** 들어가 안쪽(더 깊은) 축(leader_trough_index=1)에 자리잡고, 그
+        # 다음에야 follow 가 들어가 바깥쪽 축(follower_trough_index=0)에 멈춘다. 이 순서면
+        # follow 가 lead 를 지나칠 필요가 없어(lead 가 더 깊이 있음) 같은 z 중심선에서도
+        # 충돌 없음. 동시진입 대비 (1) 충돌위험 원천차단 (2) 한 번에 로봇 1대 뎁스만 렌더
+        # → RTF 부담↓(저rtf 진입 신뢰도↑). 리프트는 follow 까지 자리잡은 뒤(둘 다 그립).
+        # 주의: 이 순서는 lead 축이 follow 축보다 깊을 때만 안전 — GUI 에서 follow 가 lead
+        # 를 지나쳐야 하면 순서를 뒤집어야 한다(trough/진입순서 swap).
+        def _do_ingress(rid, trough_index, tag):
+            self._depth_enable(rid, True)
+            ok, reason = self._ingress(rid, trough_index)
+            self._depth_enable(rid, False)
+            if not ok:
+                self._publish_feedback(goal_handle, 'FAILED', idx, total)
+                self.get_logger().warn(f'execute_pickup_choreography 실패(진입 {tag}): {reason}')
+                goal_handle.abort()
+                return ExecuteParkingTask.Result(success=False, message=reason)
+            return None
 
-            if phase == 'approach':
-                guard.enter(robot_id)  # 회랑 진입 -- 다른 로봇이 안 비웠으면 예외
-                ok, reason = self._approach(robot_id)
-                if not ok:
-                    fail_reason = reason
-                    break
-            elif phase == 'align':
-                ok, reason = self._align(robot_id)
-                if not ok:
-                    self.get_logger().warn(
-                        f'align[{robot_id}] 베스트에포트 실패(계속 진행): {reason}')
-                    if self.align_required:
-                        fail_reason = reason
-                        break
-            elif phase == 'ingress':
-                ok, reason = self._ingress(robot_id, trough_index)
-                guard.clear(robot_id)  # 성공/실패 무관 -- 회랑에서는 벗어난 상태
-                if not ok:
-                    fail_reason = reason
-                    break
-            idx += 1
-
-        if fail_reason is not None:
-            self._publish_feedback(goal_handle, 'FAILED', idx, total)
-            self.get_logger().warn(f'execute_pickup_choreography 실패: {fail_reason}')
-            goal_handle.abort()
-            return ExecuteParkingTask.Result(success=False, message=fail_reason)
+        self._publish_feedback(goal_handle, 'INGRESS_LEAD', idx, total)
+        fail = _do_ingress(leader_id, self.leader_trough_index, 'lead(안쪽축)')
+        if fail is not None:
+            return fail
+        idx += 1
+        self._publish_feedback(goal_handle, 'INGRESS_FOLLOW', idx, total)
+        fail = _do_ingress(follower_id, self.follower_trough_index, 'follow(바깥축)')
+        if fail is not None:
+            return fail
+        idx += 1
+        self.get_logger().info('순차 진입 완료: lead(안쪽)→follow(바깥) 둘 다 축 정렬')
 
         # ---- 동시 리프트(브리프 필수 지시) ----
         self._publish_feedback(goal_handle, 'LIFT_UP', idx, total)
@@ -741,13 +776,46 @@ class PickupOrchestratorNode(Node):
             goal_handle.abort()
             return ExecuteParkingTask.Result(success=False, message=fail_reason)
 
+        # ---- Stage 4 주차: 운반(직진) → 슬롯앞 회전 → 가운데 진입 → 안착 ----
+        # ① 슬롯 lane(park_slot_x, park_lane_z)까지 직진 후 트럭 yaw 를 park_truck_yaw_deg
+        #    (CCW 90°, N-S)로 회전 — carry 2페이즈가 직진+회전을 한 번에.
+        self._publish_feedback(goal_handle, 'CARRY_LANE', idx, total)
+        ok, reason = self._carry(leader_id, follower_id,
+                                 self.park_slot_x, self.park_lane_z, self.park_truck_yaw_deg,
+                                 f'carry-lane[{leader_id}+{follower_id}]')
+        if not ok:
+            self._publish_feedback(goal_handle, 'FAILED', idx, total)
+            self.get_logger().warn(f'execute_pickup_choreography 실패: {reason}')
+            goal_handle.abort()
+            return ExecuteParkingTask.Result(success=False, message=f'운반(lane) 실패: {reason}')
+        idx += 1
+        # ② 회전된 트럭을 슬롯 가운데(park_center_z)까지 -z 진입(yaw 유지). 가운데 마커에서 정지.
+        self._publish_feedback(goal_handle, 'CARRY_SLOT', idx, total)
+        ok, reason = self._carry(leader_id, follower_id,
+                                 self.park_slot_x, self.park_center_z, self.park_truck_yaw_deg,
+                                 f'carry-slot[{leader_id}+{follower_id}]')
+        if not ok:
+            self._publish_feedback(goal_handle, 'FAILED', idx, total)
+            self.get_logger().warn(f'execute_pickup_choreography 실패: {reason}')
+            goal_handle.abort()
+            return ExecuteParkingTask.Result(success=False, message=f'주차진입 실패: {reason}')
+
+        self._publish_feedback(goal_handle, 'PLACE', idx, total)
+        ok, reason = self._lift_concurrent(leader_id, follower_id, 'DOWN')
+        if not ok:
+            self._publish_feedback(goal_handle, 'FAILED', idx, total)
+            self.get_logger().warn(f'execute_pickup_choreography 실패(안착): {reason}')
+            goal_handle.abort()
+            return ExecuteParkingTask.Result(success=False, message=f'안착(lift DOWN) 실패: {reason}')
+
         idx = total
         self._publish_feedback(goal_handle, 'DONE', idx, total)
         self.get_logger().info(
             f'execute_pickup_choreography 완료: task_id={goal.task_id} '
             f'leader={leader_id} follower={follower_id}')
         goal_handle.succeed()
-        return ExecuteParkingTask.Result(success=True, message='픽업 완료(양 로봇 진입+동시 리프트)')
+        return ExecuteParkingTask.Result(
+            success=True, message='입차 완료(픽업+리프트+운반+안착)')
 
 
 def main(args=None):

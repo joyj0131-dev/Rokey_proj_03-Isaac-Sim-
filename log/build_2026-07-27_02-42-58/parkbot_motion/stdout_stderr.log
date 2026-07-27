@@ -1,0 +1,20 @@
+running develop
+running egg_info
+writing parkbot_motion.egg-info/PKG-INFO
+writing dependency_links to parkbot_motion.egg-info/dependency_links.txt
+writing entry points to parkbot_motion.egg-info/entry_points.txt
+writing requirements to parkbot_motion.egg-info/requires.txt
+writing top-level names to parkbot_motion.egg-info/top_level.txt
+reading manifest file 'parkbot_motion.egg-info/SOURCES.txt'
+writing manifest file 'parkbot_motion.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot-motion.egg-link (link to .)
+Installing axle_detector_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing carry_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing ingress_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing lift_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing pickup_orchestrator_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing pose_controller_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+
+Installed /home/rokey/p3/cobot_ws/build/parkbot_motion
+running symlink_data

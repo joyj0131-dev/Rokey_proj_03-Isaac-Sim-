@@ -130,6 +130,9 @@ class IngressNode(Node):
         self.declare_parameter('lat_deadband', DEFAULT_LAT_DEADBAND)
         self.declare_parameter('pos_tol', DEFAULT_POS_TOL)
         self.declare_parameter('settle_frames', DEFAULT_SETTLE_FRAMES)
+        # +1: 로컬 forward=world -x(서향, 기존). -1: 동향(+90°) 로봇이 후진으로
+        # -x 진입(2026-07-27 재안무 follow). SEEK/RETURN vx 를 함께 뒤집는다.
+        self.declare_parameter('drive_sign', 1.0)
 
         self.declare_parameter('max_dt', 0.5)
         self.declare_parameter('goal_timeout_sec', 120.0)
@@ -163,6 +166,7 @@ class IngressNode(Node):
         self.lat_deadband = float(gp('lat_deadband').value)
         self.pos_tol = float(gp('pos_tol').value)
         self.settle_frames = int(gp('settle_frames').value)
+        self.drive_sign = float(gp('drive_sign').value)
 
         self.max_dt = float(gp('max_dt').value)
         self.goal_timeout_sec = float(gp('goal_timeout_sec').value)
@@ -370,7 +374,8 @@ class IngressNode(Node):
         ctrl = IngressController(
             trough_index, forward_speed=forward_speed, return_speed=return_speed,
             lat_kp=self.lat_kp, lat_vy_max=self.lat_vy_max, lat_deadband=self.lat_deadband,
-            pos_tol=self.pos_tol, settle_frames=self.settle_frames)
+            pos_tol=self.pos_tol, settle_frames=self.settle_frames,
+            drive_sign=self.drive_sign)
 
         done_event = threading.Event()
         active = {'ctrl': ctrl, 'goal_handle': goal_handle, 'done_event': done_event,

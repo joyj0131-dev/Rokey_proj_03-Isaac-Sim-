@@ -1,0 +1,3038 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (0, 0, 5)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (-3.579593118717676, 2.077274474411732, 2.144450441609778)
+                double3 target = (-2.270651361269604, -5.7669038442174845, 22.339708152253994)
+            }
+            dictionary Right = {
+                double3 position = (-5, 0, 0)
+                double radius = 5
+            }
+            dictionary Top = {
+                double3 position = (0, 5, 0)
+                double radius = 5
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./parking_environment_v4.usd"
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "World"
+    doc = """Underground parking environment v2.
+Interior 26.0 x 19.0 m, clear height 5.6 m.
+Two west-wall gates (inbound Z=-5.5 / outbound Z=5.5, 4.5 m clear width),
+two vehicle handoff wait bays, two robot wait/charge docks, three parking slots A1/A2/A3, two ceiling RTX lidars, 14 ArUco markers (DICT_5X5_100).
+Vehicles are NOT included - reference fab_vehicles.usd separately."""
+    metersPerUnit = 1
+    timeCodesPerSecond = 60
+    upAxis = "Y"
+)
+
+def Xform "World" (
+    customData = {
+        string activeParkingSpaces = "A1, A2, A3"
+        string arucoDictionary = "DICT_5X5_100"
+        int arucoMarkerCount = 14
+        string basedOn = "parking_environment_with_markers.usd"
+        string ceilingLidarConfig = "SICK_multiScan136"
+        int ceilingLidarCount = 2
+        double clearHeightM = 5.6
+        double gateClearWidthM = 4.5
+        int gateCount = 2
+        string generator = "build_parking_environment_v2.py"
+        double interiorDepthM = 19
+        double interiorWidthM = 26
+        double parkingSpaceLengthM = 6.6
+        double parkingSpaceWidthM = 3.4
+        int robotDockCount = 2
+        int vehicleWaitBayCount = 2
+    }
+)
+{
+    def PhysicsScene "PhysicsScene" (
+        apiSchemas = ["PhysxSceneAPI", "PhysxVehicleContextAPI"]
+    )
+    {
+        vector3f physics:gravityDirection = (0, -1, 0)
+        float physics:gravityMagnitude = 9.81
+        uniform token physxVehicleContext:longitudinalAxis = "posZ"
+        uniform token physxVehicleContext:updateMode = "velocityChange"
+        uniform token physxVehicleContext:verticalAxis = "posY"
+    }
+
+    def Scope "VehiclePhysics"
+    {
+        def Material "TarmacMaterial" (
+            apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.9
+            float physics:restitution = 0.02
+            float physics:staticFriction = 1.05
+        }
+
+        def PhysxVehicleTireFrictionTable "RoadTireFriction"
+        {
+            custom float[] frictionValues = [1.05]
+            custom rel groundMaterials = </World/VehiclePhysics/TarmacMaterial>
+        }
+
+        def PhysicsCollisionGroup "ChassisGroup"
+        {
+            rel physics:filteredGroups = </World/VehiclePhysics/GroundQueryGroup>
+        }
+
+        def PhysicsCollisionGroup "WheelGroup"
+        {
+            rel physics:filteredGroups = [
+                </World/VehiclePhysics/GroundQueryGroup>,
+                </World/VehiclePhysics/GroundGroup>,
+            ]
+        }
+
+        def PhysicsCollisionGroup "GroundQueryGroup"
+        {
+            rel physics:filteredGroups = [
+                </World/VehiclePhysics/ChassisGroup>,
+                </World/VehiclePhysics/WheelGroup>,
+            ]
+        }
+
+        def PhysicsCollisionGroup "GroundGroup"
+        {
+            rel collection:colliders:includes = [
+                </World/ParkingEnvironment/Floor>,
+                </World/ParkingEnvironment/ExternalAprons/EntryApron/Floor>,
+                </World/ParkingEnvironment/ExternalAprons/ExitApron/Floor>,
+            ]
+            rel physics:filteredGroups = [
+                </World/VehiclePhysics/GroundGroup>,
+                </World/VehiclePhysics/WheelGroup>,
+            ]
+        }
+    }
+
+    def Scope "Looks"
+    {
+        def Material "Asphalt"
+        {
+            token outputs:surface.connect = </World/Looks/Asphalt/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.115, 0.125, 0.14)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.92
+                token outputs:surface
+            }
+        }
+
+        def Material "White"
+        {
+            token outputs:surface.connect = </World/Looks/White/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.92, 0.94, 0.96)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Yellow"
+        {
+            token outputs:surface.connect = </World/Looks/Yellow/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.98, 0.72, 0.04)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Green"
+        {
+            token outputs:surface.connect = </World/Looks/Green/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.05, 0.82, 0.44)
+                color3f inputs:emissiveColor = (0.009, 0.1476, 0.0792)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Orange"
+        {
+            token outputs:surface.connect = </World/Looks/Orange/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0.25, 0.035)
+                color3f inputs:emissiveColor = (0.18, 0.045, 0.0063)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Wall"
+        {
+            token outputs:surface.connect = </World/Looks/Wall/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.48, 0.5, 0.54)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Ceiling"
+        {
+            token outputs:surface.connect = </World/Looks/Ceiling/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.66, 0.67, 0.69)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Pillar"
+        {
+            token outputs:surface.connect = </World/Looks/Pillar/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.56, 0.57, 0.6)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Blue"
+        {
+            token outputs:surface.connect = </World/Looks/Blue/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.025, 0.31, 0.78)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Charge"
+        {
+            token outputs:surface.connect = </World/Looks/Charge/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.04, 0.88, 0.83)
+                color3f inputs:emissiveColor = (0.0072, 0.1584, 0.1494)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Dark"
+        {
+            token outputs:surface.connect = </World/Looks/Dark/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.025, 0.032, 0.045)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "Light"
+        {
+            token outputs:surface.connect = </World/Looks/Light/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0.94, 0.78)
+                color3f inputs:emissiveColor = (2.5, 2.35, 1.95)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.55
+                token outputs:surface
+            }
+        }
+
+        def Material "GroundPhysics" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.9
+            float physics:restitution = 0.02
+            float physics:staticFriction = 1.05
+        }
+
+        def Material "ArucoMat_040"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_040/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_040.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_040/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_040/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_041"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_041/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_041.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_041/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_041/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_050"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_050/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_050.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_050/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_050/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_051"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_051/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_051.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_051/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_051/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_020"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_020/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_020.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_020/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_020/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_021"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_021/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_021.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_021/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_021/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_030"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_030/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_030.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_030/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_030/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_031"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_031/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_031.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_031/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_031/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_000"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_000/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_000.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_000/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_000/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_001"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_001/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_001.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_001/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_001/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_002"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_002/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_002.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_002/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_002/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_003"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_003/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_003.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_003/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_003/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_004"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_004/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_004.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_004/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_004/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_005"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_005/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_005.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_005/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_005/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "OmniGlass"
+        {
+            token outputs:mdl:displacement.connect = </World/Looks/OmniGlass/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </World/Looks/OmniGlass/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </World/Looks/OmniGlass/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniGlass.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniGlass"
+                token outputs:out (
+                    renderType = "material"
+                )
+            }
+        }
+
+        def Material "ArucoMat_022"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_022/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_022.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_022/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_022/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "ArucoMat_023"
+        {
+            token outputs:surface.connect = </World/Looks/ArucoMat_023/Shader.outputs:surface>
+
+            def Shader "StReader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./../textures/aruco/aruco_DICT_5X5_100_023.png@
+                token inputs:sourceColorSpace = "raw"
+                float2 inputs:st.connect = </World/Looks/ArucoMat_023/StReader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/ArucoMat_023/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                float inputs:specular = 0
+                token outputs:surface
+            }
+        }
+    }
+
+    def Xform "ParkingEnvironment"
+    {
+        def Cube "Floor" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+        )
+        {
+            rel material:binding = </World/Looks/Asphalt>
+            rel material:binding:physics = </World/Looks/GroundPhysics> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            color3f[] primvars:displayColor = [(0.115, 0.125, 0.14)]
+            double size = 1
+            float3 xformOp:scale = (27.6, 0.12, 21.6)
+            double3 xformOp:translate = (0.5, -0.06, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+
+        def Xform "Walls"
+        {
+            def Cube "South" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (27.6, 5.6, 0.3)
+                double3 xformOp:translate = (0.5, 2.8, -10.65)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "East" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 5.6, 21)
+                double3 xformOp:translate = (14.15, 2.8, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "WestNorth" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 5.6, 1.48)
+                double3 xformOp:translate = (-13.15, 2.8, 10.065)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "WestCenter" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 5.6, 9.65)
+                double3 xformOp:translate = (-13.15, 2.8, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "WestSouth" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 5.6, 1.48)
+                double3 xformOp:translate = (-13.15, 2.8, -10.065)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "EntryGateLintel" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 2, 4.5)
+                double3 xformOp:translate = (-13.15, 4.6, -7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "ExitGateLintel" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (0.3, 2, 4.5)
+                double3 xformOp:translate = (-13.15, 4.6, 7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "North" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Wall>
+                color3f[] primvars:displayColor = [(0.48, 0.5, 0.54)]
+                double size = 1
+                float3 xformOp:scale = (27.6, 5.6, 0.3)
+                double3 xformOp:translate = (0.5, 2.8, 10.65)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "Gates"
+        {
+            def Xform "EntryGate"
+            {
+                custom float3 gate:center = (-13, 0, -5.5)
+                custom float gate:clearHeight = 3.6
+                custom float gate:clearWidth = 4.5
+                custom string gate:direction = "inbound"
+                custom string gate:displayLabel = "입차 게이트"
+
+                def Cube "JambLeft" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.36, 3.6, 0.22)
+                    double3 xformOp:translate = (-13.15, 1.8, -9.325)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Cube "JambRight" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.36, 3.6, 0.22)
+                    double3 xformOp:translate = (-13.15, 1.8, -4.825)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Cube "Threshold" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.3, 0.0004, 4.5)
+                    double3 xformOp:translate = (-12.85, 0.0001, -7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+            }
+
+            def Xform "ExitGate"
+            {
+                custom float3 gate:center = (-13, 0, 5.5)
+                custom float gate:clearHeight = 3.6
+                custom float gate:clearWidth = 4.5
+                custom string gate:direction = "outbound"
+                custom string gate:displayLabel = "출차 게이트"
+
+                def Cube "JambLeft" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.36, 3.6, 0.22)
+                    double3 xformOp:translate = (-13.15, 1.8, 4.825)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Cube "JambRight" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.36, 3.6, 0.22)
+                    double3 xformOp:translate = (-13.15, 1.8, 9.325)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Cube "Threshold" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.3, 0.0004, 4.5)
+                    double3 xformOp:translate = (-12.85, 0.0001, 7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+            }
+        }
+
+        def Xform "Markings"
+        {
+            def Cube "A_Divider_01" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (0.11, 0.0004, 6.6)
+                double3 xformOp:translate = (1.1000000000000014, 0.0001, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A_Divider_02" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (0.11, 0.0004, 6.6)
+                double3 xformOp:translate = (4.500000000000002, 0.0001, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A_Divider_03" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (0.11, 0.0004, 6.6)
+                double3 xformOp:translate = (7.900000000000001, 0.0001, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A_Divider_04" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (0.11, 0.0004, 6.6)
+                double3 xformOp:translate = (11.3, 0.0001, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A_BackLine" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (10.31, 0.0004, 0.11)
+                double3 xformOp:translate = (6.200000000000001, 0.0001, 3.3)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A_FrontLine" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/White>
+                color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                double size = 1
+                float3 xformOp:scale = (10.31, 0.0004, 0.11)
+                double3 xformOp:translate = (6.200000000000001, 0.0001, -3.3)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "Spaces"
+        {
+            def Xform "A1"
+            {
+                custom string parking:approach = "south"
+                custom float3 parking:center = (2.8, 0, 0)
+                custom string parking:designation = "standard"
+                custom string parking:egress = "north"
+                custom float parking:length = 6.6
+                custom bool parking:occupied = 0
+                custom float parking:width = 3.4
+
+                def Cube "BlueFloor" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Blue>
+                    color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                    double size = 1
+                    float3 xformOp:scale = (3.22, 0.0004, 6.42)
+                    double3 xformOp:translate = (2.8000000000000016, 0.0001, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Xform "Label"
+                {
+                    custom string parking:label = "A1"
+                    custom token parking:markingType = "flat_floor_paint"
+
+                    def Mesh "Paint_00"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(2.4933524, 0.0008, 0.23061213), (2.4266477, 0.0008, 0.20938787), (2.5666475, 0.0008, -0.23061213), (2.6333525, 0.0008, -0.20938787)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_01"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(2.5666475, 0.0008, -0.20938787), (2.6333525, 0.0008, -0.23061213), (2.7733524, 0.0008, 0.20938787), (2.7066476, 0.0008, 0.23061213)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_02"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(2.52, 0.0008, 0.055), (2.52, 0.0008, -0.015), (2.68, 0.0008, -0.015), (2.68, 0.0008, 0.055)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_03"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(3.015, 0.0008, -0.22), (3.085, 0.0008, -0.22), (3.085, 0.0008, -0), (3.015, 0.0008, -0)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_04"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(3.015, 0.0008, -0), (3.085, 0.0008, -0), (3.085, 0.0008, 0.22), (3.015, 0.0008, 0.22)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+                }
+            }
+
+            def Xform "A2"
+            {
+                custom string parking:approach = "south"
+                custom float3 parking:center = (6.2, 0, 0)
+                custom string parking:designation = "standard"
+                custom string parking:egress = "north"
+                custom float parking:length = 6.6
+                custom bool parking:occupied = 0
+                custom float parking:width = 3.4
+
+                def Cube "BlueFloor" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Blue>
+                    color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                    double size = 1
+                    float3 xformOp:scale = (3.22, 0.0004, 6.42)
+                    double3 xformOp:translate = (6.200000000000001, 0.0001, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Xform "Label"
+                {
+                    custom string parking:label = "A2"
+                    custom token parking:markingType = "flat_floor_paint"
+
+                    def Mesh "Paint_00"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(5.8933525, 0.0008, 0.23061213), (5.8266478, 0.0008, 0.20938787), (5.9666476, 0.0008, -0.23061213), (6.0333524, 0.0008, -0.20938787)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_01"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(5.9666476, 0.0008, -0.20938787), (6.0333524, 0.0008, -0.23061213), (6.1733522, 0.0008, 0.20938787), (6.1066475, 0.0008, 0.23061213)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_02"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(5.92, 0.0008, 0.055), (5.92, 0.0008, -0.015), (6.08, 0.0008, -0.015), (6.08, 0.0008, 0.055)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_03"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(6.23, 0.0008, -0.185), (6.23, 0.0008, -0.255), (6.45, 0.0008, -0.255), (6.45, 0.0008, -0.185)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_04"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(6.415, 0.0008, -0.22), (6.485, 0.0008, -0.22), (6.485, 0.0008, -0), (6.415, 0.0008, -0)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_05"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(6.23, 0.0008, 0.035), (6.23, 0.0008, -0.035), (6.45, 0.0008, -0.035), (6.45, 0.0008, 0.035)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_06"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(6.195, 0.0008, -0), (6.265, 0.0008, -0), (6.265, 0.0008, 0.22), (6.195, 0.0008, 0.22)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_07"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(6.23, 0.0008, 0.255), (6.23, 0.0008, 0.185), (6.45, 0.0008, 0.185), (6.45, 0.0008, 0.255)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+                }
+            }
+
+            def Xform "A3"
+            {
+                custom string parking:approach = "south"
+                custom float3 parking:center = (9.6, 0, 0)
+                custom string parking:designation = "standard"
+                custom string parking:egress = "north"
+                custom float parking:length = 6.6
+                custom bool parking:occupied = 0
+                custom float parking:width = 3.4
+
+                def Cube "BlueFloor" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Blue>
+                    color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                    double size = 1
+                    float3 xformOp:scale = (3.22, 0.0004, 6.42)
+                    double3 xformOp:translate = (9.600000000000001, 0.0001, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def Xform "Label"
+                {
+                    custom string parking:label = "A3"
+                    custom token parking:markingType = "flat_floor_paint"
+
+                    def Mesh "Paint_00"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.293352, 0.0008, 0.23061213), (9.226647, 0.0008, 0.20938787), (9.366648, 0.0008, -0.23061213), (9.433352, 0.0008, -0.20938787)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_01"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.366648, 0.0008, -0.20938787), (9.433352, 0.0008, -0.23061213), (9.573353, 0.0008, 0.20938787), (9.506648, 0.0008, 0.23061213)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_02"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.32, 0.0008, 0.055), (9.32, 0.0008, -0.015), (9.48, 0.0008, -0.015), (9.48, 0.0008, 0.055)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_03"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.63, 0.0008, -0.185), (9.63, 0.0008, -0.255), (9.85, 0.0008, -0.255), (9.85, 0.0008, -0.185)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_04"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.815, 0.0008, -0.22), (9.885, 0.0008, -0.22), (9.885, 0.0008, -0), (9.815, 0.0008, -0)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_05"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.63, 0.0008, 0.035), (9.63, 0.0008, -0.035), (9.85, 0.0008, -0.035), (9.85, 0.0008, 0.035)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_06"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.815, 0.0008, -0), (9.885, 0.0008, -0), (9.885, 0.0008, 0.22), (9.815, 0.0008, 0.22)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+
+                    def Mesh "Paint_07"
+                    {
+                        uniform bool doubleSided = 1
+                        int[] faceVertexCounts = [4]
+                        int[] faceVertexIndices = [0, 1, 2, 3]
+                        point3f[] points = [(9.63, 0.0008, 0.255), (9.63, 0.0008, 0.185), (9.85, 0.0008, 0.185), (9.85, 0.0008, 0.255)]
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        uniform token subdivisionScheme = "none"
+                    }
+                }
+            }
+        }
+
+        def Xform "VehicleWaitAreas"
+        {
+            def Xform "EntryVehicleWait"
+            {
+                custom int parking:capacity = 1
+                custom float3 parking:center = (-8.5, 0, -5.5)
+                custom string parking:direction = "inbound"
+                custom string parking:displayLabel = "입차 차량 대기 구역"
+                custom float parking:heading = 90
+                custom string parking:serviceRole = "driver handoff / robot pickup"
+
+                def Cube "Pad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Blue>
+                    color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                    double size = 1
+                    float3 xformOp:scale = (6.4, 0.0004, 3.2)
+                    double3 xformOp:translate = (-8.5, 0.0001, -7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "Outline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (0.14, 0.0004, 3.54)
+                        double3 xformOp:translate = (-11.8, 0.0001, -7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (0.14, 0.0004, 3.54)
+                        double3 xformOp:translate = (-5.2, 0.0001, -7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (6.74, 0.0004, 0.14)
+                        double3 xformOp:translate = (-8.5, 0.0001, -8.775)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (6.74, 0.0004, 0.14)
+                        double3 xformOp:translate = (-8.5, 0.0001, -5.375)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+
+                def Cube "StopLine" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.2, 0.0004, 3.4)
+                    double3 xformOp:translate = (-5.2, 0.0001, -7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+            }
+
+            def Xform "ExitVehicleWait"
+            {
+                custom int parking:capacity = 1
+                custom float3 parking:center = (-8.5, 0, 5.5)
+                custom string parking:direction = "outbound"
+                custom string parking:displayLabel = "출차 차량 대기 구역"
+                custom float parking:heading = 270
+                custom string parking:serviceRole = "driver handoff / robot pickup"
+
+                def Cube "Pad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Blue>
+                    color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                    double size = 1
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (6.4, 0.0004, 3.2)
+                    double3 xformOp:translate = (-8.5, 0.0001, 7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def "Outline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (0.14, 0.0004, 3.54)
+                        double3 xformOp:translate = (-11.8, 0.0001, 7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (0.14, 0.0004, 3.54)
+                        double3 xformOp:translate = (-5.2, 0.0001, 7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (6.74, 0.0004, 0.14)
+                        double3 xformOp:translate = (-8.5, 0.0001, 5.375)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/White>
+                        color3f[] primvars:displayColor = [(0.92, 0.94, 0.96)]
+                        double size = 1
+                        float3 xformOp:scale = (6.74, 0.0004, 0.14)
+                        double3 xformOp:translate = (-8.5, 0.0001, 8.775)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+
+                def Cube "StopLine" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (0.2, 0.0004, 3.4)
+                    double3 xformOp:translate = (-11.8, 0.0001, 7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+            }
+        }
+
+        def Xform "RobotServiceArea"
+        {
+            def Xform "EntryRobotDock1"
+            {
+                def Cube "DockPad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (1.5, 0.0004, 2.9)
+                    double3 xformOp:translate = (-3.2, 0, -2.2)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "FloorOutline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-4.1000000000000005, 0.0002, -2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-2.3000000000000003, 0.0002, -2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-3.2, 0.0002, -3.8)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-3.2, 0.0002, -0.6000000000000001)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+
+            def Xform "EntryRobotDock2"
+            {
+                def Cube "DockPad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (1.5, 0.0004, 2.9)
+                    double3 xformOp:translate = (-1.2, 0, -2.2)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "FloorOutline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-2.1, 0.0002, -2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-0.29999999999999993, 0.0002, -2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-1.2, 0.0002, -3.8)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-1.2, 0.0002, -0.6000000000000001)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+
+            def Xform "ExitRobotDock1"
+            {
+                def Cube "DockPad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    float3 xformOp:scale = (1.5, 0.0004, 2.9)
+                    double3 xformOp:translate = (-3.2, 0, 2.2)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "FloorOutline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-4.1000000000000005, 0.0002, 2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-2.3000000000000003, 0.0002, 2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-3.2, 0.0002, 0.6000000000000001)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-3.2, 0.0002, 3.8)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+
+            def Xform "ExitRobotDock2"
+            {
+                def Cube "DockPad" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Yellow>
+                    color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                    double size = 1
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (1.5, 0.0004, 2.9)
+                    double3 xformOp:translate = (-1.2, 0, 2.2)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def "FloorOutline"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-2.1, 0.0002, 2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 3.2)
+                        double3 xformOp:translate = (-0.29999999999999993, 0.0002, 2.2)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-1.2, 0.0002, 0.6000000000000001)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Yellow>
+                        color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                        double size = 1
+                        float3 xformOp:scale = (1.8, 0.0004, 0.11)
+                        double3 xformOp:translate = (-1.2, 0.0002, 3.8)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+        }
+
+        def Xform "ExternalAprons"
+        {
+            def Xform "EntryApron"
+            {
+                custom string parking:displayLabel = "입차 진입로"
+
+                def Cube "Floor" (
+                    prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Asphalt>
+                    rel material:binding:physics = </World/Looks/GroundPhysics> (
+                        bindMaterialAs = "weakerThanDescendants"
+                    )
+                    color3f[] primvars:displayColor = [(0.115, 0.125, 0.14)]
+                    double size = 1
+                    float3 xformOp:scale = (8, 0.12, 5)
+                    double3 xformOp:translate = (-17.3, -0.055, -7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "Boundary"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 4.91)
+                        double3 xformOp:translate = (-21.2, 0.0001, -7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 4.91)
+                        double3 xformOp:translate = (-13.4, 0.0001, -7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (7.91, 0.0004, 0.11)
+                        double3 xformOp:translate = (-17.3, 0.0001, -9.475)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (7.91, 0.0004, 0.11)
+                        double3 xformOp:translate = (-17.3, 0.0001, -4.675)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+
+            def Xform "ExitApron"
+            {
+                custom string parking:displayLabel = "출차 진출로"
+
+                def Cube "Floor" (
+                    prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+                )
+                {
+                    rel material:binding = </World/Looks/Asphalt>
+                    rel material:binding:physics = </World/Looks/GroundPhysics> (
+                        bindMaterialAs = "weakerThanDescendants"
+                    )
+                    color3f[] primvars:displayColor = [(0.115, 0.125, 0.14)]
+                    double size = 1
+                    float3 xformOp:scale = (8, 0.12, 5)
+                    double3 xformOp:translate = (-17.3, -0.055, 7.075)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                }
+
+                def "Boundary"
+                {
+                    def Cube "Left" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 4.91)
+                        double3 xformOp:translate = (-21.2, 0.0001, 7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Right" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (0.11, 0.0004, 4.91)
+                        double3 xformOp:translate = (-13.4, 0.0001, 7.075)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Front" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (7.91, 0.0004, 0.11)
+                        double3 xformOp:translate = (-17.3, 0.0001, 4.675)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+
+                    def Cube "Back" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        rel material:binding = </World/Looks/Green>
+                        color3f[] primvars:displayColor = [(0.05, 0.82, 0.44)]
+                        double size = 1
+                        float3 xformOp:scale = (7.91, 0.0004, 0.11)
+                        double3 xformOp:translate = (-17.3, 0.0001, 9.475)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+                    }
+                }
+            }
+        }
+
+        def Xform "Pillars"
+        {
+            def Cube "Corner_0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Pillar>
+                color3f[] primvars:displayColor = [(0.56, 0.57, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 5.6, 0.6)
+                double3 xformOp:translate = (-12.649999999999999, 2.8, 10.15)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Corner_1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Pillar>
+                color3f[] primvars:displayColor = [(0.56, 0.57, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 5.6, 0.6)
+                double3 xformOp:translate = (13.65, 2.8, 10.15)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Corner_2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Pillar>
+                color3f[] primvars:displayColor = [(0.56, 0.57, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 5.6, 0.6)
+                double3 xformOp:translate = (-12.649999999999999, 2.8, -10.15)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Corner_3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Pillar>
+                color3f[] primvars:displayColor = [(0.56, 0.57, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 5.6, 0.6)
+                double3 xformOp:translate = (13.65, 2.8, -10.15)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "Guards"
+        {
+        }
+
+        def Cube "Ceiling" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            customData = {
+                bool hideForTopView = 1
+            }
+        )
+        {
+            rel material:binding = </World/Looks/OmniGlass> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            color3f[] primvars:displayColor = [(0.66, 0.67, 0.69)]
+            double size = 1
+            float3 xformOp:scale = (27.6, 0.2, 21.6)
+            double3 xformOp:translate = (0.5, 5.699999999999999, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+    }
+
+    def Xform "Lighting"
+    {
+        def DomeLight "Dome"
+        {
+            color3f inputs:color = (0.68, 0.76, 0.9)
+            float inputs:intensity = 80
+        }
+
+        def Xform "CeilingFixture_3"
+        {
+            def Cube "Housing" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Dark>
+                color3f[] primvars:displayColor = [(0.025, 0.032, 0.045)]
+                double size = 1
+                float3 xformOp:scale = (3.2, 0.12, 0.42)
+                double3 xformOp:translate = (-8.3, 5.51, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Panel" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Light>
+                color3f[] primvars:displayColor = [(1, 0.94, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (2.85, 0.035, 0.3)
+                double3 xformOp:translate = (-8.3, 5.4399999999999995, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def SphereLight "Light"
+            {
+                color3f inputs:color = (1, 0.94, 0.78)
+                float inputs:intensity = 9500
+                float inputs:radius = 1.8
+                double3 xformOp:translate = (-8.3, 5.319999999999999, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+
+        def Xform "CeilingFixture_4"
+        {
+            def Cube "Housing" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Dark>
+                color3f[] primvars:displayColor = [(0.025, 0.032, 0.045)]
+                double size = 1
+                float3 xformOp:scale = (3.2, 0.12, 0.42)
+                double3 xformOp:translate = (0, 5.51, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Panel" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Light>
+                color3f[] primvars:displayColor = [(1, 0.94, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (2.85, 0.035, 0.3)
+                double3 xformOp:translate = (0, 5.4399999999999995, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def SphereLight "Light"
+            {
+                color3f inputs:color = (1, 0.94, 0.78)
+                float inputs:intensity = 9500
+                float inputs:radius = 1.8
+                double3 xformOp:translate = (0, 5.319999999999999, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+
+        def Xform "CeilingFixture_5"
+        {
+            def Cube "Housing" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Dark>
+                color3f[] primvars:displayColor = [(0.025, 0.032, 0.045)]
+                double size = 1
+                float3 xformOp:scale = (3.2, 0.12, 0.42)
+                double3 xformOp:translate = (8.3, 5.51, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Panel" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Light>
+                color3f[] primvars:displayColor = [(1, 0.94, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (2.85, 0.035, 0.3)
+                double3 xformOp:translate = (8.3, 5.4399999999999995, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def SphereLight "Light"
+            {
+                color3f inputs:color = (1, 0.94, 0.78)
+                float inputs:intensity = 9500
+                float inputs:radius = 1.8
+                double3 xformOp:translate = (8.3, 5.319999999999999, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+    }
+
+    def Xform "Sensors"
+    {
+        def Xform "CeilingLidarCenterMount"
+        {
+            custom token sensor:coverageZone = "all"
+            custom string sensor:role = "주차장 전체 커버리지(1대 통합)"
+
+            def Cube "Bracket" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Dark>
+                color3f[] primvars:displayColor = [(0.025, 0.032, 0.045)]
+                double size = 1
+                float3 xformOp:scale = (0.62, 0.26, 0.62)
+                double3 xformOp:translate = (0.5, 5.46, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cylinder "SafetyRing" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                uniform token axis = "Y"
+                double height = 0.16
+                rel material:binding = </World/Looks/Yellow>
+                color3f[] primvars:displayColor = [(0.98, 0.72, 0.04)]
+                double radius = 0.31
+                double3 xformOp:translate = (0.5, 5.34, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+            }
+        }
+
+        def Xform "CeilingLidarCenter" (
+            prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Sensors/SICK/multiScan136/SICK_multiScan136.usd@
+        )
+        {
+            quatf xformOp:orient = (0.70710677, 0.70710677, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.5, 5.12, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def Scope "Navigation"
+    {
+        custom float lane:inboundZ = -5.3
+        custom float lane:outboundZ = 5.3
+        custom float3[] parking:slotCenters = [(2.8, 0, 0), (6.2, 0, 0), (9.6, 0, 0)]
+        custom string[] parking:spaces = ["A1", "A2", "A3"]
+        custom float3 robot:entryDock = (-8.5, 0, -1.7)
+        custom float3 robot:exitDock = (-8.5, 0, 1.7)
+        custom float3[] route:inbound = [(-21, 0, -5.5), (-13, 0, -5.5), (-8.5, 0, -5.5), (-4.2, 0, -5.3), (2.8, 0, -5.3), (2.8, 0, 0)]
+        custom float3[] route:outbound = [(9.6, 0, 0), (9.6, 0, 5.3), (-4.2, 0, 5.3), (-8.5, 0, 5.5), (-13, 0, 5.5), (-21, 0, 5.5)]
+        custom float3 vehicle:entryGate = (-13, 0, -5.5)
+        custom float3 vehicle:entryWait = (-8.5, 0, -5.5)
+        custom float3 vehicle:exitGate = (-13, 0, 5.5)
+        custom float3 vehicle:exitWait = (-8.5, 0, 5.5)
+    }
+
+    def Xform "Guides"
+    {
+        custom bool guide:visibleRoutes = 0
+
+        def Xform "RouteInbound"
+        {
+            uniform token purpose = "guide"
+
+            def Cube "Seg_00" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Blue>
+                color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (8, 0.0004, 0.18)
+                double3 xformOp:translate = (-17, 0.0001, -7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_01" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Blue>
+                color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (4.5, 0.0004, 0.18)
+                double3 xformOp:translate = (-10.75, 0.0001, -7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_02" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Blue>
+                color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (4.3, 0.0004, 0.19999981)
+                double3 xformOp:translate = (-6.349999904632568, 0.0001, -6.975)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_03" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Blue>
+                color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (7, 0.0004, 0.18)
+                double3 xformOp:translate = (-0.6999999284744263, 0.0001, -6.875)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_04" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Blue>
+                color3f[] primvars:displayColor = [(0.025, 0.31, 0.78)]
+                double size = 1
+                float3 xformOp:scale = (0.18, 0.0004, 6.875)
+                double3 xformOp:translate = (2.799999952316284, 0.0001, -3.4375)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "RouteOutbound"
+        {
+            uniform token purpose = "guide"
+
+            def Cube "Seg_00" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Orange>
+                color3f[] primvars:displayColor = [(1, 0.25, 0.035)]
+                double size = 1
+                float3 xformOp:scale = (0.18, 0.0004, 6.875)
+                double3 xformOp:translate = (9.600000381469727, 0.0001, 3.4375)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_01" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Orange>
+                color3f[] primvars:displayColor = [(1, 0.25, 0.035)]
+                double size = 1
+                float3 xformOp:scale = (13.8, 0.0004, 0.18)
+                double3 xformOp:translate = (2.700000286102295, 0.0001, 6.875)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_02" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Orange>
+                color3f[] primvars:displayColor = [(1, 0.25, 0.035)]
+                double size = 1
+                float3 xformOp:scale = (4.3, 0.0004, 0.19999981)
+                double3 xformOp:translate = (-6.349999904632568, 0.0001, 6.975)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_03" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Orange>
+                color3f[] primvars:displayColor = [(1, 0.25, 0.035)]
+                double size = 1
+                float3 xformOp:scale = (4.5, 0.0004, 0.18)
+                double3 xformOp:translate = (-10.75, 0.0001, 7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Seg_04" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/Orange>
+                color3f[] primvars:displayColor = [(1, 0.25, 0.035)]
+                double size = 1
+                float3 xformOp:scale = (8, 0.0004, 0.18)
+                double3 xformOp:translate = (-17, 0.0001, 7.075)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+    }
+
+    def Xform "ArucoMarkerPreview"
+    {
+        def Mesh "gateway_ENTRY" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "gateway"
+            custom int aruco:markerId = 40
+            custom string aruco:note = "실내↔실외 경계 (입차)"
+            custom float3 aruco:position = (-12.55, 0, -7.075)
+            custom string aruco:serves = "GATE_IN"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_040>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-12.55, 0.0012, -7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "gateway_EXIT" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "gateway"
+            custom int aruco:markerId = 41
+            custom string aruco:note = "실내↔실외 경계 (출차)"
+            custom float3 aruco:position = (-12.55, 0, 7.075)
+            custom string aruco:serves = "GATE_OUT"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_041>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-12.55, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "handoff_bay_IN" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "handoff_bay"
+            custom int aruco:markerId = 50
+            custom string aruco:note = "인계 베이 기준점 + 하부 진입 정렬"
+            custom float3 aruco:position = (-8.5, 0, -7.075)
+            custom string aruco:serves = "W_IN"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_050>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-8.5, 0.0012, -7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "handoff_bay_OUT" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "handoff_bay"
+            custom int aruco:markerId = 51
+            custom string aruco:note = "인계 베이 기준점 + 하부 진입 정렬"
+            custom float3 aruco:position = (-8.5, 0, 7.075)
+            custom string aruco:serves = "W_OUT"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_051>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-8.5, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "dock_ROBOT_IN" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "dock"
+            custom int aruco:markerId = 20
+            custom string aruco:note = "입차 로봇 대기 도크 1"
+            custom float3 aruco:position = (-3.2, 0, -2.2)
+            custom string aruco:serves = "D_IN_1"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_020>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-3.2, 0.0012, -2.9000000432133675)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "dock_ROBOT_OUT" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "dock"
+            custom int aruco:markerId = 21
+            custom string aruco:note = "출차 로봇 대기 도크 1"
+            custom float3 aruco:position = (-3.2, 0, 2.2)
+            custom string aruco:serves = "D_OUT_1"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_021>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-3.2, 0.0012, 3.8000000566244125)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "crossing_S" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "crossing"
+            custom int aruco:markerId = 30
+            custom string aruco:note = "입차 통로 분기점"
+            custom float3 aruco:position = (-2.5, 0, -6.875)
+            custom string aruco:serves = "XS"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_030>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-2.5, 0.0012, -6.875)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "crossing_N" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "crossing"
+            custom int aruco:markerId = 31
+            custom string aruco:note = "출차 통로 분기점"
+            custom float3 aruco:position = (-2.5, 0, 6.875)
+            custom string aruco:serves = "XN"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_031>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (-3.200000047683716, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "slot_A1" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot"
+            custom int aruco:markerId = 0
+            custom string aruco:note = "슬롯 기준점 + 통로 차선"
+            custom float3 aruco:position = (2.8, 0, -6.875)
+            custom string aruco:serves = "A1"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_000>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (2.8, 0.0012, -6.875)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "slot_A2" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot"
+            custom int aruco:markerId = 1
+            custom string aruco:note = "슬롯 기준점 + 통로 차선"
+            custom float3 aruco:position = (6.2, 0, -6.875)
+            custom string aruco:serves = "A2"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_001>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (6.2, 0.0012, -6.875)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "slot_A3" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot"
+            custom int aruco:markerId = 2
+            custom string aruco:note = "슬롯 기준점 + 통로 차선"
+            custom float3 aruco:position = (9.6, 0, -6.875)
+            custom string aruco:serves = "A3"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_002>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (9.6, 0.0012, -6.875)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "lane_A1_N" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 3
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (2.8, 0, 6.875)
+            custom string aruco:serves = "A1'"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_003>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (2.8, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "lane_A2_N" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 4
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (6.2, 0, 6.875)
+            custom string aruco:serves = "A2'"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_004>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (6.2, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "lane_A3_N" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 5
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (9.6, 0, 6.875)
+            custom string aruco:serves = "A3'"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_005>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (9.6, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "dock_ROBOT_IN_2" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "dock"
+            custom int aruco:markerId = 22
+            custom string aruco:note = "입차 로봇 대기 도크 2"
+            custom float3 aruco:position = (-1.2, 0, -2.2)
+            custom string aruco:serves = "D_IN_2"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_022>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2, 0.0012, -2.9000000432133675)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "dock_ROBOT_OUT_2" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "dock"
+            custom int aruco:markerId = 23
+            custom string aruco:note = "출차 로봇 대기 도크 2"
+            custom float3 aruco:position = (-1.2, 0, 2.2)
+            custom string aruco:serves = "D_OUT_2"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_023>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2, 0.0012, 3.8000000566244125)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def Camera "OverviewCamera"
+    {
+        float2 clippingRange = (0.1, 200)
+        float focalLength = 18
+        float3 xformOp:rotateXYZ = (-90, 0, 0)
+        double3 xformOp:translate = (0.5, 27, 0.01)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def Mesh "crossing_N" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        custom float aruco:codeSize = 0.19444445
+        custom string aruco:dictionary = "DICT_5X5_100"
+        custom string aruco:kind = "crossing"
+        custom int aruco:markerId = 31
+        custom string aruco:note = "출차 통로 분기점"
+        custom float3 aruco:position = (-2.5, 0, 6.875)
+        custom string aruco:serves = "XN"
+        custom float aruco:yaw = 0
+        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/ArucoMat_031>
+        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+            interpolation = "vertex"
+        )
+        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+            interpolation = "vertex"
+        )
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-1.2, 0.0012, 7.075)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Mesh "handoff_bay_OUT" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        custom float aruco:codeSize = 0.19444445
+        custom string aruco:dictionary = "DICT_5X5_100"
+        custom string aruco:kind = "handoff_bay"
+        custom int aruco:markerId = 51
+        custom string aruco:note = "인계 베이 기준점 + 하부 진입 정렬"
+        custom float3 aruco:position = (-8.5, 0, 7.075)
+        custom string aruco:serves = "W_OUT"
+        custom float aruco:yaw = 0
+        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/ArucoMat_051>
+        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+            interpolation = "vertex"
+        )
+        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+            interpolation = "vertex"
+        )
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-5.000000074505806, 0.0012, 7.075)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Mesh "handoff_bay_OUT_01" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        custom float aruco:codeSize = 0.19444445
+        custom string aruco:dictionary = "DICT_5X5_100"
+        custom string aruco:kind = "handoff_bay"
+        custom int aruco:markerId = 51
+        custom string aruco:note = "인계 베이 기준점 + 하부 진입 정렬"
+        custom float3 aruco:position = (-8.5, 0, 7.075)
+        custom string aruco:serves = "W_OUT"
+        custom float aruco:yaw = 0
+        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/ArucoMat_051>
+        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+            interpolation = "vertex"
+        )
+        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+            interpolation = "vertex"
+        )
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-6.75, 0.0012, 7.075)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+
+    def Mesh "crossing_N_01" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        custom float aruco:codeSize = 0.19444445
+        custom string aruco:dictionary = "DICT_5X5_100"
+        custom string aruco:kind = "crossing"
+        custom int aruco:markerId = 31
+        custom string aruco:note = "출차 통로 분기점"
+        custom float3 aruco:position = (-2.5, 0, 6.875)
+        custom string aruco:serves = "XN"
+        custom float aruco:yaw = 0
+        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/ArucoMat_031>
+        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+            interpolation = "vertex"
+        )
+        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+            interpolation = "vertex"
+        )
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.4000000059604645, 0.0012, 7.075)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </OmniverseKit_Persp>
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:dlss:frameGeneration = 0
+                bool omni:rtx:material:db:nonVisualMaterialCSV:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:lightcache:cached:dontResolveConflicts = 1
+                int omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                int omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                uint omni:rtx:viewTile:limit = 4294967295
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
+        }
+    }
+
+    def RenderSettings "OmniverseGlobalRenderSettings" (
+        prepend apiSchemas = ["OmniRtxSettingsGlobalRtAdvancedAPI_1", "OmniRtxSettingsGlobalPtAdvancedAPI_1"]
+        no_delete = true
+    )
+    {
+        rel products = </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>
+    }
+
+    def "Vars"
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+        }
+    }
+}
+

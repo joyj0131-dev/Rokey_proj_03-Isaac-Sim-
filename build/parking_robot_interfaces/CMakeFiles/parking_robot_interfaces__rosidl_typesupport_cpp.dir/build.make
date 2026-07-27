@@ -91,6 +91,8 @@ rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.c
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl
+rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl
+rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: /opt/ros/humble/share/geometry_msgs/msg/Accel.idl
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: /opt/ros/humble/share/geometry_msgs/msg/AccelStamped.idl
 rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp: /opt/ros/humble/share/geometry_msgs/msg/AccelWithCovariance.idl
@@ -207,6 +209,12 @@ rosidl_typesupport_cpp/parking_robot_interfaces/action/align_vehicle__type_suppo
 
 rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp: rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp
+
+rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp: rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp
+
+rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp: rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp
 
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp.o: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/flags.make
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp.o: rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp
@@ -432,6 +440,34 @@ CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesuppo
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp -o CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.s
 
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/flags.make
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o: rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o -MF CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o.d -o CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o -c /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp
+
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp > CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.i
+
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp -o CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.s
+
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/flags.make
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o: rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o -MF CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o.d -o CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o -c /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp
+
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp > CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.i
+
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp -o CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.s
+
 # Object files for target parking_robot_interfaces__rosidl_typesupport_cpp
 parking_robot_interfaces__rosidl_typesupport_cpp_OBJECTS = \
 "CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/msg/vehicle_info__type_support.cpp.o" \
@@ -449,7 +485,9 @@ parking_robot_interfaces__rosidl_typesupport_cpp_OBJECTS = \
 "CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/execute_parking_task__type_support.cpp.o" \
 "CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/detect_vehicle__type_support.cpp.o" \
 "CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/align_vehicle__type_support.cpp.o" \
-"CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.o"
+"CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.o" \
+"CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o" \
+"CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o"
 
 # External object files for target parking_robot_interfaces__rosidl_typesupport_cpp
 parking_robot_interfaces__rosidl_typesupport_cpp_EXTERNAL_OBJECTS =
@@ -470,6 +508,8 @@ libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/detect_vehicle__type_support.cpp.o
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/align_vehicle__type_support.cpp.o
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp.o
+libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp.o
+libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp.o
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/build.make
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: /opt/ros/humble/lib/libgeometry_msgs__rosidl_typesupport_cpp.so
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: /opt/ros/humble/lib/libstd_msgs__rosidl_typesupport_cpp.so
@@ -481,7 +521,7 @@ libparking_robot_interfaces__rosidl_typesupport_cpp.so: /opt/ros/humble/lib/libr
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: /opt/ros/humble/lib/librosidl_runtime_c.so
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: /opt/ros/humble/lib/librcutils.so
 libparking_robot_interfaces__rosidl_typesupport_cpp.so: CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_cpp.so"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Linking CXX shared library libparking_robot_interfaces__rosidl_typesupport_cpp.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -493,9 +533,11 @@ CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/clean:
 .PHONY : CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/clean
 
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/align_vehicle__type_support.cpp
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/carry_to_slot__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/control_lift__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/detect_vehicle__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/execute_parking_task__type_support.cpp
+CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/action/ingress_under_truck__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/msg/formation_assignment__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/msg/formation_stop__type_support.cpp
 CMakeFiles/parking_robot_interfaces__rosidl_typesupport_cpp.dir/depend: rosidl_typesupport_cpp/parking_robot_interfaces/msg/obstacle_alert__type_support.cpp

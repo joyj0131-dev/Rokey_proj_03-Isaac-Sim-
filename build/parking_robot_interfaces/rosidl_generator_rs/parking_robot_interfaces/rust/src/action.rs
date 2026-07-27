@@ -850,6 +850,521 @@ impl rosidl_runtime_rs::Message for ControlLift_FeedbackMessage {
 }
 
 
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Goal
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Goal {
+    /// 0=첫 트로프(후축), 1=둘째 트로프(전축) -- axle_detector_node 의
+    ///   /robot_<id>/axle_index 와 동일한 0-based 규약(그 노드가 이
+    ///   목표와 같은 세션에서 0부터 새로 세기 시작한다고 가정)
+    pub trough_index: i32,
+
+    /// m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+    pub forward_speed: f32,
+
+    /// m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+    pub return_speed: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Goal {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_Goal::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Goal {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_Goal;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        trough_index: msg.trough_index,
+        forward_speed: msg.forward_speed,
+        return_speed: msg.return_speed,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      trough_index: msg.trough_index,
+      forward_speed: msg.forward_speed,
+      return_speed: msg.return_speed,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      trough_index: msg.trough_index,
+      forward_speed: msg.forward_speed,
+      return_speed: msg.return_speed,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Result
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Result {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub success: bool,
+
+    /// midpoint_reached | timeout | pose_stale | depth_lost | canceled
+    pub stop_reason: std::string::String,
+
+    /// 최종 정지 좌표(주행좌표계 world x)
+    pub stop_x: f32,
+
+    /// axle_detector_node 가 보고한 목표 트로프 중심 x(정렬 목표였던 값)
+    pub target_axle_x: f32,
+
+    /// 진단용: 명령 vy 의 시간적분 기반 추정치. GT 실측이 아님(이 노드는
+    ///   지면진실 좌표를 모른다) -- 실제 횡편차 검증은 외부 스모크가 GT로 한다
+    pub est_max_lateral_dev_m: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Result {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_Result::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Result {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_Result;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        success: msg.success,
+        stop_reason: msg.stop_reason.as_str().into(),
+        stop_x: msg.stop_x,
+        target_axle_x: msg.target_axle_x,
+        est_max_lateral_dev_m: msg.est_max_lateral_dev_m,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      success: msg.success,
+        stop_reason: msg.stop_reason.as_str().into(),
+      stop_x: msg.stop_x,
+      target_axle_x: msg.target_axle_x,
+      est_max_lateral_dev_m: msg.est_max_lateral_dev_m,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      success: msg.success,
+      stop_reason: msg.stop_reason.to_string(),
+      stop_x: msg.stop_x,
+      target_axle_x: msg.target_axle_x,
+      est_max_lateral_dev_m: msg.est_max_lateral_dev_m,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Feedback
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Feedback {
+    /// SEEK | RETURN | SETTLING
+    pub phase: std::string::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub current_x: f32,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub troughs_seen: i32,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub vy_cmd: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Feedback {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_Feedback::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Feedback {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_Feedback;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        phase: msg.phase.as_str().into(),
+        current_x: msg.current_x,
+        troughs_seen: msg.troughs_seen,
+        vy_cmd: msg.vy_cmd,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        phase: msg.phase.as_str().into(),
+      current_x: msg.current_x,
+      troughs_seen: msg.troughs_seen,
+      vy_cmd: msg.vy_cmd,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      phase: msg.phase.to_string(),
+      current_x: msg.current_x,
+      troughs_seen: msg.troughs_seen,
+      vy_cmd: msg.vy_cmd,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_FeedbackMessage {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub feedback: super::action::IngressUnderTruck_Feedback,
+
+}
+
+
+
+impl Default for IngressUnderTruck_FeedbackMessage {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_FeedbackMessage::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_FeedbackMessage {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_FeedbackMessage;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+        feedback: super::action::IngressUnderTruck_Feedback::into_rmw_message(std::borrow::Cow::Owned(msg.feedback)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+        feedback: super::action::IngressUnderTruck_Feedback::into_rmw_message(std::borrow::Cow::Borrowed(&msg.feedback)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+      feedback: super::action::IngressUnderTruck_Feedback::from_rmw_message(msg.feedback),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Goal
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Goal {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub lead_robot_id: std::string::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub follow_robot_id: std::string::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_x: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_z: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_yaw_deg: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Goal {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_Goal::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Goal {
+  type RmwMsg = super::action::rmw::CarryToSlot_Goal;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        lead_robot_id: msg.lead_robot_id.as_str().into(),
+        follow_robot_id: msg.follow_robot_id.as_str().into(),
+        target_x: msg.target_x,
+        target_z: msg.target_z,
+        target_yaw_deg: msg.target_yaw_deg,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        lead_robot_id: msg.lead_robot_id.as_str().into(),
+        follow_robot_id: msg.follow_robot_id.as_str().into(),
+      target_x: msg.target_x,
+      target_z: msg.target_z,
+      target_yaw_deg: msg.target_yaw_deg,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      lead_robot_id: msg.lead_robot_id.to_string(),
+      follow_robot_id: msg.follow_robot_id.to_string(),
+      target_x: msg.target_x,
+      target_z: msg.target_z,
+      target_yaw_deg: msg.target_yaw_deg,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Result
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Result {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub success: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub message: std::string::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_x: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_z: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_yaw_deg: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Result {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_Result::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Result {
+  type RmwMsg = super::action::rmw::CarryToSlot_Result;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        success: msg.success,
+        message: msg.message.as_str().into(),
+        final_x: msg.final_x,
+        final_z: msg.final_z,
+        final_yaw_deg: msg.final_yaw_deg,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      success: msg.success,
+        message: msg.message.as_str().into(),
+      final_x: msg.final_x,
+      final_z: msg.final_z,
+      final_yaw_deg: msg.final_yaw_deg,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      success: msg.success,
+      message: msg.message.to_string(),
+      final_x: msg.final_x,
+      final_z: msg.final_z,
+      final_yaw_deg: msg.final_yaw_deg,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Feedback
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Feedback {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub phase: std::string::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub dist_remaining: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Feedback {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_Feedback::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Feedback {
+  type RmwMsg = super::action::rmw::CarryToSlot_Feedback;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        phase: msg.phase.as_str().into(),
+        dist_remaining: msg.dist_remaining,
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        phase: msg.phase.as_str().into(),
+      dist_remaining: msg.dist_remaining,
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      phase: msg.phase.to_string(),
+      dist_remaining: msg.dist_remaining,
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_FeedbackMessage
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_FeedbackMessage {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub feedback: super::action::CarryToSlot_Feedback,
+
+}
+
+
+
+impl Default for CarryToSlot_FeedbackMessage {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_FeedbackMessage::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_FeedbackMessage {
+  type RmwMsg = super::action::rmw::CarryToSlot_FeedbackMessage;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+        feedback: super::action::CarryToSlot_Feedback::into_rmw_message(std::borrow::Cow::Owned(msg.feedback)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+        feedback: super::action::CarryToSlot_Feedback::into_rmw_message(std::borrow::Cow::Borrowed(&msg.feedback)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+      feedback: super::action::CarryToSlot_Feedback::from_rmw_message(msg.feedback),
+    }
+  }
+}
+
+
 
 
 
@@ -1686,6 +2201,422 @@ impl rosidl_runtime_rs::Message for ControlLift_GetResult_Response {
 }
 
 
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_SendGoal_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal: super::action::IngressUnderTruck_Goal,
+
+}
+
+
+
+impl Default for IngressUnderTruck_SendGoal_Request {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_SendGoal_Request::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_SendGoal_Request {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_SendGoal_Request;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+        goal: super::action::IngressUnderTruck_Goal::into_rmw_message(std::borrow::Cow::Owned(msg.goal)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+        goal: super::action::IngressUnderTruck_Goal::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+      goal: super::action::IngressUnderTruck_Goal::from_rmw_message(msg.goal),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_SendGoal_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub accepted: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub stamp: builtin_interfaces::msg::Time,
+
+}
+
+
+
+impl Default for IngressUnderTruck_SendGoal_Response {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_SendGoal_Response::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_SendGoal_Response {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_SendGoal_Response;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        accepted: msg.accepted,
+        stamp: builtin_interfaces::msg::Time::into_rmw_message(std::borrow::Cow::Owned(msg.stamp)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      accepted: msg.accepted,
+        stamp: builtin_interfaces::msg::Time::into_rmw_message(std::borrow::Cow::Borrowed(&msg.stamp)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      accepted: msg.accepted,
+      stamp: builtin_interfaces::msg::Time::from_rmw_message(msg.stamp),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_GetResult_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+}
+
+
+
+impl Default for IngressUnderTruck_GetResult_Request {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_GetResult_Request::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_GetResult_Request {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_GetResult_Request;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_GetResult_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub status: i8,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub result: super::action::IngressUnderTruck_Result,
+
+}
+
+
+
+impl Default for IngressUnderTruck_GetResult_Response {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::IngressUnderTruck_GetResult_Response::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_GetResult_Response {
+  type RmwMsg = super::action::rmw::IngressUnderTruck_GetResult_Response;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        status: msg.status,
+        result: super::action::IngressUnderTruck_Result::into_rmw_message(std::borrow::Cow::Owned(msg.result)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      status: msg.status,
+        result: super::action::IngressUnderTruck_Result::into_rmw_message(std::borrow::Cow::Borrowed(&msg.result)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      status: msg.status,
+      result: super::action::IngressUnderTruck_Result::from_rmw_message(msg.result),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal_Request
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_SendGoal_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal: super::action::CarryToSlot_Goal,
+
+}
+
+
+
+impl Default for CarryToSlot_SendGoal_Request {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_SendGoal_Request::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_SendGoal_Request {
+  type RmwMsg = super::action::rmw::CarryToSlot_SendGoal_Request;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+        goal: super::action::CarryToSlot_Goal::into_rmw_message(std::borrow::Cow::Owned(msg.goal)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+        goal: super::action::CarryToSlot_Goal::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+      goal: super::action::CarryToSlot_Goal::from_rmw_message(msg.goal),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal_Response
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_SendGoal_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub accepted: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub stamp: builtin_interfaces::msg::Time,
+
+}
+
+
+
+impl Default for CarryToSlot_SendGoal_Response {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_SendGoal_Response::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_SendGoal_Response {
+  type RmwMsg = super::action::rmw::CarryToSlot_SendGoal_Response;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        accepted: msg.accepted,
+        stamp: builtin_interfaces::msg::Time::into_rmw_message(std::borrow::Cow::Owned(msg.stamp)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      accepted: msg.accepted,
+        stamp: builtin_interfaces::msg::Time::into_rmw_message(std::borrow::Cow::Borrowed(&msg.stamp)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      accepted: msg.accepted,
+      stamp: builtin_interfaces::msg::Time::from_rmw_message(msg.stamp),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult_Request
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_GetResult_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::UUID,
+
+}
+
+
+
+impl Default for CarryToSlot_GetResult_Request {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_GetResult_Request::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_GetResult_Request {
+  type RmwMsg = super::action::rmw::CarryToSlot_GetResult_Request;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Owned(msg.goal_id)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        goal_id: unique_identifier_msgs::msg::UUID::into_rmw_message(std::borrow::Cow::Borrowed(&msg.goal_id)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      goal_id: unique_identifier_msgs::msg::UUID::from_rmw_message(msg.goal_id),
+    }
+  }
+}
+
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult_Response
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_GetResult_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub status: i8,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub result: super::action::CarryToSlot_Result,
+
+}
+
+
+
+impl Default for CarryToSlot_GetResult_Response {
+  fn default() -> Self {
+    <Self as rosidl_runtime_rs::Message>::from_rmw_message(super::action::rmw::CarryToSlot_GetResult_Response::default())
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_GetResult_Response {
+  type RmwMsg = super::action::rmw::CarryToSlot_GetResult_Response;
+
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+    match msg_cow {
+      std::borrow::Cow::Owned(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+        status: msg.status,
+        result: super::action::CarryToSlot_Result::into_rmw_message(std::borrow::Cow::Owned(msg.result)).into_owned(),
+      }),
+      std::borrow::Cow::Borrowed(msg) => std::borrow::Cow::Owned(Self::RmwMsg {
+      status: msg.status,
+        result: super::action::CarryToSlot_Result::into_rmw_message(std::borrow::Cow::Borrowed(&msg.result)).into_owned(),
+      })
+    }
+  }
+
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+    Self {
+      status: msg.status,
+      result: super::action::CarryToSlot_Result::from_rmw_message(msg.result),
+    }
+  }
+}
+
+
 
 
 
@@ -1860,6 +2791,94 @@ impl rosidl_runtime_rs::Service for ControlLift_GetResult {
     fn get_type_support() -> *const std::ffi::c_void {
         // SAFETY: No preconditions for this function.
         unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__ControlLift_GetResult() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal
+#[allow(missing_docs, non_camel_case_types)]
+pub struct IngressUnderTruck_SendGoal;
+
+impl rosidl_runtime_rs::Service for IngressUnderTruck_SendGoal {
+    type Request = IngressUnderTruck_SendGoal_Request;
+    type Response = IngressUnderTruck_SendGoal_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult
+#[allow(missing_docs, non_camel_case_types)]
+pub struct IngressUnderTruck_GetResult;
+
+impl rosidl_runtime_rs::Service for IngressUnderTruck_GetResult {
+    type Request = IngressUnderTruck_GetResult_Request;
+    type Response = IngressUnderTruck_GetResult_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal
+#[allow(missing_docs, non_camel_case_types)]
+pub struct CarryToSlot_SendGoal;
+
+impl rosidl_runtime_rs::Service for CarryToSlot_SendGoal {
+    type Request = CarryToSlot_SendGoal_Request;
+    type Response = CarryToSlot_SendGoal_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult
+#[allow(missing_docs, non_camel_case_types)]
+pub struct CarryToSlot_GetResult;
+
+impl rosidl_runtime_rs::Service for CarryToSlot_GetResult {
+    type Request = CarryToSlot_GetResult_Request;
+    type Response = CarryToSlot_GetResult_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult() }
     }
 }
 
@@ -2416,6 +3435,284 @@ impl rosidl_runtime_rs::Action for ControlLift {
   ) -> (
     i8,
    super::action::rmw::ControlLift_Result,
+  ) {
+    (response.status, response.result)
+  }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_action_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck
+#[allow(missing_docs, non_camel_case_types)]
+pub struct IngressUnderTruck;
+
+impl rosidl_runtime_rs::Action for IngressUnderTruck {
+  // --- Associated types for client library users ---
+  /// The goal message defined in the action definition.
+  type Goal = IngressUnderTruck_Goal;
+
+  /// The result message defined in the action definition.
+  type Result = IngressUnderTruck_Result;
+
+  /// The feedback message defined in the action definition.
+  type Feedback = IngressUnderTruck_Feedback;
+
+  // --- Associated types for client library implementation ---
+  /// The feedback message with generic fields which wraps the feedback message.
+  type FeedbackMessage = super::action::IngressUnderTruck_FeedbackMessage;
+
+  /// The send_goal service using a wrapped version of the goal message as a request.
+  type SendGoalService = super::action::IngressUnderTruck_SendGoal;
+
+  /// The generic service to cancel a goal.
+  type CancelGoalService = action_msgs::srv::rmw::CancelGoal;
+
+  /// The get_result service using a wrapped version of the result message as a response.
+  type GetResultService = super::action::IngressUnderTruck_GetResult;
+
+  // --- Methods for client library implementation ---
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_action_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck() }
+  }
+
+  fn create_goal_request(
+    goal_id: &[u8; 16],
+    goal: super::action::rmw::IngressUnderTruck_Goal,
+  ) -> super::action::rmw::IngressUnderTruck_SendGoal_Request {
+   super::action::rmw::IngressUnderTruck_SendGoal_Request {
+      goal_id: unique_identifier_msgs::msg::rmw::UUID { uuid: *goal_id },
+      goal,
+    }
+  }
+
+  fn split_goal_request(
+    request: super::action::rmw::IngressUnderTruck_SendGoal_Request,
+  ) -> (
+    [u8; 16],
+   super::action::rmw::IngressUnderTruck_Goal,
+  ) {
+    (request.goal_id.uuid, request.goal)
+  }
+
+  fn create_goal_response(
+    accepted: bool,
+    stamp: (i32, u32),
+  ) -> super::action::rmw::IngressUnderTruck_SendGoal_Response {
+   super::action::rmw::IngressUnderTruck_SendGoal_Response {
+      accepted,
+      stamp: builtin_interfaces::msg::rmw::Time {
+        sec: stamp.0,
+        nanosec: stamp.1,
+      },
+    }
+  }
+
+  fn get_goal_response_accepted(
+    response: &super::action::rmw::IngressUnderTruck_SendGoal_Response,
+  ) -> bool {
+    response.accepted
+  }
+
+  fn get_goal_response_stamp(
+    response: &super::action::rmw::IngressUnderTruck_SendGoal_Response,
+  ) -> (i32, u32) {
+    (response.stamp.sec, response.stamp.nanosec)
+  }
+
+  fn create_feedback_message(
+    goal_id: &[u8; 16],
+    feedback: super::action::rmw::IngressUnderTruck_Feedback,
+  ) -> super::action::rmw::IngressUnderTruck_FeedbackMessage {
+    let mut message = super::action::rmw::IngressUnderTruck_FeedbackMessage::default();
+    message.goal_id.uuid = *goal_id;
+    message.feedback = feedback;
+    message
+  }
+
+  fn split_feedback_message(
+    feedback: super::action::rmw::IngressUnderTruck_FeedbackMessage,
+  ) -> (
+    [u8; 16],
+   super::action::rmw::IngressUnderTruck_Feedback,
+  ) {
+    (feedback.goal_id.uuid, feedback.feedback)
+  }
+
+  fn create_result_request(
+    goal_id: &[u8; 16],
+  ) -> super::action::rmw::IngressUnderTruck_GetResult_Request {
+   super::action::rmw::IngressUnderTruck_GetResult_Request {
+      goal_id: unique_identifier_msgs::msg::rmw::UUID { uuid: *goal_id },
+    }
+  }
+
+  fn get_result_request_uuid(
+    request: &super::action::rmw::IngressUnderTruck_GetResult_Request,
+  ) -> &[u8; 16] {
+    &request.goal_id.uuid
+  }
+
+  fn create_result_response(
+    status: i8,
+    result: super::action::rmw::IngressUnderTruck_Result,
+  ) -> super::action::rmw::IngressUnderTruck_GetResult_Response {
+   super::action::rmw::IngressUnderTruck_GetResult_Response {
+      status,
+      result,
+    }
+  }
+
+  fn split_result_response(
+    response: super::action::rmw::IngressUnderTruck_GetResult_Response
+  ) -> (
+    i8,
+   super::action::rmw::IngressUnderTruck_Result,
+  ) {
+    (response.status, response.result)
+  }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_action_type_support_handle__parking_robot_interfaces__action__CarryToSlot() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot
+#[allow(missing_docs, non_camel_case_types)]
+pub struct CarryToSlot;
+
+impl rosidl_runtime_rs::Action for CarryToSlot {
+  // --- Associated types for client library users ---
+  /// The goal message defined in the action definition.
+  type Goal = CarryToSlot_Goal;
+
+  /// The result message defined in the action definition.
+  type Result = CarryToSlot_Result;
+
+  /// The feedback message defined in the action definition.
+  type Feedback = CarryToSlot_Feedback;
+
+  // --- Associated types for client library implementation ---
+  /// The feedback message with generic fields which wraps the feedback message.
+  type FeedbackMessage = super::action::CarryToSlot_FeedbackMessage;
+
+  /// The send_goal service using a wrapped version of the goal message as a request.
+  type SendGoalService = super::action::CarryToSlot_SendGoal;
+
+  /// The generic service to cancel a goal.
+  type CancelGoalService = action_msgs::srv::rmw::CancelGoal;
+
+  /// The get_result service using a wrapped version of the result message as a response.
+  type GetResultService = super::action::CarryToSlot_GetResult;
+
+  // --- Methods for client library implementation ---
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_action_type_support_handle__parking_robot_interfaces__action__CarryToSlot() }
+  }
+
+  fn create_goal_request(
+    goal_id: &[u8; 16],
+    goal: super::action::rmw::CarryToSlot_Goal,
+  ) -> super::action::rmw::CarryToSlot_SendGoal_Request {
+   super::action::rmw::CarryToSlot_SendGoal_Request {
+      goal_id: unique_identifier_msgs::msg::rmw::UUID { uuid: *goal_id },
+      goal,
+    }
+  }
+
+  fn split_goal_request(
+    request: super::action::rmw::CarryToSlot_SendGoal_Request,
+  ) -> (
+    [u8; 16],
+   super::action::rmw::CarryToSlot_Goal,
+  ) {
+    (request.goal_id.uuid, request.goal)
+  }
+
+  fn create_goal_response(
+    accepted: bool,
+    stamp: (i32, u32),
+  ) -> super::action::rmw::CarryToSlot_SendGoal_Response {
+   super::action::rmw::CarryToSlot_SendGoal_Response {
+      accepted,
+      stamp: builtin_interfaces::msg::rmw::Time {
+        sec: stamp.0,
+        nanosec: stamp.1,
+      },
+    }
+  }
+
+  fn get_goal_response_accepted(
+    response: &super::action::rmw::CarryToSlot_SendGoal_Response,
+  ) -> bool {
+    response.accepted
+  }
+
+  fn get_goal_response_stamp(
+    response: &super::action::rmw::CarryToSlot_SendGoal_Response,
+  ) -> (i32, u32) {
+    (response.stamp.sec, response.stamp.nanosec)
+  }
+
+  fn create_feedback_message(
+    goal_id: &[u8; 16],
+    feedback: super::action::rmw::CarryToSlot_Feedback,
+  ) -> super::action::rmw::CarryToSlot_FeedbackMessage {
+    let mut message = super::action::rmw::CarryToSlot_FeedbackMessage::default();
+    message.goal_id.uuid = *goal_id;
+    message.feedback = feedback;
+    message
+  }
+
+  fn split_feedback_message(
+    feedback: super::action::rmw::CarryToSlot_FeedbackMessage,
+  ) -> (
+    [u8; 16],
+   super::action::rmw::CarryToSlot_Feedback,
+  ) {
+    (feedback.goal_id.uuid, feedback.feedback)
+  }
+
+  fn create_result_request(
+    goal_id: &[u8; 16],
+  ) -> super::action::rmw::CarryToSlot_GetResult_Request {
+   super::action::rmw::CarryToSlot_GetResult_Request {
+      goal_id: unique_identifier_msgs::msg::rmw::UUID { uuid: *goal_id },
+    }
+  }
+
+  fn get_result_request_uuid(
+    request: &super::action::rmw::CarryToSlot_GetResult_Request,
+  ) -> &[u8; 16] {
+    &request.goal_id.uuid
+  }
+
+  fn create_result_response(
+    status: i8,
+    result: super::action::rmw::CarryToSlot_Result,
+  ) -> super::action::rmw::CarryToSlot_GetResult_Response {
+   super::action::rmw::CarryToSlot_GetResult_Response {
+      status,
+      result,
+    }
+  }
+
+  fn split_result_response(
+    response: super::action::rmw::CarryToSlot_GetResult_Response
+  ) -> (
+    i8,
+   super::action::rmw::CarryToSlot_Result,
   ) {
     (response.status, response.result)
   }

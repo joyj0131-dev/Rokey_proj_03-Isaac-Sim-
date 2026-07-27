@@ -18,7 +18,9 @@
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/ExecuteParkingTask.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/DetectVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/AlignVehicle.idl",
-    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/ControlLift.idl"
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/ControlLift.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/IngressUnderTruck.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces:action/CarryToSlot.idl"
   ],
   "ros_interface_files": [
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/msg/VehicleInfo.idl",
@@ -36,7 +38,9 @@
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ExecuteParkingTask.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl",
-    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl"
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl"
   ],
   "ros_interface_dependencies": [
     "geometry_msgs:/opt/ros/humble/share/geometry_msgs/msg/Accel.idl",
@@ -138,6 +142,8 @@
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/msg/VehicleInfo.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/msg/TaskState.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/msg/ObstacleAlert.idl",
@@ -154,6 +160,8 @@
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl",
     "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl",
+    "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl",
     "/opt/ros/humble/share/geometry_msgs/msg/Accel.idl",
     "/opt/ros/humble/share/geometry_msgs/msg/AccelStamped.idl",
     "/opt/ros/humble/share/geometry_msgs/msg/AccelWithCovariance.idl",

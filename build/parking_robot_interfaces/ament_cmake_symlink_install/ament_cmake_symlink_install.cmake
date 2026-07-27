@@ -417,6 +417,12 @@ ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_int
 # install(FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl" "DESTINATION" "share/parking_robot_interfaces/action")
 ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl" "DESTINATION" "share/parking_robot_interfaces/action")
 
+# install(FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl" "DESTINATION" "share/parking_robot_interfaces/action")
+ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl" "DESTINATION" "share/parking_robot_interfaces/action")
+
+# install(FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl" "DESTINATION" "share/parking_robot_interfaces/action")
+ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl" "DESTINATION" "share/parking_robot_interfaces/action")
+
 # install(FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/msg/VehicleInfo.msg" "DESTINATION" "share/parking_robot_interfaces/msg")
 ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/msg/VehicleInfo.msg" "DESTINATION" "share/parking_robot_interfaces/msg")
 
@@ -506,6 +512,12 @@ ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_int
 
 # install(FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/ControlLift.action" "DESTINATION" "share/parking_robot_interfaces/action")
 ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/ControlLift.action" "DESTINATION" "share/parking_robot_interfaces/action")
+
+# install(FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/IngressUnderTruck.action" "DESTINATION" "share/parking_robot_interfaces/action")
+ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/IngressUnderTruck.action" "DESTINATION" "share/parking_robot_interfaces/action")
+
+# install(FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/CarryToSlot.action" "DESTINATION" "share/parking_robot_interfaces/action")
+ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/CarryToSlot.action" "DESTINATION" "share/parking_robot_interfaces/action")
 
 # install(FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/parking_robot_interfaces" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")
 ament_cmake_symlink_install_files("/home/rokey/p3/cobot_ws/src/parking_robot_interfaces" FILES "/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/parking_robot_interfaces" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")

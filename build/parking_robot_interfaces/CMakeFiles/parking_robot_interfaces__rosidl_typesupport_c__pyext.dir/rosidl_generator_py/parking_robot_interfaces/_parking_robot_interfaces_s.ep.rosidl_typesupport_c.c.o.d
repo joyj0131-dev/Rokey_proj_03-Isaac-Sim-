@@ -256,4 +256,10 @@ CMakeFiles/parking_robot_interfaces__rosidl_typesupport_c__pyext.dir/rosidl_gene
  /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.h \
  /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__type_support.h \
  /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__struct.h \
- /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.h
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__struct.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h \
+ /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h

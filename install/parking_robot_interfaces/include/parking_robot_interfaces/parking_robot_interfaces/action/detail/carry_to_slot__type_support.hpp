@@ -1,0 +1,1 @@
+/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_cpp/parking_robot_interfaces/action/detail/carry_to_slot__type_support.hpp

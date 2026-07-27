@@ -1268,6 +1268,693 @@ impl rosidl_runtime_rs::RmwMessage for ControlLift_FeedbackMessage where Self: S
 }
 
 
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Goal() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_Goal__init(msg: *mut IngressUnderTruck_Goal) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Goal>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Goal>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_Goal>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Goal>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Goal
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Goal {
+    /// 0=첫 트로프(후축), 1=둘째 트로프(전축) -- axle_detector_node 의
+    ///   /robot_<id>/axle_index 와 동일한 0-based 규약(그 노드가 이
+    ///   목표와 같은 세션에서 0부터 새로 세기 시작한다고 가정)
+    pub trough_index: i32,
+
+    /// m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+    pub forward_speed: f32,
+
+    /// m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+    pub return_speed: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Goal {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_Goal__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_Goal__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_Goal {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Goal__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Goal {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_Goal where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_Goal";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Goal() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Result() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_Result__init(msg: *mut IngressUnderTruck_Result) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Result>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Result>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_Result>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Result>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Result
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Result {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub success: bool,
+
+    /// midpoint_reached | timeout | pose_stale | depth_lost | canceled
+    pub stop_reason: rosidl_runtime_rs::String,
+
+    /// 최종 정지 좌표(주행좌표계 world x)
+    pub stop_x: f32,
+
+    /// axle_detector_node 가 보고한 목표 트로프 중심 x(정렬 목표였던 값)
+    pub target_axle_x: f32,
+
+    /// 진단용: 명령 vy 의 시간적분 기반 추정치. GT 실측이 아님(이 노드는
+    ///   지면진실 좌표를 모른다) -- 실제 횡편차 검증은 외부 스모크가 GT로 한다
+    pub est_max_lateral_dev_m: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Result {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_Result__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_Result__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_Result {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Result__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Result {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_Result where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_Result";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Result() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Feedback() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_Feedback__init(msg: *mut IngressUnderTruck_Feedback) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Feedback>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Feedback>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_Feedback>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_Feedback>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_Feedback
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_Feedback {
+    /// SEEK | RETURN | SETTLING
+    pub phase: rosidl_runtime_rs::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub current_x: f32,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub troughs_seen: i32,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub vy_cmd: f32,
+
+}
+
+
+
+impl Default for IngressUnderTruck_Feedback {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_Feedback__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_Feedback__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_Feedback {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_Feedback__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_Feedback {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_Feedback where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_Feedback";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_Feedback() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__init(msg: *mut IngressUnderTruck_FeedbackMessage) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_FeedbackMessage>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_FeedbackMessage>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_FeedbackMessage>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_FeedbackMessage>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_FeedbackMessage {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub feedback: super::super::action::rmw::IngressUnderTruck_Feedback,
+
+}
+
+
+
+impl Default for IngressUnderTruck_FeedbackMessage {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_FeedbackMessage {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_FeedbackMessage {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_FeedbackMessage where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_FeedbackMessage";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_FeedbackMessage() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Goal() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_Goal__init(msg: *mut CarryToSlot_Goal) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Goal>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Goal>);
+    fn parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_Goal>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Goal>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Goal
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Goal {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub lead_robot_id: rosidl_runtime_rs::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub follow_robot_id: rosidl_runtime_rs::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_x: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_z: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub target_yaw_deg: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Goal {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_Goal__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_Goal__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_Goal {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Goal__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Goal {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_Goal where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_Goal";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Goal() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Result() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_Result__init(msg: *mut CarryToSlot_Result) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Result__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Result>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Result__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Result>);
+    fn parking_robot_interfaces__action__CarryToSlot_Result__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_Result>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Result>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Result
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Result {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub success: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub message: rosidl_runtime_rs::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_x: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_z: f64,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub final_yaw_deg: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Result {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_Result__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_Result__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_Result {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Result__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Result__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Result__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Result {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_Result where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_Result";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Result() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Feedback() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_Feedback__init(msg: *mut CarryToSlot_Feedback) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Feedback>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Feedback>);
+    fn parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_Feedback>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_Feedback>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_Feedback
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_Feedback {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub phase: rosidl_runtime_rs::String,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub dist_remaining: f64,
+
+}
+
+
+
+impl Default for CarryToSlot_Feedback {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_Feedback__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_Feedback__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_Feedback {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_Feedback__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_Feedback {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_Feedback where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_Feedback";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_Feedback() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_FeedbackMessage() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__init(msg: *mut CarryToSlot_FeedbackMessage) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_FeedbackMessage>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_FeedbackMessage>);
+    fn parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_FeedbackMessage>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_FeedbackMessage>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_FeedbackMessage
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_FeedbackMessage {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub feedback: super::super::action::rmw::CarryToSlot_Feedback,
+
+}
+
+
+
+impl Default for CarryToSlot_FeedbackMessage {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_FeedbackMessage {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_FeedbackMessage__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_FeedbackMessage {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_FeedbackMessage where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_FeedbackMessage";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_FeedbackMessage() }
+  }
+}
+
+
 
 
 #[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
@@ -2530,6 +3217,636 @@ impl rosidl_runtime_rs::RmwMessage for ControlLift_GetResult_Response where Self
 }
 
 
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__init(msg: *mut IngressUnderTruck_SendGoal_Request) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Request>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Request>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Request>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Request>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_SendGoal_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal: super::super::action::rmw::IngressUnderTruck_Goal,
+
+}
+
+
+
+impl Default for IngressUnderTruck_SendGoal_Request {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_SendGoal_Request {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_SendGoal_Request {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_SendGoal_Request where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_SendGoal_Request";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Request() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__init(msg: *mut IngressUnderTruck_SendGoal_Response) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Response>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Response>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Response>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_SendGoal_Response>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_SendGoal_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub accepted: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub stamp: builtin_interfaces::msg::rmw::Time,
+
+}
+
+
+
+impl Default for IngressUnderTruck_SendGoal_Response {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_SendGoal_Response {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_SendGoal_Response {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_SendGoal_Response where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_SendGoal_Response";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal_Response() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__init(msg: *mut IngressUnderTruck_GetResult_Request) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Request>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Request>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Request>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Request>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_GetResult_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+}
+
+
+
+impl Default for IngressUnderTruck_GetResult_Request {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_GetResult_Request {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_GetResult_Request {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_GetResult_Request where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_GetResult_Request";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult_Request() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__init(msg: *mut IngressUnderTruck_GetResult_Response) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Response>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Response>);
+    fn parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Response>, out_seq: *mut rosidl_runtime_rs::Sequence<IngressUnderTruck_GetResult_Response>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct IngressUnderTruck_GetResult_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub status: i8,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub result: super::super::action::rmw::IngressUnderTruck_Result,
+
+}
+
+
+
+impl Default for IngressUnderTruck_GetResult_Response {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for IngressUnderTruck_GetResult_Response {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for IngressUnderTruck_GetResult_Response {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for IngressUnderTruck_GetResult_Response where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/IngressUnderTruck_GetResult_Response";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult_Response() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal_Request() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__init(msg: *mut CarryToSlot_SendGoal_Request) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Request>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Request>);
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Request>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Request>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal_Request
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_SendGoal_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal: super::super::action::rmw::CarryToSlot_Goal,
+
+}
+
+
+
+impl Default for CarryToSlot_SendGoal_Request {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_SendGoal_Request {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Request__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_SendGoal_Request {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_SendGoal_Request where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_SendGoal_Request";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal_Request() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal_Response() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__init(msg: *mut CarryToSlot_SendGoal_Response) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Response>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Response>);
+    fn parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Response>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_SendGoal_Response>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal_Response
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_SendGoal_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub accepted: bool,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub stamp: builtin_interfaces::msg::rmw::Time,
+
+}
+
+
+
+impl Default for CarryToSlot_SendGoal_Response {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_SendGoal_Response {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_SendGoal_Response__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_SendGoal_Response {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_SendGoal_Response where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_SendGoal_Response";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal_Response() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult_Request() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Request__init(msg: *mut CarryToSlot_GetResult_Request) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Request>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Request>);
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Request>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Request>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult_Request
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_GetResult_Request {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub goal_id: unique_identifier_msgs::msg::rmw::UUID,
+
+}
+
+
+
+impl Default for CarryToSlot_GetResult_Request {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_GetResult_Request__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_GetResult_Request__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_GetResult_Request {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Request__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_GetResult_Request {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_GetResult_Request where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_GetResult_Request";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult_Request() }
+  }
+}
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult_Response() -> *const std::ffi::c_void;
+}
+
+#[link(name = "parking_robot_interfaces__rosidl_generator_c")]
+extern "C" {
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Response__init(msg: *mut CarryToSlot_GetResult_Response) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__init(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Response>, size: usize) -> bool;
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__fini(seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Response>);
+    fn parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__copy(in_seq: &rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Response>, out_seq: *mut rosidl_runtime_rs::Sequence<CarryToSlot_GetResult_Response>) -> bool;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult_Response
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+
+
+// This struct is not documented.
+#[allow(missing_docs)]
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct CarryToSlot_GetResult_Response {
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub status: i8,
+
+
+    // This member is not documented.
+    #[allow(missing_docs)]
+    pub result: super::super::action::rmw::CarryToSlot_Result,
+
+}
+
+
+
+impl Default for CarryToSlot_GetResult_Response {
+  fn default() -> Self {
+    unsafe {
+      let mut msg = std::mem::zeroed();
+      if !parking_robot_interfaces__action__CarryToSlot_GetResult_Response__init(&mut msg as *mut _) {
+        panic!("Call to parking_robot_interfaces__action__CarryToSlot_GetResult_Response__init() failed");
+      }
+      msg
+    }
+  }
+}
+
+impl rosidl_runtime_rs::SequenceAlloc for CarryToSlot_GetResult_Response {
+  fn sequence_init(seq: &mut rosidl_runtime_rs::Sequence<Self>, size: usize) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__init(seq as *mut _, size) }
+  }
+  fn sequence_fini(seq: &mut rosidl_runtime_rs::Sequence<Self>) {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__fini(seq as *mut _) }
+  }
+  fn sequence_copy(in_seq: &rosidl_runtime_rs::Sequence<Self>, out_seq: &mut rosidl_runtime_rs::Sequence<Self>) -> bool {
+    // SAFETY: This is safe since the pointer is guaranteed to be valid/initialized.
+    unsafe { parking_robot_interfaces__action__CarryToSlot_GetResult_Response__Sequence__copy(in_seq, out_seq as *mut _) }
+  }
+}
+
+impl rosidl_runtime_rs::Message for CarryToSlot_GetResult_Response {
+  type RmwMsg = Self;
+  fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> { msg_cow }
+  fn from_rmw_message(msg: Self::RmwMsg) -> Self { msg }
+}
+
+impl rosidl_runtime_rs::RmwMessage for CarryToSlot_GetResult_Response where Self: Sized {
+  const TYPE_NAME: &'static str = "parking_robot_interfaces/action/CarryToSlot_GetResult_Response";
+  fn get_type_support() -> *const std::ffi::c_void {
+    // SAFETY: No preconditions for this function.
+    unsafe { rosidl_typesupport_c__get_message_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult_Response() }
+  }
+}
+
+
 
 
 
@@ -2704,6 +4021,94 @@ impl rosidl_runtime_rs::Service for ControlLift_GetResult {
     fn get_type_support() -> *const std::ffi::c_void {
         // SAFETY: No preconditions for this function.
         unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__ControlLift_GetResult() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_SendGoal
+#[allow(missing_docs, non_camel_case_types)]
+pub struct IngressUnderTruck_SendGoal;
+
+impl rosidl_runtime_rs::Service for IngressUnderTruck_SendGoal {
+    type Request = IngressUnderTruck_SendGoal_Request;
+    type Response = IngressUnderTruck_SendGoal_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_SendGoal() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__IngressUnderTruck_GetResult
+#[allow(missing_docs, non_camel_case_types)]
+pub struct IngressUnderTruck_GetResult;
+
+impl rosidl_runtime_rs::Service for IngressUnderTruck_GetResult {
+    type Request = IngressUnderTruck_GetResult_Request;
+    type Response = IngressUnderTruck_GetResult_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__IngressUnderTruck_GetResult() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_SendGoal
+#[allow(missing_docs, non_camel_case_types)]
+pub struct CarryToSlot_SendGoal;
+
+impl rosidl_runtime_rs::Service for CarryToSlot_SendGoal {
+    type Request = CarryToSlot_SendGoal_Request;
+    type Response = CarryToSlot_SendGoal_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_SendGoal() }
+    }
+}
+
+
+
+
+#[link(name = "parking_robot_interfaces__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult() -> *const std::ffi::c_void;
+}
+
+// Corresponds to parking_robot_interfaces__action__CarryToSlot_GetResult
+#[allow(missing_docs, non_camel_case_types)]
+pub struct CarryToSlot_GetResult;
+
+impl rosidl_runtime_rs::Service for CarryToSlot_GetResult {
+    type Request = CarryToSlot_GetResult_Request;
+    type Response = CarryToSlot_GetResult_Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function.
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__parking_robot_interfaces__action__CarryToSlot_GetResult() }
     }
 }
 

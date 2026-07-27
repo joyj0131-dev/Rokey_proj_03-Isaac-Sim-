@@ -76,14 +76,16 @@ def lateral_centring_vy(left, right, *, kp=DEFAULT_LAT_KP, vy_max=DEFAULT_LAT_VY
     return max(-vy_max, min(vy_max, kp * err))
 
 
-def return_phase_vx(remaining, return_speed):
+def return_phase_vx(remaining, return_speed, drive_sign=1.0):
     """RETURN 단계 vx: 러너 3441행 ``spd = clip(-1.0*remaining, ±RETURN_SPEED)``
-    그대로. ``remaining = target_x - travel_x``(호출자가 계산해 넘긴다) — 이
-    부호 관계는 로봇의 로컬 forward 가 주행좌표(world x)를 감소시키는 이 미션의
-    실측 관례(APPROACH_YAW=-90°, taskC2fix/§)에서만 성립한다(문서화된 가정,
-    ``ingress_node.py`` docstring 참고).
+    그대로. ``remaining = target_x - travel_x``(호출자가 계산해 넘긴다).
+
+    ``drive_sign``: 로컬 forward(+vx)가 world x 를 감소시키면 +1(서향 로봇,
+    APPROACH_YAW=-90°, 기존 관례). 동향(+90°) 로봇이 **후진**으로 진입하면
+    forward 가 world x 를 증가시키므로 -1 — SEEK/RETURN 두 vx 부호를 함께
+    뒤집는다(2026-07-27 재안무: follow 가 동쪽 보며 -x 로 진입).
     """
-    return max(-return_speed, min(return_speed, -1.0 * float(remaining)))
+    return max(-return_speed, min(return_speed, drive_sign * -1.0 * float(remaining)))
 
 
 def pick_target_axle(axle_centers, trough_index):
@@ -118,10 +120,13 @@ class IngressController:
     def __init__(self, trough_index, *, forward_speed=DEFAULT_FORWARD_SPEED,
                  return_speed=DEFAULT_RETURN_SPEED, lat_kp=DEFAULT_LAT_KP,
                  lat_vy_max=DEFAULT_LAT_VY_MAX, lat_deadband=DEFAULT_LAT_DEADBAND,
-                 pos_tol=DEFAULT_POS_TOL, settle_frames=DEFAULT_SETTLE_FRAMES):
+                 pos_tol=DEFAULT_POS_TOL, settle_frames=DEFAULT_SETTLE_FRAMES,
+                 drive_sign=1.0):
         if trough_index < 0:
             raise ValueError(f"trough_index 는 0 이상이어야 합니다: {trough_index!r}")
         self.trough_index = trough_index
+        # +1: forward=world -x(서향, 기존). -1: 동향 로봇 후진진입(vx 부호 반전).
+        self.drive_sign = 1.0 if drive_sign >= 0 else -1.0
         self.forward_speed = forward_speed
         self.return_speed = return_speed
         self.lat_kp = lat_kp
@@ -164,7 +169,7 @@ class IngressController:
         if self.phase == self.PHASE_SEEK:
             target = pick_target_axle(axle_centers, self.trough_index)
             if target is None:
-                return (self.forward_speed, vy, 0.0)
+                return (self.drive_sign * self.forward_speed, vy, 0.0)
             self.target_x = float(target)
             self.phase = self.PHASE_RETURN
             # 같은 틱에 RETURN 을 곧바로 평가한다(축이 확정된 그 순간부터
@@ -177,7 +182,7 @@ class IngressController:
                 self.phase = self.PHASE_SETTLING
                 self._settle_count = 0
             else:
-                vx = return_phase_vx(remaining, self.return_speed)
+                vx = return_phase_vx(remaining, self.return_speed, self.drive_sign)
                 return (vx, vy, 0.0)
 
         if self.phase == self.PHASE_SETTLING:
@@ -188,3 +193,16 @@ class IngressController:
             return (0.0, 0.0, 0.0)
 
         return (0.0, 0.0, 0.0)  # PHASE_DONE
+
+
+if __name__ == "__main__":
+    # drive_sign 자기검증(회귀 가드): 동향 후진(-1)이면 SEEK/RETURN vx 둘 다 서향(+1)과
+    # 정확히 반대 부호여야 한다. 축은 아직 미검출이라 SEEK 국면.
+    w = IngressController(0, drive_sign=1.0)   # 서향(기존)
+    e = IngressController(0, drive_sign=-1.0)  # 동향(후진 진입)
+    vw = w.step(0.0, None, None, [], 0.05)[0]  # SEEK vx
+    ve = e.step(0.0, None, None, [], 0.05)[0]
+    assert vw > 0 and ve < 0 and abs(vw + ve) < 1e-9, (vw, ve)
+    # RETURN vx 도 부호 반전(같은 remaining 부호에서 서향 음수/동향 양수).
+    assert return_phase_vx(0.5, 0.15, 1.0) < 0 < return_phase_vx(0.5, 0.15, -1.0)
+    print("ingress_control drive_sign self-check OK")

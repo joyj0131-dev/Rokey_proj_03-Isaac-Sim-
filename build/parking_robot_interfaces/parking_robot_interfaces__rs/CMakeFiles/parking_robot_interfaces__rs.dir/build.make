@@ -104,6 +104,8 @@ rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/par
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl
+rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl
+rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/msg/VehicleInfo.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/msg/TaskState.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/msg/ObstacleAlert.idl
@@ -120,6 +122,8 @@ rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/par
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl
+rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl
+rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: /opt/ros/humble/share/geometry_msgs/msg/Accel.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: /opt/ros/humble/share/geometry_msgs/msg/AccelStamped.idl
 rosidl_generator_rs/parking_robot_interfaces/rust/src/lib.rs: /opt/ros/humble/share/geometry_msgs/msg/AccelWithCovariance.idl

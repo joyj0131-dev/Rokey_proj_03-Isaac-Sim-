@@ -96,6 +96,8 @@ CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_i
 CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/DetectVehicle.action
 CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/AlignVehicle.action
 CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/ControlLift.action
+CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/IngressUnderTruck.action
+CMakeFiles/parking_robot_interfaces: /home/rokey/p3/cobot_ws/src/parking_robot_interfaces/action/CarryToSlot.action
 CMakeFiles/parking_robot_interfaces: /opt/ros/humble/share/geometry_msgs/msg/Accel.idl
 CMakeFiles/parking_robot_interfaces: /opt/ros/humble/share/geometry_msgs/msg/AccelStamped.idl
 CMakeFiles/parking_robot_interfaces: /opt/ros/humble/share/geometry_msgs/msg/AccelWithCovariance.idl

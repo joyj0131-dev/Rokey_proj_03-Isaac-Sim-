@@ -16,6 +16,8 @@
     "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/ExecuteParkingTask.action",
     "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/DetectVehicle.action",
     "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/AlignVehicle.action",
-    "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/ControlLift.action"
+    "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/ControlLift.action",
+    "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/IngressUnderTruck.action",
+    "/home/rokey/p3/cobot_ws/src/parking_robot_interfaces:action/CarryToSlot.action"
   ]
 }

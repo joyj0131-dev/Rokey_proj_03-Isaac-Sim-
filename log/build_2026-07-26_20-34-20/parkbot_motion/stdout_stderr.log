@@ -1,0 +1,27 @@
+running egg_info
+writing ../../build/parkbot_motion/parkbot_motion.egg-info/PKG-INFO
+writing dependency_links to ../../build/parkbot_motion/parkbot_motion.egg-info/dependency_links.txt
+writing entry points to ../../build/parkbot_motion/parkbot_motion.egg-info/entry_points.txt
+writing requirements to ../../build/parkbot_motion/parkbot_motion.egg-info/requires.txt
+writing top-level names to ../../build/parkbot_motion/parkbot_motion.egg-info/top_level.txt
+reading manifest file '../../build/parkbot_motion/parkbot_motion.egg-info/SOURCES.txt'
+writing manifest file '../../build/parkbot_motion/parkbot_motion.egg-info/SOURCES.txt'
+running build
+running build_py
+copying parkbot_motion/pickup_orchestrator_node.py -> /home/rokey/p3/cobot_ws/build/parkbot_motion/build/lib/parkbot_motion
+running install
+running install_lib
+copying /home/rokey/p3/cobot_ws/build/parkbot_motion/build/lib/parkbot_motion/pickup_orchestrator_node.py -> /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion/pickup_orchestrator_node.py to pickup_orchestrator_node.cpython-310.pyc
+running install_data
+running install_egg_info
+removing '/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion-0.1.0-py3.10.egg-info' (and everything under it)
+Copying ../../build/parkbot_motion/parkbot_motion.egg-info to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion-0.1.0-py3.10.egg-info
+running install_scripts
+Installing axle_detector_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing carry_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing ingress_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing lift_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing pickup_orchestrator_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+Installing pose_controller_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+writing list of installed files to '/home/rokey/p3/cobot_ws/build/parkbot_motion/install.log'

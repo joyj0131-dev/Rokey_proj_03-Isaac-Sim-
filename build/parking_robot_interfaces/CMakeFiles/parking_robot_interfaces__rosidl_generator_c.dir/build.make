@@ -98,6 +98,8 @@ rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/p
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/parking_robot_interfaces/action/DetectVehicle.idl
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/parking_robot_interfaces/action/AlignVehicle.idl
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/parking_robot_interfaces/action/ControlLift.idl
+rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/parking_robot_interfaces/action/IngressUnderTruck.idl
+rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: rosidl_adapter/parking_robot_interfaces/action/CarryToSlot.idl
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: /opt/ros/humble/share/geometry_msgs/msg/Accel.idl
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: /opt/ros/humble/share/geometry_msgs/msg/AccelStamped.idl
 rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h: /opt/ros/humble/share/geometry_msgs/msg/AccelWithCovariance.idl
@@ -359,6 +361,30 @@ rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__struct.h
 rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__type_support.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
 	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__type_support.h
 
+rosidl_generator_c/parking_robot_interfaces/action/ingress_under_truck.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/ingress_under_truck.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__struct.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__struct.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.h
+
+rosidl_generator_c/parking_robot_interfaces/action/carry_to_slot.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/carry_to_slot.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h
+
 rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
 	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c
 
@@ -406,6 +432,12 @@ rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functio
 
 rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
 	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c
+
+rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c: rosidl_generator_c/parking_robot_interfaces/msg/vehicle_info.h
+	@$(CMAKE_COMMAND) -E touch_nocreate rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c
 
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c.o: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/flags.make
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c.o: rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c
@@ -631,6 +663,34 @@ CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/p
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c -o CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.s
 
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/flags.make
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o: rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o -MF CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o.d -o CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o -c /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c
+
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c > CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.i
+
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c -o CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.s
+
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/flags.make
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o: rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building C object CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o -MF CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o.d -o CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o -c /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c
+
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c > CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.i
+
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c -o CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.s
+
 # Object files for target parking_robot_interfaces__rosidl_generator_c
 parking_robot_interfaces__rosidl_generator_c_OBJECTS = \
 "CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/msg/detail/vehicle_info__functions.c.o" \
@@ -648,7 +708,9 @@ parking_robot_interfaces__rosidl_generator_c_OBJECTS = \
 "CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__functions.c.o" \
 "CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/detect_vehicle__functions.c.o" \
 "CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.c.o" \
-"CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.o"
+"CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.o" \
+"CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o" \
+"CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o"
 
 # External object files for target parking_robot_interfaces__rosidl_generator_c
 parking_robot_interfaces__rosidl_generator_c_EXTERNAL_OBJECTS =
@@ -669,6 +731,8 @@ libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_int
 libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/detect_vehicle__functions.c.o
 libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.c.o
 libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c.o
+libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c.o
+libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c.o
 libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/build.make
 libparking_robot_interfaces__rosidl_generator_c.so: /opt/ros/humble/lib/libgeometry_msgs__rosidl_generator_c.so
 libparking_robot_interfaces__rosidl_generator_c.so: /opt/ros/humble/lib/libstd_msgs__rosidl_generator_c.so
@@ -678,7 +742,7 @@ libparking_robot_interfaces__rosidl_generator_c.so: /opt/ros/humble/lib/libuniqu
 libparking_robot_interfaces__rosidl_generator_c.so: /opt/ros/humble/lib/librosidl_runtime_c.so
 libparking_robot_interfaces__rosidl_generator_c.so: /opt/ros/humble/lib/librcutils.so
 libparking_robot_interfaces__rosidl_generator_c.so: CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Linking C shared library libparking_robot_interfaces__rosidl_generator_c.so"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Linking C shared library libparking_robot_interfaces__rosidl_generator_c.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -690,11 +754,16 @@ CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/clean:
 .PHONY : CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/clean
 
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/align_vehicle.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/carry_to_slot.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/control_lift.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.c
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__functions.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__struct.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/align_vehicle__type_support.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.c
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__functions.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__struct.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/carry_to_slot__type_support.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.c
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__functions.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/control_lift__struct.h
@@ -707,8 +776,13 @@ CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_gener
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__functions.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__struct.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/execute_parking_task__type_support.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.c
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__functions.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__struct.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detail/ingress_under_truck__type_support.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/detect_vehicle.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/execute_parking_task.h
+CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/action/ingress_under_truck.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__functions.c
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__functions.h
 CMakeFiles/parking_robot_interfaces__rosidl_generator_c.dir/depend: rosidl_generator_c/parking_robot_interfaces/msg/detail/formation_assignment__struct.h

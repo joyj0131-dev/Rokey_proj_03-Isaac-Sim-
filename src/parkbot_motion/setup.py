@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'parkbot_motion'
@@ -10,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', glob('launch/*.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -35,6 +38,7 @@ setup(
             'lift_action_server = parkbot_motion.lift_action_server:main',
             'ingress_node = parkbot_motion.ingress_node:main',
             'pickup_orchestrator_node = parkbot_motion.pickup_orchestrator_node:main',
+            'carry_action_server = parkbot_motion.carry_action_server:main',
         ],
     },
 )

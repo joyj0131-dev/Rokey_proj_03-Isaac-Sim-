@@ -1,0 +1,22 @@
+[0.378s] Invoking command in '/home/rokey/p3/cobot_ws/build/parkbot_motion': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_motion/build --no-deps symlink_data
+[0.487s] running develop
+[0.542s] running egg_info
+[0.542s] writing parkbot_motion.egg-info/PKG-INFO
+[0.542s] writing dependency_links to parkbot_motion.egg-info/dependency_links.txt
+[0.542s] writing entry points to parkbot_motion.egg-info/entry_points.txt
+[0.542s] writing requirements to parkbot_motion.egg-info/requires.txt
+[0.542s] writing top-level names to parkbot_motion.egg-info/top_level.txt
+[0.542s] reading manifest file 'parkbot_motion.egg-info/SOURCES.txt'
+[0.543s] writing manifest file 'parkbot_motion.egg-info/SOURCES.txt'
+[0.543s] running build_ext
+[0.543s] Creating /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot-motion.egg-link (link to .)
+[0.544s] Installing axle_detector_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] Installing carry_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] Installing ingress_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] Installing lift_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] Installing pickup_orchestrator_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] Installing pose_controller_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.544s] 
+[0.544s] Installed /home/rokey/p3/cobot_ws/build/parkbot_motion
+[0.544s] running symlink_data
+[0.558s] Invoked command in '/home/rokey/p3/cobot_ws/build/parkbot_motion' returned '0': PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rokey/p3/cobot_ws/build/parkbot_motion/build --no-deps symlink_data

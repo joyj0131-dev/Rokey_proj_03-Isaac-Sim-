@@ -17,6 +17,7 @@ image 발행. 검출·측위·제어·안무는 전부 외부 ROS2 노드가 수
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -87,10 +88,12 @@ sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_motion"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
-RENDER_HZ = 60.0
+RENDER_HZ = 20.0   # 물리(PHYSICS_HZ)와 독립. 낮출수록 sim초당 렌더 횟수↓ → GPU↓ → RTF↑
+                   # (물리 정확도 무관). 60→20 은 렌더 1/3, 카메라 토픽도 20Hz 발행.
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 400
-PHYSICS_HZ = 120.0
+PHYSICS_HZ = 60.0   # 판별용: 120→60 으로 물리 계산 절반. rtf 오르면 물리가 병목,
+                    # 그대로면 병목은 렌더(카메라+GUI 뷰포트 지오메트리) 확정.
 LINEAR_ACCEL = 0.5
 LINEAR_DECEL = 0.8
 ANGULAR_ACCEL = 0.8
@@ -1094,7 +1097,7 @@ def main():
     # 로봇을 몰고 /odom·/joint_states 를 구독한다. GT 는 콘솔 하트비트에만
     # 쓴다(제어 입력 절대 아님 — 브리핑 지시).
     from sensor_msgs.msg import JointState
-    from std_msgs.msg import Float32
+    from std_msgs.msg import Float32, Bool
     from geometry_msgs.msg import Twist
 
     # ---- R3c 검증용(선택): 로봇을 자기 도크마커 접근선 위로 재배치 ----
@@ -1267,10 +1270,34 @@ def main():
     if cam_robots_bridge:
         for _ in range(30):
             app.update()
+
+    # 측면 뎁스캠 게이팅: 뎁스 렌더는 로봇이 트럭 밑 진입을 준비할 때만 필요하다
+    # (axle_detector). Phase B 주행 내내 8대(4로봇×2)를 렌더하면 RTF 를 크게 깎고,
+    # 게다가 axle_detector 가 주행 중 스테일 트로프를 쌓는다(픽업 미도달 버그의 원인).
+    # 그래서 셋업으로 파이프라인(렌더프로덕트+ROS2 writer)은 정상 배선해두되
+    # (위 30틱), 곧바로 hydra 업데이트를 pause 한다 — IsaacCreateRenderProduct 의
+    # inputs:enabled=False 면 handle 이 이미 있을 때 set_updates_enabled(False) 로
+    # 렌더만 멈춘다(OgnIsaacCreateRenderProduct.py:55-61 실측). orchestrator 가
+    # 픽업 approach 시점에 /robot_<id>/depth_enable=true 를 쏘면 즉시 resume 한다.
+    import omni.graph.core as _og_depth
+    depth_state = {}  # r -> bool(현재 뎁스 렌더 on/off) — 전환마다 로그로 확증
+
+    def set_depth_enabled(r, on):
+        on = bool(on)
+        for side in ("left", "right"):
+            _og_depth.Controller.attribute(
+                f"/Graphs/cam_{r}_{side}/render.inputs:enabled").set(on)
+        if depth_state.get(r) != on:
+            depth_state[r] = on
+            print(f"DEPTH_RENDER robot={r} enabled={on}", flush=True)
+
+    for r in cam_robots_bridge:
+        set_depth_enabled(r, False)
+
     depth_topics = [f"/robot_{r}/{side}/depth"
                      for r in cam_robots_bridge for side in ("left", "right")]
     print(f"BRIDGE_DEPTH_CAMERAS robots={cam_robots_bridge} "
-          f"topics={depth_topics}", flush=True)
+          f"topics={depth_topics} gated=off(depth_enable 로 켬)", flush=True)
 
     # ---- 후방캠 발행(기본 ON) ----
     # Phase B "후방캠 도크점검"의 marker_localizer_node 가 구독할
@@ -1324,6 +1351,16 @@ def main():
     lift_sub = {r: ros_node.create_subscription(Float32, f"/robot_{r}/lift_cmd",
                                                  make_lift_cb(r), 10)
                 for r in arts}
+
+    # 측면 뎁스캠 on/off: orchestrator 가 픽업 approach~ingress 구간에만 True 를
+    # 쏜다(그 밖엔 렌더 pause). set_depth_enabled(위 뎁스 셋업)로 hydra resume/pause.
+    def make_depth_enable_cb(r):
+        def cb(msg):
+            set_depth_enabled(r, bool(msg.data))
+        return cb
+    depth_en_sub = {r: ros_node.create_subscription(
+        Bool, f"/robot_{r}/depth_enable", make_depth_enable_cb(r), 10)
+        for r in cam_robots_bridge}
 
     def publish_joint_states():
         for r in arts:
@@ -1380,6 +1417,7 @@ def main():
           f"odom_mode={odom_mode} truck_y0={_truck_y0:.4f}", flush=True)
     prev_sim = timeline.get_current_time()
     last_heartbeat = prev_sim
+    last_wall = time.time()   # RTF 실측용(sim시간증분/벽시계증분)
     while app.is_running():
         app.update()
         now_sim = timeline.get_current_time()
@@ -1408,14 +1446,17 @@ def main():
         publish_joint_states()
 
         if now_sim - last_heartbeat >= 2.0:
+            now_wall = time.time()
+            rtf = (now_sim - last_heartbeat) / max(1e-6, now_wall - last_wall)
             last_heartbeat = now_sim
+            last_wall = now_wall
             gt_str = " ".join(
                 f"{r}=({x:.2f},{z:.2f},{math.degrees(yaw):.1f})"
                 for r, (x, z, yaw) in ((r, gt_pose_xz_yaw(arts[r])) for r in arts))
             cmd_str = " ".join(f"{r}=({vx:.2f},{vy:.2f},{wz:.2f})"
                                for r, (vx, vy, wz) in target_twist.items())
             _truck_y = sum(_wheel_y(wn) for wn in HANDOFF_VEHICLE_WHEELS) / 4.0
-            print(f"BRIDGE_ALIVE t={now_sim:.1f} robots={len(arts)} "
+            print(f"BRIDGE_ALIVE t={now_sim:.1f} rtf={rtf:.2f} robots={len(arts)} "
                   f"cmd=[{cmd_str}] gt=[{gt_str}] "
                   f"truck_y={_truck_y:.4f} truck_rise={_truck_y - _truck_y0:.4f}",
                   flush=True)
