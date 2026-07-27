@@ -47,6 +47,17 @@ trap cleanup EXIT INT TERM
 echo "=== 1/4: DB를 깨끗한 상태로 리셋 ==="
 echo "    (V4 스키마/슬롯/로봇 4대 동기화, 이전 테스트 작업 이력 삭제)"
 
+# 예전 스키마에는 robots.target_node가 없다. sim_orchestrator는 이동 경로를
+# 표시하기 위해 첫 waypoint부터 이 컬럼을 갱신하므로, 누락된 상태에서는 모든
+# 작업이 APPROACHING 직후 Unknown column 오류로 취소된다.
+if ! $DB -Nse \
+    "SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA='parking' AND TABLE_NAME='robots'
+       AND COLUMN_NAME='target_node'" | grep -q 1; then
+    echo "    - 로봇 이동 목적지 컬럼(003) 적용"
+    $DB < "$WS/src/parking_control/db/003_add_robot_target.sql"
+fi
+
 # 예전 단일 로봇 DB로 실행한 뒤 feature/parking-control을 병합한 경우,
 # tasks.follower_robot_id와 zone_locks.task_id가 없다. 이 상태에서는 로봇쌍을
 # 등록하더라도 첫 요청에서 SQL 오류가 나므로 테스트 시작 전에 한 번만 마이그레이션한다.
