@@ -15,6 +15,7 @@ isaac_pid=""
 rviz_pid=""
 relay_pid=""
 grid_pid=""
+pedestrian_pid=""
 cleanup() {
     set +e
     if [[ -n "$rviz_pid" ]]; then
@@ -33,6 +34,10 @@ cleanup() {
         kill -INT "$grid_pid" 2>/dev/null
         wait "$grid_pid" 2>/dev/null
     fi
+    if [[ -n "$pedestrian_pid" ]]; then
+        kill -INT "$pedestrian_pid" 2>/dev/null
+        wait "$pedestrian_pid" 2>/dev/null
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -45,6 +50,12 @@ relay_pid=$!
 PYTHONPATH="$PACKAGE_ROOT:${PYTHONPATH:-}" python3 -m \
     parking_control.lidar_occupancy_grid_node &
 grid_pid=$!
+
+# 보행자 대기 차로(X=-8.5)의 사람/비사람 LiDAR 기하 분류 — points_world를
+# occupancy grid와 같이 구독하므로 릴레이 하나로 둘 다 충분하다.
+PYTHONPATH="$PACKAGE_ROOT:${PYTHONPATH:-}" python3 -m \
+    parking_control.pedestrian_obstacle_node &
+pedestrian_pid=$!
 
 rviz2 -d "$RVIZ_CONFIG" &
 rviz_pid=$!

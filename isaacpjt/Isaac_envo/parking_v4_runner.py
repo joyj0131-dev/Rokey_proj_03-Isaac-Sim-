@@ -57,6 +57,61 @@ ISAAC_ROOT = Path(os.environ.get(
 ))
 ISAAC_PYTHON = ISAAC_ROOT / "python.sh"
 
+# 2026-07-27 추가: 출차존(exit_wait, config/parking_map.yaml — 대시보드 라벨
+# "▲ 출차 구역 (차량 대기)") 순찰 보행자. 처음엔 새 Xform을 만들어 translate만
+# 직접 옮겼는데(다리 움직임 없이 미끄러지듯 이동) 실제로 걷는 것처럼 보이지
+# 않았다. animation/pedestrians_v4.usda에는 이미 애니메이션 그래프가 붙은
+# 진짜 걷는 캐릭터(/World/Characters/Character, omni.anim.people +
+# AnimationGraphAPI)가 있으므로, 그걸 명령 파일(exit_patrol_commands.txt)로
+# 왕복시키고 이 코드는 EXIT_PATROL_CYCLE_SEC마다 EXIT_PATROL_ACTIVE_SEC초만
+# visibility를 켜는 역할만 한다(위치/걷기 자체는 손대지 않음).
+#
+# ⚠ 실험적 기능: omni.anim.people의 정확한 명령 문법과 carb 설정 키는
+# 설치된 확장 버전(omni.anim.people-0.7.9+107.3.3)에서 직접 켜보고 검증하지
+# 못했다(이 코드를 작성한 환경엔 Isaac Sim이 없음). configure_exit_patrol_walk()
+# 의 자동 설정이 안 먹으면 Isaac Sim의 Window > Animation > People 창을 열어
+# "Command File" 필드에 EXIT_PATROL_COMMAND_FILE 경로를 직접 넣어주면 된다
+# (그 GUI 경로는 공식 기능이라 100% 동작한다).
+EXIT_PATROL_CHARACTER_PRIM_PATH = "/World/Characters/Character"
+EXIT_PATROL_COMMAND_FILE = WORK_DIR / "animation" / "exit_patrol_commands.txt"
+EXIT_PATROL_X = -8.5           # entry_wait/exit_wait와 같은 차로(X=-8.5)
+EXIT_PATROL_Z_NEAR = -7.075    # 출차 구역(차량 대기) 쪽 끝 — exit_wait 위치
+EXIT_PATROL_Z_FAR = -4.075     # 도크 쪽으로 3 m 걸어들어온 지점
+EXIT_PATROL_SPEED_MPS = 1.5    # exit_patrol_commands.txt GoTo 속도와 동일하게 유지
+EXIT_PATROL_CYCLE_SEC = 60.0   # 1분마다
+EXIT_PATROL_ACTIVE_SEC = 10.0  # 10초 동안만 보이며 왕복(실제 위치는 명령 파일이 자체 반복)
+
+
+def exit_patrol_position(cycle_phase):
+    """순찰 보행자의 (보이는지, Z좌표 추정치)를 반환한다. Isaac/pxr에
+    의존하지 않는 순수 함수라 test_exit_patrol_pedestrian.py에서 그대로
+    단위 테스트한다.
+
+    실제 캐릭터 위치는 omni.anim.people(exit_patrol_commands.txt)이 자체
+    반복 구동하므로, 여기 Z값은 프림에 직접 쓰지 않고 로그/디버깅용으로만
+    쓴다 — visible(첫 값)만 step_exit_patrol_pedestrian()이 실제로 쓴다.
+
+    cycle_phase: 0 <= cycle_phase < EXIT_PATROL_CYCLE_SEC 범위의 위상(초).
+    EXIT_PATROL_ACTIVE_SEC 이후는 항상 (False, Z_NEAR) — 숨은 상태다.
+    """
+    if cycle_phase >= EXIT_PATROL_ACTIVE_SEC:
+        return False, EXIT_PATROL_Z_NEAR
+    leg_distance = EXIT_PATROL_Z_FAR - EXIT_PATROL_Z_NEAR
+    round_trip_sec = 2.0 * abs(leg_distance) / EXIT_PATROL_SPEED_MPS
+    leg_phase = (cycle_phase % round_trip_sec) / round_trip_sec
+    frac = (leg_phase / 0.5) if leg_phase < 0.5 else (1.0 - (leg_phase - 0.5) / 0.5)
+    return True, EXIT_PATROL_Z_NEAR + frac * leg_distance
+
+
+def robot_within_person_radius(robot_xy, person_positions, radius):
+    """robot_xy=(x,y)와 person_positions=[(x,y), ...] 모두 ROS map 프레임
+    (ros_x=usd_x, ros_y=-usd_z) 기준. 순수 함수 — 단위 테스트용."""
+    rx, ry = robot_xy
+    return any(
+        math.hypot(rx - px, ry - py) <= radius
+        for px, py in person_positions
+    )
+
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
@@ -76,6 +131,10 @@ CMD_VEL_WATCHDOG_SEC = 0.5
 CMD_MAX_LINEAR = 1.5
 CMD_MAX_ANGULAR = 1.5
 RTF_REPORT_PERIOD_SEC = 10.0
+# 2026-07-27 추가: /parking/person_candidates(parking_control.pedestrian_obstacle_node,
+# LiDAR 기하 기반 사람 분류)에 잡힌 사람이 로봇 반경 이내에 있으면 그 로봇만
+# 즉시 정지시킨다. 전역 emergency_stop과 달리 로봇별로 독립 판정한다.
+PERSON_STOP_RADIUS_M = 3.0
 ROBOT_SPAWN_Y = 0.06
 VEHICLE_SPAWN_Y = 0.035    # vehicle_detection_node.py PICKUP_Y_USD와 같은 값(차체 바닥 높이)
 # 데모 차량 배치(--with-vehicles). where는 "marker:<serves>"(아루코 마커 좌표,
@@ -316,6 +375,50 @@ def spawn_demo_vehicles(stage, markers):
           f"names={[n for n, _ in DEMO_VEHICLES]}", flush=True)
 
 
+def configure_exit_patrol_walk(stage):
+    """--with-pedestrians: 이미 있는 애니메이션 그래프 캐릭터
+    (/World/Characters/Character)를 exit_patrol_commands.txt 명령으로
+    출차존에서 왕복 보행시킨다. 새 프림을 만들지 않는다 — 다리가 실제로
+    움직이는 애니메이션은 omni.anim.people의 AnimationGraph가 담당하고,
+    이 함수는 그 캐릭터에게 "어디를 왕복하라"는 명령 파일 경로만 연결한다.
+
+    ⚠ 실험적: carb 설정 키가 설치된 확장 버전과 안 맞으면 조용히 실패할 수
+    있다 — 그때는 Isaac Sim의 Window > Animation > People 창에서
+    EXIT_PATROL_COMMAND_FILE 경로를 직접 지정하면 된다(공식 GUI 경로).
+    """
+    character = stage.GetPrimAtPath(EXIT_PATROL_CHARACTER_PRIM_PATH)
+    if not character or not character.IsValid():
+        raise RuntimeError(
+            f"{EXIT_PATROL_CHARACTER_PRIM_PATH} 를 찾지 못했습니다 — "
+            "animation/pedestrians_v4.usda의 Character 프림이 없거나 "
+            "이름/경로가 바뀌었습니다.")
+    if not EXIT_PATROL_COMMAND_FILE.is_file():
+        raise FileNotFoundError(f"순찰 명령 파일 없음: {EXIT_PATROL_COMMAND_FILE}")
+
+    try:
+        import carb.settings
+
+        settings = carb.settings.get_settings()
+        settings.set(
+            "/exts/omni.anim.people/command_settings/command_file_path",
+            str(EXIT_PATROL_COMMAND_FILE),
+        )
+        print(
+            f"V4_EXIT_PATROL_COMMAND_FILE={EXIT_PATROL_COMMAND_FILE} "
+            "(carb setting 자동 적용 시도 — 실제로 안 걸으면 Window > "
+            "Animation > People 창에서 같은 경로를 수동으로 지정하세요)",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            f"V4_EXIT_PATROL_COMMAND_FILE_MANUAL_SETUP_NEEDED "
+            f"path={EXIT_PATROL_COMMAND_FILE} "
+            f"reason={type(exc).__name__}: {exc} — Window > Animation > "
+            "People 창에서 Command File 경로를 수동으로 지정하세요.",
+            flush=True,
+        )
+
+
 def build_stage(app, keep_lidar=False, with_pedestrians=False, with_vehicles=False):
     from pxr import Gf, UsdGeom
     import omni.usd
@@ -379,6 +482,11 @@ def build_stage(app, keep_lidar=False, with_pedestrians=False, with_vehicles=Fal
     if with_vehicles:
         spawn_demo_vehicles(stage, markers)
         for _ in range(30):
+            app.update()
+
+    if with_pedestrians:
+        configure_exit_patrol_walk(stage)
+        for _ in range(5):
             app.update()
 
     placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in sm.ROBOTS}
@@ -1203,7 +1311,7 @@ def main():
         sys.path.insert(0, str(BRIDGE_RCLPY))
     import rclpy
     from nav_msgs.msg import Odometry
-    from geometry_msgs.msg import PoseStamped, Twist
+    from geometry_msgs.msg import PoseArray, PoseStamped, Twist
     from std_msgs.msg import Bool, Empty, Float32
     from std_srvs.srv import SetBool
     import time as _time
@@ -1221,6 +1329,7 @@ def main():
     cmd_current = {r: (0.0, 0.0, 0.0) for r in active_robots}
     cmd_seen_at = {r: None for r in active_robots}
     emergency_stop = False
+    person_positions_ros = []  # [(x, y), ...] ROS map 프레임(ros_x=usd_x, ros_y=-usd_z)
     velocity_targets = {
         r: np.zeros(np.asarray(arts[r].get_joint_positions()).shape, dtype=np.float32)
         for r in active_robots
@@ -1285,6 +1394,26 @@ def main():
     ros_handles.append(ros_node.create_subscription(
         Bool, "/emergency_stop", _on_emergency_stop, 10))
 
+    def _on_person_candidates(msg):
+        nonlocal person_positions_ros
+        person_positions_ros = [(p.position.x, p.position.y) for p in msg.poses]
+
+    ros_handles.append(ros_node.create_subscription(
+        PoseArray, "/parking/person_candidates", _on_person_candidates, 10))
+
+    def _robot_believed_xz(robot_id):
+        """제어 판정용 '로봇이 믿는' 위치. GT는 채점 전용이라 --odom=gt일 때만 쓴다."""
+        if odom_mode == "wheel":
+            return odom[robot_id].x, odom[robot_id].z
+        gx, gz, _ = gt_pose_xz_yaw(arts[robot_id])
+        return gx, gz
+
+    def _robot_near_person(robot_id):
+        rx, rz = _robot_believed_xz(robot_id)
+        ry = -rz  # 프로젝트 공통 좌표 규약: ros_y = -usd_z
+        return robot_within_person_radius(
+            (rx, ry), person_positions_ros, PERSON_STOP_RADIUS_M)
+
     for r in active_robots:
         ros_handles.append(ros_node.create_subscription(
             Twist, f"/robot_{r}/cmd_vel", _make_cmd_cb(r), 10))
@@ -1297,17 +1426,25 @@ def main():
         flush=True,
     )
 
+    person_stop_state = {r: False for r in active_robots}
+
     def step_actuators(dt):
         now_wall = _time.monotonic()
         for r in active_robots:
             stale = (cmd_seen_at[r] is None
                      or now_wall - cmd_seen_at[r] > CMD_VEL_WATCHDOG_SEC)
-            desired = (
-                (0.0, 0.0, 0.0)
-                if stale or emergency_stop else cmd_target[r])
-            # 통신이 끊긴 경우에는 가속도 램프를 기다리지 않고 즉시 정지한다.
+            near_person = _robot_near_person(r)
+            if near_person and not person_stop_state[r]:
+                ros_node.get_logger().warn(
+                    f"{r}: 반경 {PERSON_STOP_RADIUS_M:.1f} m 이내 사람 감지 — 정지")
+            elif person_stop_state[r] and not near_person:
+                ros_node.get_logger().info(f"{r}: 사람 이탈 — 주행 재개 가능")
+            person_stop_state[r] = near_person
+            hard_stop = stale or emergency_stop or near_person
+            desired = (0.0, 0.0, 0.0) if hard_stop else cmd_target[r]
+            # 통신 단절/사람 근접 시에는 가속도 램프를 기다리지 않고 즉시 정지한다.
             cmd_current[r] = (
-                (0.0, 0.0, 0.0) if stale or emergency_stop else
+                (0.0, 0.0, 0.0) if hard_stop else
                 slew_twist(
                     cmd_current[r], desired, dt,
                     linear_accel=LINEAR_ACCEL,
@@ -1497,6 +1634,43 @@ def main():
             vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])
             odom[r].update(vx, vy, wz, dt)
 
+    patrol_was_visible = {"value": False}
+
+    def step_exit_patrol_pedestrian(now_sim):
+        """EXIT_PATROL_CYCLE_SEC마다 EXIT_PATROL_ACTIVE_SEC초만 Character가
+        보이게 한다. 실제 걷기(다리 애니메이션과 위치)는 omni.anim.people이
+        exit_patrol_commands.txt를 따라 자체 반복 구동하므로, 여기서는
+        위치를 직접 만지지 않고 visibility만 켜고 끈다.
+
+        보이는 순간마다 캐릭터의 실제 월드 좌표를 콘솔에 한 번 찍는다 —
+        exit_patrol_commands.txt의 GoTo가 실제로 먹혔다면 X≈-8.5,
+        Z가 -4~-7 사이여야 한다(LiDAR ROI: entry_wait_lane/exit_wait_lane,
+        parking_control/pedestrian_obstacle_node.py 참고). 다른 좌표가
+        찍히면 명령 파일이 안 먹혔거나 NavMesh가 없는 것 — 이 로그를 그대로
+        가져오면 원인을 좁힐 수 있다."""
+        from pxr import Usd, UsdGeom
+
+        prim = stage.GetPrimAtPath(EXIT_PATROL_CHARACTER_PRIM_PATH)
+        if not prim or not prim.IsValid():
+            return
+        visible, _ = exit_patrol_position(now_sim % EXIT_PATROL_CYCLE_SEC)
+        imageable = UsdGeom.Imageable(prim)
+        if visible:
+            imageable.MakeVisible()
+            if not patrol_was_visible["value"]:
+                m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+                    Usd.TimeCode.Default())
+                x, y, z = (float(v) for v in m.ExtractTranslation())
+                print(
+                    f"V4_EXIT_PATROL_WORLD_POS x={x:.2f} y={y:.2f} z={z:.2f} "
+                    f"(expected x≈{EXIT_PATROL_X:.2f}, z 사이 "
+                    f"{EXIT_PATROL_Z_NEAR:.2f}~{EXIT_PATROL_Z_FAR:.2f})",
+                    flush=True,
+                )
+        else:
+            imageable.MakeInvisible()
+        patrol_was_visible["value"] = visible
+
     if "--headless-test" in sys.argv[1:]:
         def _p(a):
             return np.asarray(a.get_world_poses()[0]).reshape(-1)[:3]
@@ -1626,6 +1800,8 @@ def main():
         step_odometry(dt)
         publish_odom()
         publish_vehicle_pose()
+        if with_pedestrians:
+            step_exit_patrol_pedestrian(now_sim)
         wheel_depth_step += 1
         step_wheel_depth(wheel_depth_step)
         report_rtf(now_sim)

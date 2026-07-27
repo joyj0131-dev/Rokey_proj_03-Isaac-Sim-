@@ -32,6 +32,7 @@ setup(
             'safety_monitor = parking_control.safety_monitor_node:main',
             'formation_gap_controller = parking_control.formation_gap_controller_node:main',
             'lidar_occupancy_grid = parking_control.lidar_occupancy_grid_node:main',
+            'pedestrian_obstacle = parking_control.pedestrian_obstacle_node:main',
         ],
     },
 )
