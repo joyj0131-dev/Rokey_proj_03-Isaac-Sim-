@@ -185,6 +185,9 @@ class PoseControllerNode(Node):
         self.declare_parameter('linear_decel', 0.8)
         self.declare_parameter('angular_accel', 0.8)
         self.declare_parameter('settle_frames', 30)
+        # settle 결과가 허용오차 밖이면 재제어(도달래치 풀고 다시 DRIVING)하는 최대 횟수.
+        # 회전 중 노이즈로 조기 래치→오차밖 정지 시, 포기(abort) 대신 목표로 다시 몬다.
+        self.declare_parameter('settle_retries', 6)
 
         # 이 ROS2 노드에서만 필요한 파라미터(러너에는 대응 없음) — dt 가드 +
         # 액션 타임아웃/워치독. 러너의 max_steps=2000 은 안전상한이었다;
@@ -224,6 +227,7 @@ class PoseControllerNode(Node):
         self.linear_decel = float(gp('linear_decel').value)
         self.angular_accel = float(gp('angular_accel').value)
         self.settle_frames = int(gp('settle_frames').value)
+        self.settle_retries = int(gp('settle_retries').value)
         self.max_dt = float(gp('max_dt').value)
         self.goal_timeout_sec = float(gp('goal_timeout_sec').value)
         self.pose_stale_timeout_sec = float(gp('pose_stale_timeout_sec').value)
@@ -323,10 +327,21 @@ class PoseControllerNode(Node):
                 self._publish_twist(0.0, 0.0, 0.0)
                 if active['settle_count'] >= ctrl.settle_frames:
                     final_pose, reached = ctrl.finish(pose)
-                    active['final_pose'] = final_pose
-                    active['reached'] = reached
-                    active['phase'] = 'DONE'
-                    active['done_event'].set()
+                    if not reached and active['settle_retries'] < self.settle_retries:
+                        # 오차 밖 → 포기 말고 재제어. 도달래치 풀고 다시 DRIVING 으로.
+                        active['settle_retries'] += 1
+                        ctrl.resume()
+                        active['phase'] = 'DRIVING'
+                        active['settle_count'] = 0
+                        self.get_logger().info(
+                            f"navigate_to_pose: settle 오차밖 → 재제어 "
+                            f"{active['settle_retries']}/{self.settle_retries} "
+                            f"pose={final_pose}")
+                    else:
+                        active['final_pose'] = final_pose
+                        active['reached'] = reached
+                        active['phase'] = 'DONE'
+                        active['done_event'].set()
             # phase == 'DONE': _execute 가 곧 self._active 를 지운다 — 여기선
             # 아무 것도 하지 않는다(중복 명령 방지).
 
@@ -391,7 +406,7 @@ class PoseControllerNode(Node):
         active = {
             'ctrl': ctrl, 'goal_handle': goal_handle, 'target': target,
             'phase': 'DRIVING', 'settle_count': 0, 'done_event': done_event,
-            'reached': None, 'final_pose': None,
+            'reached': None, 'final_pose': None, 'settle_retries': 0,
         }
         with self._active_lock:
             self._active = active

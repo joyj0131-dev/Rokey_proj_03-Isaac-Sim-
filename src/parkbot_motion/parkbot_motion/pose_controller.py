@@ -137,6 +137,18 @@ class PoseController:
         """
         return self._stopping and self._cur_tw == (0.0, 0.0, 0.0)
 
+    def resume(self):
+        """settle 결과가 허용오차 밖일 때 **재제어**를 위해 도달래치를 푼다.
+
+        원래 래치(``_stopping``)는 절대 안 풀리는 설계였지만, 그러면 회전 중
+        노이즈 낀 yaw 추정이 한 프레임 tol 안에 들어와 래치→정지→settle 중앙값이
+        tol 밖이면 **재제어 없이 실패**한다(실측 follow 91.34°/목표90°). 노드가
+        settle 후 reached=False 면 이걸 불러 정지래치·현재twist·settle표본을 리셋,
+        다시 DRIVING 으로 돌려 목표로 계속 몬다. steps(총 워치독)는 보존한다."""
+        self._stopping = False
+        self._cur_tw = (0.0, 0.0, 0.0)
+        self._settle_poses = []
+
     def settle_sample(self, fused_pose):
         """settle 창 한 프레임의 관측(fused_pose 또는 None)을 표본에 추가.
 

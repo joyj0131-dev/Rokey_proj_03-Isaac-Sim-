@@ -46,9 +46,6 @@ class CarryActionServer(Node):
         self.declare_parameter('max_ang', 0.5)
         self.declare_parameter('pos_tol', 0.06)
         self.declare_parameter('yaw_tol', 1.0)
-        # TRANSLATE 중 각 로봇 heading 을 트럭축에 고정하는 회전속도 상한[rad/s].
-        # 안 잡으면 follow heading 이 흘러(실측 +86°→+56°) strafe 포화→대각선·정체.
-        self.declare_parameter('yaw_hold_cap', 0.4)
         self.declare_parameter('goal_timeout_sec', 600.0)   # 저rtf 헤드리스 14m 운반 여유
 
         gp = lambda n: self.get_parameter(n).value           # noqa: E731
@@ -57,8 +54,7 @@ class CarryActionServer(Node):
         self.gains = dict(
             pos_gain=float(gp('pos_gain')), yaw_gain=float(gp('yaw_gain')),
             max_lin=float(gp('max_lin')), max_ang=float(gp('max_ang')),
-            pos_tol=float(gp('pos_tol')), yaw_tol=float(gp('yaw_tol')),
-            yaw_hold_cap=float(gp('yaw_hold_cap')))
+            pos_tol=float(gp('pos_tol')), yaw_tol=float(gp('yaw_tol')))
         self.goal_timeout = float(gp('goal_timeout_sec'))
 
         self._lock = threading.Lock()
@@ -130,13 +126,7 @@ class CarryActionServer(Node):
         pos_gain, yaw_gain = gp['pos_gain'], gp['yaw_gain']
         max_lin, max_ang, pos_tol, yaw_tol = (
             gp['max_lin'], gp['max_ang'], gp['pos_tol'], gp['yaw_tol'])
-        yaw_hold_cap = gp['yaw_hold_cap']
         yaw_tol_rad = math.radians(yaw_tol)
-
-        def hold(actual_yaw, ref_yaw):
-            """로봇 heading 을 ref 로 되돌리는 회전속도(래핑·상한). TRANSLATE 전용."""
-            e = ((ref_yaw - actual_yaw + math.pi) % (2 * math.pi)) - math.pi
-            return max(-yaw_hold_cap, min(yaw_hold_cap, yaw_gain * e))
         phase = 'TRANSLATE'
         reached = 0
         settle_need = 5
@@ -184,14 +174,7 @@ class CarryActionServer(Node):
 
             dtheta = ((target_yaw - theta + math.pi) % (2 * math.pi)) - math.pi
             if phase == 'TRANSLATE':
-                # 순수병진(포메이션 omega=0) + 각 로봇 heading 을 트럭축(반평행)에 고정.
-                # heading-hold 가 없으면 follow 가 흘러(실측 30°) world+x 를 strafe 로 내고
-                # 메카넘 포화로 서로 끌어 대각선·정체(0.03m/s)가 됐다. lead≈트럭축,
-                # follow≈트럭축+180 으로 잡으면 strafe 최소화 → 곧게·빠르게 병진.
-                tl = formation.robot_twist_world((vwx, vwz), 0.0, lp, center, lp[2])
-                tf = formation.robot_twist_world((vwx, vwz), 0.0, fp, center, fp[2])
-                tl = (tl[0], tl[1], hold(lp[2], theta))
-                tf = (tf[0], tf[1], hold(fp[2], theta + math.pi))
+                omega = 0.0
                 reached = reached + 1 if dist <= pos_tol else 0
                 if reached >= settle_need:
                     phase = 'ROTATE'
@@ -209,9 +192,18 @@ class CarryActionServer(Node):
                 reached = reached + 1 if ok_pose else 0
                 if reached >= settle_need:
                     break
-                tl = formation.robot_twist_world((vwx, vwz), omega, lp, center, lp[2])
-                tf = formation.robot_twist_world((vwx, vwz), omega, fp, center, fp[2])
 
+            tl = formation.robot_twist_world((vwx, vwz), omega, lp, center, lp[2])
+            tf = formation.robot_twist_world((vwx, vwz), omega, fp, center, fp[2])
+            if phase == 'TRANSLATE':
+                # 순수 전진만 — strafe(vy)·omega 제거. 롤러 그립은 힘(전진)만 전달하고
+                # 로봇 yaw 는 자유회전이라: strafe 는 yaw 드리프트를 유발(실측 follow 30°
+                # 흘러 대각선·0.03m/s 정체), omega 는 로봇을 트럭밑에서 헛돌림(실측 180°
+                # 뒤집혀 후진). 각 로봇이 자기 heading 축으로만 밀면 트럭이 그 합력 방향으로
+                # 병진한다. vx_body 는 이미 원하는 월드속도를 heading 에 투영한 값. z 미세오차는
+                # 슬롯 진입(CARRY_SLOT)에서 흡수.
+                tl = (tl[0], 0.0, 0.0)
+                tf = (tf[0], 0.0, 0.0)
             self._pub(lead, tl)
             self._pub(follow, tf)
 
