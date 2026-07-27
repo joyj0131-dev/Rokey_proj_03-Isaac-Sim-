@@ -196,7 +196,15 @@ class MockDataSource(DataSource):
             ],
             "entrance": {"x": _ENTRY_VEHICLE_ZONE[0], "y": _ENTRY_VEHICLE_ZONE[1]},
             "sensors": [
-                {"id": "L1", "zone": "주차장 전체", "x": 0.5, "y": 0.0},
+                {
+                    "id": "L1",
+                    "zone": "주차장 전체",
+                    "x": 0.5,
+                    "y": 0.0,
+                    "z": 5.12,
+                    "fov_deg": 360,
+                    "frame_id": "map",
+                },
             ],
         }
 

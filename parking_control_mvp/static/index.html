@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260727-v28-robot-icon" />
+  <link rel="stylesheet" href="/static/style.css?v=20260728-v41-lidar-full-map" />
 </head>
 <body>
   <div class="app-shell">
@@ -122,14 +122,6 @@
                 >
                   LiDAR 상세 보기
                 </button>
-                <button
-                  id="lidarVisibilityButton"
-                  type="button"
-                  class="map-toggle-button"
-                  aria-pressed="false"
-                >
-                  센서 영역 보기
-                </button>
                 <div id="liveUpdateStatus" class="live-update-status pending">
                   <i></i>
                   <span>연결 확인 중</span>
@@ -183,15 +175,43 @@
 
             <div class="request-layout">
               <div class="request-form-pane">
-                <form id="requestForm">
+                <form id="requestForm" novalidate>
                   <div class="request-fields">
-                    <label>
-                      <span>요청 유형</span>
-                      <select id="requestType">
-                        <option value="PARK_IN">입차 요청</option>
-                        <option value="PARK_OUT">출차 요청</option>
-                      </select>
-                    </label>
+                    <div class="request-type-field">
+                      <span class="request-field-label">요청 유형</span>
+                      <div
+                        class="request-type-toggle"
+                        role="group"
+                        aria-label="입차 또는 출차 선택"
+                      >
+                        <button
+                          type="button"
+                          class="active"
+                          data-request-type="PARK_IN"
+                          aria-pressed="true"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 13h18M5 13l2-5h10l2 5v6h-2v-2H7v2H5v-6Z"></path>
+                            <circle cx="8" cy="14.5" r="1"></circle>
+                            <circle cx="16" cy="14.5" r="1"></circle>
+                          </svg>
+                          입차
+                        </button>
+                        <button
+                          type="button"
+                          data-request-type="PARK_OUT"
+                          aria-pressed="false"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 13h18M5 13l2-5h10l2 5v6h-2v-2H7v2H5v-6Z"></path>
+                            <circle cx="8" cy="14.5" r="1"></circle>
+                            <circle cx="16" cy="14.5" r="1"></circle>
+                          </svg>
+                          출차
+                        </button>
+                      </div>
+                      <input id="requestType" type="hidden" value="PARK_IN" />
+                    </div>
                     <label>
                       <span>차량 번호</span>
                       <input
@@ -199,10 +219,57 @@
                         type="text"
                         placeholder="예: 12가3456"
                         autocomplete="off"
-                        required
                       />
+                      <small
+                        id="vehicleNumberError"
+                        class="request-field-error hidden"
+                        aria-live="polite"
+                      ></small>
                     </label>
                   </div>
+                  <section
+                    id="requestPreflight"
+                    class="request-preflight pending"
+                    aria-live="polite"
+                  >
+                    <div class="request-preflight-heading">
+                      <span>요청 전 확인</span>
+                      <strong id="requestPreflightStatus">정보 확인 중</strong>
+                    </div>
+                    <p id="requestPreflightMessage">
+                      관제 데이터를 수신하면 요청 가능 여부를 표시합니다.
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>요청</dt>
+                        <dd id="requestReviewType">입차</dd>
+                      </div>
+                      <div>
+                        <dt>차량</dt>
+                        <dd id="requestReviewVehicle">입력 대기</dd>
+                      </div>
+                      <div>
+                        <dt id="requestReviewTargetLabel">가용 주차면</dt>
+                        <dd id="requestReviewTarget">확인 중</dd>
+                      </div>
+                      <div>
+                        <dt>담당 로봇팀</dt>
+                        <dd id="requestReviewTeam">확인 중</dd>
+                      </div>
+                      <div id="requestReviewAssignmentRow" class="request-review-wide">
+                        <dt>배정 방식</dt>
+                        <dd id="requestReviewAssignment">자동 배정</dd>
+                      </div>
+                      <div id="requestReviewVehicleStateRow" class="hidden">
+                        <dt>차량 상태</dt>
+                        <dd id="requestReviewVehicleState">입력 대기</dd>
+                      </div>
+                      <div id="requestReviewEligibilityRow" class="hidden">
+                        <dt>출차 가능 여부</dt>
+                        <dd id="requestReviewEligibility">차량 조회 후 확인</dd>
+                      </div>
+                    </dl>
+                  </section>
                   <div
                     id="requestSafetyHint"
                     class="request-safety-hint hidden"
@@ -214,32 +281,55 @@
                     type="submit"
                     class="primary-button"
                   >
-                    요청 등록
+                    입차 요청 등록
                   </button>
+                  <span
+                    id="requestSubmitReason"
+                    class="request-submit-reason"
+                    aria-live="polite"
+                  >차량 번호 입력 필요</span>
                 </form>
 
-                <div id="mockVehicleGuide" class="test-guide">
-                  <span class="guide-title">테스트 차량 자동 입력</span>
-                  <button type="button" class="vehicle-chip" data-vehicle-number="12가3456">12가3456</button>
-                  <button type="button" class="vehicle-chip" data-vehicle-number="34나7890">34나7890</button>
-                </div>
-                <div id="messageBox" class="message-box hidden"></div>
+                <div id="messageBox" class="message-box hidden" aria-live="polite"></div>
+                <details id="mockVehicleGuide" class="test-guide hidden">
+                  <summary>
+                    <span class="guide-title">Mock 빠른 입력</span>
+                    <span class="development-badge">개발용</span>
+                  </summary>
+                  <div class="mock-vehicle-chips">
+                    <button type="button" class="vehicle-chip" data-vehicle-number="12가3456">12가3456</button>
+                    <button type="button" class="vehicle-chip" data-vehicle-number="34나7890">34나7890</button>
+                  </div>
+                </details>
               </div>
 
               <aside class="request-flow" aria-label="요청 처리 흐름">
                 <div class="request-flow-visual">
-                  <span id="requestFlowStart">차량</span>
+                  <span id="requestFlowStart" class="request-flow-place">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 13h18M5 13l2-5h10l2 5v6h-2v-2H7v2H5v-6Z"></path>
+                      <circle cx="8" cy="14.5" r="1"></circle>
+                      <circle cx="16" cy="14.5" r="1"></circle>
+                    </svg>
+                    <b>차량</b>
+                  </span>
                   <i id="requestFlowDirection">→</i>
-                  <span id="requestFlowEnd">주차장</span>
+                  <span id="requestFlowEnd" class="request-flow-place">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="4" y="3" width="16" height="18" rx="3"></rect>
+                      <path d="M9 17V7h4a3 3 0 0 1 0 6H9m0-3h4"></path>
+                    </svg>
+                    <b>주차장</b>
+                  </span>
                 </div>
                 <h3 id="requestFlowTitle">입차 요청 처리</h3>
-                <ol>
-                  <li><i>1</i><span><strong>요청 접수</strong>차량번호 확인</span></li>
-                  <li><i>2</i><span><strong>슬롯 배정</strong>가까운 빈 슬롯 선택</span></li>
-                  <li><i>3</i><span><strong>로봇 할당</strong>리더·팔로워 편성</span></li>
-                  <li><i>4</i><span><strong>차량 접근</strong>차량 하부로 이동</span></li>
-                  <li><i>5</i><span><strong>운반 작업</strong>리프트 후 주차면 이동</span></li>
-                  <li><i>6</i><span><strong>완료·복귀</strong>차량 배치 후 도크 복귀</span></li>
+                <ol id="requestFlowSteps">
+                  <li><i>1</i><span><strong>요청 접수</strong><small>차량번호 확인</small></span></li>
+                  <li class="flow-specific"><i>2</i><span><strong>슬롯 배정 <em>입차 전용</em></strong><small>가까운 빈 주차면 선택</small></span></li>
+                  <li><i>3</i><span><strong>로봇 할당</strong><small>입차 L·F 편성</small></span></li>
+                  <li><i>4</i><span><strong>차량 접근</strong><small>차량 하부로 이동</small></span></li>
+                  <li class="flow-specific"><i>5</i><span><strong>주차면 이동 <em>입차 전용</em></strong><small>리프트 후 배정면으로 이동</small></span></li>
+                  <li><i>6</i><span><strong>완료·복귀</strong><small>차량 배치 후 도크 복귀</small></span></li>
                 </ol>
               </aside>
             </div>
@@ -364,9 +454,7 @@
   <dialog id="lidarDetailDialog" class="lidar-detail-dialog">
     <div class="lidar-dialog-header">
       <div>
-        <span class="lidar-dialog-kicker">SENSOR ANALYTICS</span>
-        <h2>LiDAR 기반 슬롯 점유 판단</h2>
-        <p>바닥 포인트를 제외하고 주차면 내부의 유효 반사점으로 점유 여부를 판단합니다.</p>
+        <h2>LiDAR 주차장 감지 현황</h2>
       </div>
       <button
         id="closeLidarDetailDialog"
@@ -377,39 +465,70 @@
     </div>
 
     <div class="lidar-dialog-toolbar">
-      <div class="lidar-live-state">
-        <i id="lidarDetailStatusDot"></i>
-        <strong id="lidarDetailStatus">데이터 확인 중</strong>
-        <span id="lidarDetailSource">—</span>
-        <span id="lidarTfStatus" class="lidar-coordinate-status">좌표 확인 대기</span>
+      <div class="lidar-status-column">
+        <div class="lidar-live-state">
+          <i id="lidarDetailStatusDot"></i>
+          <strong id="lidarDetailStatus">데이터 확인 중</strong>
+          <span>마지막 수신 <strong id="lidarLastSeen">—</strong></span>
+          <span id="lidarSampleBadge" class="lidar-sample-badge hidden">샘플 모드</span>
+        </div>
+        <div id="lidarMockNotice" class="lidar-mock-notice hidden">
+          <span>실제 센서 판정 결과가 아닙니다.</span>
+        </div>
       </div>
-      <div class="lidar-toolbar-groups">
-        <div class="lidar-live-metrics" aria-label="실시간 포인트 처리량">
-          <span>최근 수신 <strong id="lidarLastSeen">—</strong></span>
-          <span>수신 주기 <strong id="lidarRate">—</strong></span>
-          <span>frame <strong id="lidarFrame">—</strong></span>
-          <span>수신 <strong id="lidarReceivedPointCount">—</strong></span>
-          <span>유효 <strong id="lidarValidPointCount">—</strong></span>
-          <span>화면 표시 <strong id="lidarDisplayPointCount">—</strong></span>
-        </div>
-        <div class="lidar-thresholds" aria-label="점유 판정 기준">
-          <em>판정 기준</em>
-          <span>높이 <strong id="lidarHeightThreshold">—</strong></span>
-          <span>포인트 <strong id="lidarPointThreshold">—</strong></span>
-        </div>
+      <div id="lidarOccupancySummary" class="lidar-occupancy-summary">
+        <span>주차면 현황</span>
+        <strong>—</strong>
       </div>
     </div>
 
-    <div class="lidar-chart-shell">
-      <div class="lidar-view-toggle" role="group" aria-label="LiDAR 화면 범위">
-        <button type="button" class="active" data-lidar-view="full">전체 맵</button>
-        <button type="button" data-lidar-view="slots">주차면 확대</button>
+    <details class="lidar-technical-details">
+      <summary>
+        <span>센서·판정 상세</span>
+        <small>개발·진단 정보</small>
+      </summary>
+      <div class="lidar-technical-content">
+        <div class="lidar-diagnostic-source">
+          <span id="lidarDetailSource">—</span>
+          <span id="lidarTfStatus" class="lidar-coordinate-status">좌표 확인 대기</span>
+        </div>
+        <div class="lidar-toolbar-groups">
+        <div class="lidar-metric-group">
+          <span class="lidar-metric-title">센서 상태</span>
+          <div class="lidar-live-metrics" aria-label="LiDAR 센서 수신 상태">
+            <span>수신 주기 <strong id="lidarRate">—</strong></span>
+            <span>frame <strong id="lidarFrame">—</strong></span>
+          </div>
+        </div>
+        <div class="lidar-metric-group">
+          <span class="lidar-metric-title">포인트 처리</span>
+          <div class="lidar-live-metrics" aria-label="실시간 포인트 처리량">
+            <span>수신 <strong id="lidarReceivedPointCount">—</strong></span>
+            <span>유효 <strong id="lidarValidPointCount">—</strong></span>
+            <span>화면 표시 <strong id="lidarDisplayPointCount">—</strong></span>
+          </div>
+          <div class="lidar-thresholds" aria-label="점유 판정 기준">
+            <em>판정 기준</em>
+            <span>높이 <strong id="lidarHeightThreshold">—</strong></span>
+            <span>포인트 <strong id="lidarPointThreshold">—</strong></span>
+          </div>
+        </div>
+        <button
+          id="lidarViewModeButton"
+          type="button"
+          class="lidar-view-mode-button"
+          aria-pressed="false"
+        >전체 좌표 진단 보기</button>
+        </div>
       </div>
+    </details>
+
+    <div class="lidar-chart-shell">
       <canvas
         id="lidarDetailCanvas"
         width="1400"
         height="720"
-        aria-label="LiDAR 포인트클라우드와 주차면 점유 상태"
+        aria-label="LiDAR 전체 포인트클라우드와 주차면 점유 상태"
       ></canvas>
       <div id="lidarDetailEmpty" class="lidar-detail-empty hidden">
         <strong id="lidarDetailEmptyTitle">LiDAR 데이터 수신 대기</strong>
@@ -418,10 +537,7 @@
     </div>
 
     <div class="lidar-dialog-footer">
-      <div class="lidar-chart-legend" aria-label="LiDAR 포인트 범례">
-        <span><i class="floor-point"></i>바닥·판정 제외 포인트</span>
-        <span><i class="used-point"></i>높이 기준 이상 포인트</span>
-        <span><i class="slot-point"></i>슬롯 집계 포인트</span>
+      <div class="lidar-chart-legend" aria-label="주차면 판정 범례">
         <span><i class="empty-slot"></i>공석</span>
         <span><i class="occupied-slot"></i>점유</span>
         <span><i class="uncertain-slot"></i>불확실</span>
@@ -429,10 +545,6 @@
       <div id="lidarConsistencyWarning" class="lidar-consistency-warning hidden">
         <strong>상태 불일치</strong>
         <span>LiDAR 판정과 메인 관제 슬롯 상태를 확인하세요.</span>
-      </div>
-      <div id="lidarOccupancySummary" class="lidar-occupancy-summary">
-        <span>점유 현황</span>
-        <strong>—</strong>
       </div>
     </div>
   </dialog>
@@ -557,6 +669,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=20260727-v28-robot-icon"></script>
+  <script src="/static/app.js?v=20260728-v41-lidar-full-map"></script>
 </body>
 </html>

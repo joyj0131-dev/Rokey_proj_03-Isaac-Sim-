@@ -37,18 +37,55 @@ const requestTypeLabels = {
   PARK_OUT: "출차",
 };
 
+const requestFlowDefinitions = {
+  PARK_IN: {
+    title: "입차 요청 처리",
+    start: "vehicle",
+    end: "parking",
+    steps: [
+      ["요청 접수", "차량번호 확인"],
+      ["슬롯 배정", "가까운 빈 주차면 선택"],
+      ["로봇 할당", "입차 L·F 편성"],
+      ["차량 접근", "차량 하부로 이동"],
+      ["주차면 이동", "리프트 후 배정면으로 이동"],
+      ["완료·복귀", "차량 배치 후 도크 복귀"],
+    ],
+  },
+  PARK_OUT: {
+    title: "출차 요청 처리",
+    start: "parking",
+    end: "vehicle",
+    steps: [
+      ["요청 접수", "차량번호 확인"],
+      ["차량 위치 확인", "현재 주차면 조회"],
+      ["로봇 할당", "출차 L·F 편성"],
+      ["차량 접근", "주차 차량 하부로 이동"],
+      ["출차 대기구역 이동", "리프트 후 출차 구역으로 이동"],
+      ["완료·복귀", "차량 인계 후 도크 복귀"],
+    ],
+  },
+};
+
+const requestRobotTeams = {
+  PARK_IN: ["entry_lead", "entry_follow"],
+  PARK_OUT: ["exit_lead", "exit_follow"],
+};
+
 const workspaceTabs = ["live", "requests", "tasks"];
 const HIDDEN_SENSOR_ALERTS_STORAGE_KEY = "parking-ui-hidden-sensor-alerts";
 let latestDashboard = null;
 let selectedMapItem = null;
 let pendingFocusRequestId = null;
-let showLidarMarkers = false;
 let latestLidarVisualization = null;
 let lidarViewMode = "full";
 let lidarDetailRefreshTimer = null;
 let lidarDetailLoading = false;
 let lastDashboardReceivedAt = null;
 let messageHideTimer = null;
+let requestValidationTimer = null;
+let latestRequestResult = null;
+let requestSubmitting = false;
+let vehicleFieldTouched = false;
 let recentWorkflowEvents = [];
 let selectedTaskEventRequestId = null;
 let selectedEventScope = "all";
@@ -476,7 +513,7 @@ function renderSummary(summary, robots, sensors, system, alerts = [], requests =
       badge: summary.empty_slots > 0 ? "사용 가능" : "만차",
       detail: `점유 ${summary.occupied_slots} · 예약 ${reservedSlots}`,
       progress: totalSlots ? (summary.empty_slots / totalSlots) * 100 : 0,
-      tone: summary.empty_slots > 0 ? "success" : "warning",
+      tone: summary.empty_slots > 0 ? "available" : "warning",
     },
     {
       icon: "▤",
@@ -584,17 +621,14 @@ const LOT_ROBOT_CARD_HEIGHT = 88;
 
 function parkingRobotIconShapes() {
   return `
-    <path class="parking-robot-arm"
-      d="M -7 -8 H -20 V -16 M 7 -8 H 20 V -16 M -7 8 H -20 V 16 M 7 8 H 20 V 16"></path>
-    <circle class="parking-robot-arm-tip" cx="-20" cy="-16" r="3.2"></circle>
-    <circle class="parking-robot-arm-tip" cx="20" cy="-16" r="3.2"></circle>
-    <circle class="parking-robot-arm-tip" cx="-20" cy="16" r="3.2"></circle>
-    <circle class="parking-robot-arm-tip" cx="20" cy="16" r="3.2"></circle>
-    <rect class="parking-robot-body" x="-9" y="-14" width="18" height="28" rx="6"></rect>
-    <circle class="parking-robot-sensor-ring" cx="0" cy="-5" r="4.2"></circle>
-    <circle class="parking-robot-sensor" cx="0" cy="-5" r="2.3"></circle>
-    <path class="parking-robot-grille" d="M-5 5H5"></path>
-    <path class="parking-robot-direction" d="M-5-15L0-21 5-15Z"></path>
+    <rect class="parking-robot-wheel" x="-22" y="-12" width="8" height="24" rx="4"></rect>
+    <rect class="parking-robot-wheel" x="14" y="-12" width="8" height="24" rx="4"></rect>
+    <rect class="parking-robot-body" x="-18" y="-16" width="36" height="32" rx="9"></rect>
+    <rect class="parking-robot-face" x="-13" y="-10" width="26" height="19" rx="5"></rect>
+    <circle class="parking-robot-sensor" cx="-6" cy="-2" r="3.2"></circle>
+    <circle class="parking-robot-sensor" cx="6" cy="-2" r="3.2"></circle>
+    <path class="parking-robot-grille" d="M -7 5 Q 0 9 7 5"></path>
+    <path class="parking-robot-direction" d="M -5 -16 L 0 -23 L 5 -16 Z"></path>
   `;
 }
 
@@ -695,6 +729,9 @@ function renderLotMap(
     ...sensor,
     ...(sensorStatus.find((status) => status.id === sensor.id) || {}),
   }));
+  const activeObstacleAlerts = alerts.filter(
+    (alert) => alert.category === "OBSTACLE" && alert.active !== false
+  );
   const entrance = mapInfo && mapInfo.entrance;
 
   const placedSlots = slots.filter((s) => s.x != null && s.y != null);
@@ -773,6 +810,7 @@ function renderLotMap(
     if (points.length < 2) return null;
     return points.map(([x, y], index) => `${index ? "L" : "M"} ${x} ${y}`).join(" ");
   };
+
   const activeMapRequest = requests.find(
     (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
   );
@@ -994,37 +1032,6 @@ function renderLotMap(
     `);
   }
 
-  if (showLidarMarkers) {
-    const obstacleActive = alerts.some(
-      (alert) => alert.category === "OBSTACLE"
-    );
-    for (const sensor of sensors) {
-      const cx = sx(sensor.x);
-      // 센서의 실제 x 좌표는 유지하고, y=0인 주행 구역 중앙선에 표시한다.
-      const cy = sy(sensor.y);
-      const isSelected = selectedMapItem?.type === "sensor" && selectedMapItem.id === sensor.id;
-      parts.push(`
-        <g class="lot-selectable" role="button" tabindex="0"
-          data-entity-type="sensor" data-entity-id="${sensor.id}" aria-label="LiDAR ${sensor.id} ${sensor.status}">
-          <circle class="lot-sensor-coverage ${sensor.status} ${obstacleActive ? "alert" : ""}"
-            cx="${cx}" cy="${cy}" r="112"></circle>
-          <circle class="lot-sensor-ring ${sensor.status} ${isSelected ? "selected" : ""}"
-            cx="${cx}" cy="${cy}" r="16"></circle>
-          <circle class="lot-sensor-dot ${sensor.status}" cx="${cx}" cy="${cy}" r="5"></circle>
-          <text class="lot-sensor-label" x="${cx}" y="${cy - 23}">
-            ${sensor.id} · ${sensor.status === "ONLINE" ? `${sensor.rate_hz ?? "-"} Hz` : sensor.status === "MOCK" ? "테스트" : "수신 대기"}
-          </text>
-          ${obstacleActive ? `
-            <g class="lot-sensor-alert">
-              <circle cx="${cx + 62}" cy="${cy - 50}" r="13"></circle>
-              <text x="${cx + 62}" y="${cy - 46}">!</text>
-            </g>
-          ` : ""}
-        </g>
-      `);
-    }
-  }
-
   for (const slot of placedSlots) {
     const cx = sx(slot.x);
     const cy = sy(slot.y);
@@ -1069,13 +1076,87 @@ function renderLotMap(
     `);
   }
 
-  const locatedObstacles = alerts.filter(
-    (alert) => alert.category === "OBSTACLE"
-      && alert.location_x != null
+  const locatedObstacles = activeObstacleAlerts.filter(
+    (alert) =>
+      alert.location_x != null
       && alert.location_y != null
       && Number.isFinite(Number(alert.location_x))
       && Number.isFinite(Number(alert.location_y))
   );
+
+  // L1과 감지 좌표를 실제 map 좌표 거리로 연결한다. PointCloud 메시지는
+  // 객체 종류를 제공하지 않으므로 사람으로 단정하지 않고 "장애물"로 표시한다.
+  for (const alert of locatedObstacles) {
+    const sensor = sensors.find((item) => item.id === alert.sensor_id)
+      || sensors[0];
+    if (
+      !sensor
+      || sensor.x == null
+      || sensor.y == null
+    ) continue;
+    const sensorX = sx(Number(sensor.x));
+    const sensorY = sy(Number(sensor.y));
+    const obstacleX = sx(Number(alert.location_x));
+    const obstacleY = sy(Number(alert.location_y));
+    const distanceM = Math.hypot(
+      Number(alert.location_x) - Number(sensor.x),
+      Number(alert.location_y) - Number(sensor.y)
+    );
+    const labelX = (sensorX + obstacleX) / 2;
+    const labelY = (sensorY + obstacleY) / 2 - 30;
+    parts.push(`
+      <g class="lot-sensor-detection-link" aria-hidden="true">
+        <line x1="${sensorX}" y1="${sensorY}"
+          x2="${obstacleX}" y2="${obstacleY}"></line>
+        <rect x="${labelX - 38}" y="${labelY - 10}"
+          width="76" height="20" rx="10"></rect>
+        <text x="${labelX}" y="${labelY + 4}">
+          감지 거리 ${distanceM.toFixed(2)}m
+        </text>
+      </g>
+    `);
+  }
+
+  // 평상시에는 센서 원점과 연결 상태만 표시한다. 이론 감지 범위는 메인
+  // 관제 화면에 그리지 않고 PointCloud·TF 검증은 상세 화면/RViz2에 맡긴다.
+  for (const sensor of sensors) {
+    if (sensor.x == null || sensor.y == null) continue;
+    const cx = sx(Number(sensor.x));
+    const cy = sy(Number(sensor.y));
+    const isSelected = selectedMapItem?.type === "sensor"
+      && selectedMapItem.id === sensor.id;
+    const stateLabel = sensor.status === "ONLINE"
+      ? `정상${sensor.rate_hz == null ? "" : ` · ${sensor.rate_hz}Hz`}`
+      : sensor.status === "MOCK"
+        ? "Mock 데이터"
+        : "연결 필요";
+    const calloutX = Math.min(LOT_MAP_WIDTH - 72, cx + 94);
+    const calloutY = Math.max(48, cy - 124);
+    parts.push(`
+      <g class="lot-selectable lot-sensor-marker ${sensor.status}"
+        role="button" tabindex="0" data-entity-type="sensor"
+        data-entity-id="${sensor.id}"
+        aria-label="천장 LiDAR ${sensor.id} ${sensor.status}">
+        <circle class="lot-sensor-hit-target" cx="${cx}" cy="${cy}" r="25"></circle>
+        <circle class="lot-sensor-ring ${sensor.status} ${isSelected ? "selected" : ""}"
+          cx="${cx}" cy="${cy}" r="16"></circle>
+        <circle class="lot-sensor-dot ${sensor.status}" cx="${cx}" cy="${cy}" r="5"></circle>
+        <g class="lot-sensor-callout">
+          <line x1="${cx + 10}" y1="${cy - 10}"
+            x2="${calloutX - 47}" y2="${calloutY + 11}"></line>
+          <rect x="${calloutX - 50}" y="${calloutY - 18}"
+            width="100" height="39" rx="10"></rect>
+          <text class="lot-sensor-label" x="${calloutX}" y="${calloutY - 2}">
+            ${sensor.id} · 천장 LiDAR
+          </text>
+          <text class="lot-sensor-meta" x="${calloutX}" y="${calloutY + 13}">
+            ${stateLabel}
+          </text>
+        </g>
+      </g>
+    `);
+  }
+
   for (const alert of locatedObstacles) {
     const cx = sx(Number(alert.location_x));
     const cy = sy(Number(alert.location_y));
@@ -1099,6 +1180,9 @@ function renderLotMap(
           width="86" height="22" rx="11"></rect>
         <text class="lot-obstacle-label" x="${cx}" y="${cy - 40}">
           ${markerLabel}
+        </text>
+        <text class="lot-obstacle-radius-label" x="${cx}" y="${cy + 52}">
+          안전 영향 구역
         </text>
       </g>
     `);
@@ -1362,11 +1446,6 @@ function selectMapItem(type, id) {
 
 function focusObstacleAlert(alertId) {
   selectedMapItem = { type: "obstacle", id: String(alertId) };
-  showLidarMarkers = true;
-  const lidarButton = document.getElementById("lidarVisibilityButton");
-  lidarButton.classList.add("active");
-  lidarButton.setAttribute("aria-pressed", "true");
-  lidarButton.textContent = "센서 영역 숨기기";
   activateWorkspaceTab("live", true);
   renderLatestLotMap();
   if (latestDashboard) renderSelectionDetail(latestDashboard);
@@ -1376,25 +1455,10 @@ function focusObstacleAlert(alertId) {
   });
 }
 
-function toggleLidarMarkers() {
-  showLidarMarkers = !showLidarMarkers;
-  const button = document.getElementById("lidarVisibilityButton");
-  button.classList.toggle("active", showLidarMarkers);
-  button.setAttribute("aria-pressed", String(showLidarMarkers));
-  button.textContent = showLidarMarkers ? "센서 영역 숨기기" : "센서 영역 보기";
-
-  if (!showLidarMarkers && selectedMapItem?.type === "sensor") {
-    selectedMapItem = null;
-  }
-  renderLatestLotMap();
-  if (!latestDashboard) return;
-  renderSelectionDetail(latestDashboard);
-}
-
 function lidarStatusLabel(status) {
-  if (status === "ONLINE") return "실시간 데이터 수신";
-  if (status === "MOCK") return "샘플 데이터 시연";
-  return "데이터 수신 대기";
+  if (status === "ONLINE") return "정상";
+  if (status === "MOCK") return "LiDAR";
+  return "연결 끊김";
 }
 
 function renderLidarVisualization(data) {
@@ -1408,6 +1472,7 @@ function renderLidarVisualization(data) {
   const used = data.points?.used || [];
   const slotUsed = data.points?.slot_used || [];
   const hasMeasurement = ["ONLINE", "MOCK"].includes(status);
+  const isMockSample = status === "MOCK" || data.source === "MOCK_SAMPLE";
   const measurementStatus = String(
     data.measurement_status || (hasMeasurement ? "OK" : "NO_DATA")
   ).toUpperCase();
@@ -1421,6 +1486,12 @@ function renderLidarVisualization(data) {
 
   statusBox.classList.remove("online", "mock", "offline");
   statusBox.classList.add(status.toLowerCase());
+  document
+    .getElementById("lidarMockNotice")
+    .classList.toggle("hidden", !isMockSample);
+  document
+    .getElementById("lidarSampleBadge")
+    .classList.toggle("hidden", !isMockSample);
   document.getElementById("lidarDetailStatus").textContent =
     measurementStatus === "TF_ERROR"
       ? `${data.sensor_id || "L1"} TF 오류`
@@ -1428,8 +1499,7 @@ function renderLidarVisualization(data) {
         ? `${data.sensor_id || "L1"} 유효 포인트 없음`
         : `${data.sensor_id || "L1"} ${lidarStatusLabel(status)}`;
   document.getElementById("lidarDetailSource").textContent = [
-    "PointCloud2",
-    data.source === "MOCK_SAMPLE" ? "Mock 샘플" : data.topic,
+    data.topic,
     data.status_message,
   ].filter(Boolean).join(" · ");
   document.getElementById("lidarLastSeen").textContent = lastSeenLabel;
@@ -1477,7 +1547,7 @@ function renderLidarVisualization(data) {
   const emptyCount = Number(data.empty_count || 0);
   const uncertainCount = Number(data.uncertain_count || 0);
   document.querySelector("#lidarOccupancySummary strong").textContent =
-    `점유 ${data.occupied_count || 0} / ${data.total_slots || 0}`
+    `점유 ${data.occupied_count || 0}`
     + ` · 공석 ${emptyCount}`
     + ` · 불확실 ${uncertainCount}`
     + (waitingCount ? ` · 대기 ${waitingCount}` : "");
@@ -1519,35 +1589,56 @@ function renderLidarVisualization(data) {
   const margin = { left: 66, right: 26, top: 66, bottom: 52 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
-  let bounds = { ...fullBounds };
-  if (lidarViewMode === "slots" && (data.slots || []).length) {
-    const slots = data.slots;
-    const rawMinX = Math.min(
-      ...slots.map((slot) => slot.x - slot.width / 2)
-    ) - 1.5;
-    const rawMaxX = Math.max(
-      ...slots.map((slot) => slot.x + slot.width / 2)
-    ) + 1.5;
-    const rawMinY = Math.min(
-      ...slots.map((slot) => slot.y - slot.length / 2)
-    ) - 1.5;
-    const rawMaxY = Math.max(
-      ...slots.map((slot) => slot.y + slot.length / 2)
-    ) + 1.5;
-    const centerX = (rawMinX + rawMaxX) / 2;
-    const centerY = (rawMinY + rawMaxY) / 2;
-    let xSpan = rawMaxX - rawMinX;
-    let ySpan = rawMaxY - rawMinY;
-    const plotAspect = plotWidth / plotHeight;
-    if (xSpan / ySpan < plotAspect) xSpan = ySpan * plotAspect;
-    else ySpan = xSpan / plotAspect;
-    bounds = {
-      min_x: centerX - xSpan / 2,
-      max_x: centerX + xSpan / 2,
-      min_y: centerY - ySpan / 2,
-      max_y: centerY + ySpan / 2,
-    };
+  const positionedSlots = (data.slots || []).filter(
+    (slot) =>
+      Number.isFinite(Number(slot.x))
+      && Number.isFinite(Number(slot.y))
+      && Number.isFinite(Number(slot.width))
+      && Number.isFinite(Number(slot.length))
+  );
+  const slotBounds = positionedSlots.length
+    ? {
+      min_x: Math.min(...positionedSlots.map(
+        (slot) => Number(slot.x) - Number(slot.width) / 2
+      )) - 1.6,
+      max_x: Math.max(...positionedSlots.map(
+        (slot) => Number(slot.x) + Number(slot.width) / 2
+      )) + 1.6,
+      min_y: Math.min(...positionedSlots.map(
+        (slot) => Number(slot.y) - Number(slot.length) / 2
+      )) - 1.2,
+      max_y: Math.max(...positionedSlots.map(
+        (slot) => Number(slot.y) + Number(slot.length) / 2
+      )) + 1.2,
+    }
+    : fullBounds;
+  const requestedBounds = {
+    ...(lidarViewMode === "full" ? fullBounds : slotBounds),
+  };
+  const requestedWidth = requestedBounds.max_x - requestedBounds.min_x;
+  const requestedHeight = requestedBounds.max_y - requestedBounds.min_y;
+  const plotAspect = plotWidth / plotHeight;
+  const dataAspect = requestedWidth / requestedHeight;
+  const bounds = { ...requestedBounds };
+  // 사람·장애물 좌표의 거리와 방향이 왜곡되지 않도록 x/y 축의 화면
+  // 배율을 동일하게 유지하고, 남는 방향에 여백을 더한다.
+  if (dataAspect < plotAspect) {
+    const padding = (requestedHeight * plotAspect - requestedWidth) / 2;
+    bounds.min_x -= padding;
+    bounds.max_x += padding;
+  } else if (dataAspect > plotAspect) {
+    const padding = (requestedWidth / plotAspect - requestedHeight) / 2;
+    bounds.min_y -= padding;
+    bounds.max_y += padding;
   }
+  const viewModeButton = document.getElementById("lidarViewModeButton");
+  viewModeButton.textContent = lidarViewMode === "full"
+    ? "주차면 중심 보기"
+    : "전체 좌표 진단 보기";
+  viewModeButton.setAttribute(
+    "aria-pressed",
+    String(lidarViewMode === "full")
+  );
   const sx = (x) =>
     margin.left
     + ((x - bounds.min_x) / (bounds.max_x - bounds.min_x)) * plotWidth;
@@ -1559,11 +1650,9 @@ function renderLidarVisualization(data) {
   context.font = "600 17px sans-serif";
   context.textAlign = "center";
   context.fillText(
-    `LiDAR 기반 슬롯 점유 판단 — ${data.occupied_count || 0}/${
+    `전체 감지 영역 · 주차면 ${data.occupied_count || 0}/${
       data.total_slots || 0
-    }면 주차 중  (높이 임계값 ${Number(
-      data.height_threshold_m || 0
-    ).toFixed(2)}m · 포인트 임계값 ${data.point_threshold || 0}개)`,
+    } 점유`,
     width / 2,
     31
   );
@@ -1617,9 +1706,21 @@ function renderLidarVisualization(data) {
     context.fill();
   }
 
-  drawPoints(ignored, "rgba(106, 109, 102, 0.48)", 1.2);
-  drawPoints(used, "rgba(156, 200, 232, 0.5)", 1.55);
-  drawPoints(slotUsed, "rgba(243, 180, 159, 0.88)", 1.85);
+  drawPoints(
+    ignored,
+    lidarViewMode === "full"
+      ? "rgba(106, 109, 102, 0.26)"
+      : "rgba(106, 109, 102, 0.12)",
+    1.1
+  );
+  drawPoints(
+    used,
+    lidarViewMode === "full"
+      ? "rgba(156, 200, 232, 0.54)"
+      : "rgba(156, 200, 232, 0.38)",
+    1.65
+  );
+  drawPoints(slotUsed, "rgba(255, 185, 159, 0.98)", 2.15);
 
   const sensor = data.sensor_position;
   if (
@@ -1657,12 +1758,12 @@ function renderLidarVisualization(data) {
     const unavailable = ["UNAVAILABLE", "WAITING"].includes(slot.status);
     const mismatched = slot.status_match === false;
     context.fillStyle = unavailable
-      ? "rgba(64, 76, 82, 0.48)"
+      ? "rgba(64, 76, 82, 0.34)"
       : uncertain
-        ? "rgba(180, 112, 18, 0.44)"
+        ? "rgba(180, 112, 18, 0.25)"
       : occupied
-        ? "rgba(205, 67, 64, 0.43)"
-        : "rgba(8, 128, 35, 0.48)";
+        ? "rgba(205, 67, 64, 0.26)"
+        : "rgba(8, 128, 35, 0.27)";
     context.strokeStyle = mismatched
       ? "#f59e0b"
       : unavailable
@@ -1705,10 +1806,12 @@ function renderLidarVisualization(data) {
     context.font = "10px sans-serif";
     context.fillText(
       unavailable
-        ? `유효 — / 기준 ${data.point_threshold || 0}`
-        : `유효 ${slot.point_count ?? "—"} / 기준 ${
-          slot.point_threshold || data.point_threshold || 0
-        }`,
+        ? "센서 데이터 대기"
+        : uncertain
+          ? "추가 데이터 확인 중"
+          : occupied
+            ? "차량 감지"
+            : "차량 없음",
       centerX,
       centerY + 20
     );
@@ -1744,6 +1847,7 @@ async function refreshLidarDetail() {
 
 function openLidarDetailDialog() {
   const dialog = document.getElementById("lidarDetailDialog");
+  lidarViewMode = "full";
   if (!dialog.open) dialog.showModal();
   refreshLidarDetail();
   window.clearInterval(lidarDetailRefreshTimer);
@@ -2737,6 +2841,9 @@ function renderSelectionDetail(dashboard) {
         <div><dt>ROS2 토픽</dt><dd class="topic-value">${sensor.topic}</dd></div>
         <div><dt>수신 주기</dt><dd>${sensor.rate_hz == null ? "-" : `${sensor.rate_hz} Hz`}</dd></div>
         <div><dt>마지막 수신</dt><dd>${sensor.last_seen_sec == null ? "수신 기록 없음" : `${sensor.last_seen_sec}초 전`}</dd></div>
+        <div><dt>설치 위치</dt><dd>map (${Number(sensor.x).toFixed(2)}, ${Number(sensor.y).toFixed(2)}, ${Number(sensor.z ?? 5.12).toFixed(2)}m)</dd></div>
+        <div><dt>스캔 방식</dt><dd>${sensor.fov_deg || 360}° · ${sensor.zone || "주차장 전체"}</dd></div>
+        <div><dt>좌표 프레임</dt><dd>${sensor.frame_id || "map"}</dd></div>
         <div><dt>운영 영향</dt><dd>${
           ["ONLINE", "MOCK"].includes(sensor.status)
             ? "안전 감지 정상"
@@ -2783,6 +2890,21 @@ function renderSelectionDetail(dashboard) {
     const coordinateLabel = alert.location_x == null || alert.location_y == null
       ? "위치 정보 없음"
       : `x ${Number(alert.location_x).toFixed(2)} · y ${Number(alert.location_y).toFixed(2)} m`;
+    const detectingSensor = sensors.find(
+      (sensor) => sensor.id === alert.sensor_id
+    ) || sensors[0];
+    const detectionDistance = (
+      detectingSensor
+      && alert.location_x != null
+      && alert.location_y != null
+      && detectingSensor.x != null
+      && detectingSensor.y != null
+    )
+      ? Math.hypot(
+        Number(alert.location_x) - Number(detectingSensor.x),
+        Number(alert.location_y) - Number(detectingSensor.y)
+      )
+      : null;
     detail.innerHTML = `
       <span class="detail-kicker ${
         incident?.status === "RECOVERED" ? "recovered" : "danger"
@@ -2838,8 +2960,13 @@ function renderSelectionDetail(dashboard) {
       ` : ""}
       <dl class="detail-list">
         <div><dt>감지 센서</dt><dd>${alert.sensor_id || "센서 ID 미수신"}</dd></div>
+        <div><dt>감지 객체</dt><dd>장애물 · 객체 분류 미지원</dd></div>
         <div><dt>감지 구역</dt><dd>${obstacleZoneLabel(alert.zone_id)}</dd></div>
-        <div><dt>감지 구역 중심</dt><dd>${coordinateLabel}</dd></div>
+        <div><dt>감지 좌표</dt><dd>${coordinateLabel}</dd></div>
+        <div><dt>센서 거리</dt><dd>${
+          detectionDistance == null ? "거리 계산 불가" : `${detectionDistance.toFixed(2)} m`
+        }</dd></div>
+        <div><dt>안전 영향</dt><dd>관련 통로 진입 차단 · 영향 로봇 일시 정지</dd></div>
         <div><dt>영향 로봇</dt><dd>${
           affectedRobots.length
             ? affectedRobots.map((robot) => shortRobotName(robot.id)).join(" · ")
@@ -2896,7 +3023,7 @@ function renderSelectionDetail(dashboard) {
   detail.innerHTML = `
     <span class="detail-kicker">로봇 상세</span>
     <div class="detail-title-row">
-      <h3>${parkingRobotHtmlIcon("detail-robot-icon", "협동 리프트형 주차로봇")}${shortRobotName(robot.id)}</h3>
+      <h3>${parkingRobotHtmlIcon("detail-robot-icon", "정면 센서형 주차로봇")}${shortRobotName(robot.id)}</h3>
     </div>
     <div class="detail-status-summary ${isObstaclePaused ? "PAUSED" : robot.status}">
       <span>현재 운영 상태</span>
@@ -3404,7 +3531,7 @@ function renderActiveTaskBanner(requests, alerts = [], sensors = [], system = nu
           : index === step - 1 ? "current" : "pending";
         return `
           <li class="${state}">
-            <i>${index + 1}</i>
+            <i>${state === "done" ? "✓" : index + 1}</i>
             <span>${item.label}</span>
           </li>
         `;
@@ -3806,10 +3933,9 @@ function renderAlerts(alerts, sensors = [], system = null) {
             >
               숨기기
             </button>
-          ` : alert.category === "OBSTACLE"
-            && alert.location_x != null
-            && alert.location_y != null ? `
+          ` : alert.category === "OBSTACLE" ? `
             <div class="alert-actions">
+              ${alert.location_x != null && alert.location_y != null ? `
               <button
                 type="button"
                 class="secondary-button small"
@@ -3817,7 +3943,18 @@ function renderAlerts(alerts, sensors = [], system = null) {
               >
                 위치 보기
               </button>
+              ` : ""}
+              ${system?.mode === "mock" ? `
+              <button
+                type="button"
+                class="secondary-button small"
+                data-resolve-obstacle-alert="${alert.id}"
+              >
+                장애물 해제
+              </button>
+              ` : `
               <span class="alert-latched">해소 시 자동 해제</span>
+              `}
             </div>
           ` : alert.dismissible ? `
             <button
@@ -3844,6 +3981,13 @@ function renderAlerts(alerts, sensors = [], system = null) {
   list.querySelectorAll("[data-focus-obstacle-alert]").forEach((button) => {
     button.addEventListener("click", () => {
       focusObstacleAlert(button.dataset.focusObstacleAlert);
+    });
+  });
+  list.querySelectorAll("[data-resolve-obstacle-alert]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "해제 중…";
+      await resolveAlert(button.dataset.resolveObstacleAlert);
     });
   });
   list.querySelectorAll("[data-open-safety-recovery]").forEach((button) => {
@@ -3929,7 +4073,9 @@ function renderSystem(system) {
 
   document.querySelectorAll("#requestForm input, #requestForm select, #requestForm button")
     .forEach((control) => {
-      control.disabled = Boolean(system.emergency_stop) || recoveryPending;
+      control.disabled = Boolean(system.emergency_stop)
+        || recoveryPending
+        || requestSubmitting;
     });
 
   // 백업은 모드와 무관하게 항상 노출 (서버 호출 없이 현재 화면 데이터만 내려받음).
@@ -4084,8 +4230,14 @@ function showMessage(message, isError = false) {
   const messageBox = document.getElementById("messageBox");
 
   window.clearTimeout(messageHideTimer);
+  latestRequestResult = null;
   messageBox.textContent = message;
-  messageBox.classList.remove("hidden", "error");
+  messageBox.classList.remove(
+    "hidden",
+    "error",
+    "request-result",
+    "compact"
+  );
 
   if (isError) {
     messageBox.classList.add("error");
@@ -4094,6 +4246,83 @@ function showMessage(message, isError = false) {
   messageHideTimer = window.setTimeout(() => {
     messageBox.classList.add("hidden");
   }, isError ? 5000 : 4000);
+}
+
+function showRequestResult(result, compact = false) {
+  const messageBox = document.getElementById("messageBox");
+  const requestLabel = requestTypeLabels[result.request_type] || "주차";
+
+  latestRequestResult = result;
+  window.clearTimeout(messageHideTimer);
+  messageBox.replaceChildren();
+  messageBox.classList.remove("hidden", "error", "compact");
+  messageBox.classList.add("request-result");
+  if (compact) messageBox.classList.add("compact");
+
+  const kicker = document.createElement("span");
+  kicker.className = "request-result-kicker";
+  kicker.textContent = "최근 등록 작업";
+
+  const title = document.createElement("strong");
+  title.className = "request-result-title";
+  title.textContent = compact
+    ? `${requestLabel} #${result.id} · ${result.vehicle_number} → ${
+      result.slot_id || "배정 대기"
+    }`
+    : `${requestLabel} 요청 #${result.id}이 등록되었습니다.`;
+
+  const summary = document.createElement("p");
+  summary.className = "request-result-summary";
+  [
+    `차량 ${result.vehicle_number}`,
+    result.slot_id ? `주차면 ${result.slot_id}` : "주차면 배정 대기",
+    (result.robot_ids || []).length
+      ? `담당 로봇 ${(result.robot_ids || []).map(shortRobotName).join("·")}`
+      : "담당 로봇 배정 대기",
+  ].forEach((text) => {
+    const item = document.createElement("span");
+    item.textContent = text;
+    summary.append(item);
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "request-result-actions";
+  const liveButton = document.createElement("button");
+  liveButton.type = "button";
+  liveButton.textContent = compact ? "관제 보기" : "관제 화면에서 보기";
+  liveButton.addEventListener("click", () => activateWorkspaceTab("live"));
+  const taskButton = document.createElement("button");
+  taskButton.type = "button";
+  taskButton.textContent = compact ? "작업 보기" : "작업·이벤트에서 보기";
+  taskButton.addEventListener("click", () => {
+    document.getElementById("taskSearchInput").value = result.vehicle_number;
+    renderRequests(
+      latestDashboard?.requests || [],
+      latestDashboard?.system
+    );
+    activateWorkspaceTab("tasks");
+  });
+  actions.append(liveButton, taskButton);
+  messageBox.append(kicker, title);
+  if (!compact) messageBox.append(summary);
+  messageBox.append(actions);
+
+  if (!compact) {
+    messageHideTimer = window.setTimeout(() => {
+      if (latestRequestResult === result) showRequestResult(result, true);
+    }, 10000);
+  }
+}
+
+function compactLatestRequestResult() {
+  const messageBox = document.getElementById("messageBox");
+  if (
+    latestRequestResult
+    && messageBox.classList.contains("request-result")
+    && !messageBox.classList.contains("compact")
+  ) {
+    showRequestResult(latestRequestResult, true);
+  }
 }
 
 function updateLiveStatus(isOnline, system) {
@@ -4213,19 +4442,348 @@ async function advanceRequest(requestId) {
   }
 }
 
+function requestFlowPlaceMarkup(kind) {
+  if (kind === "vehicle") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 13h18M5 13l2-5h10l2 5v6h-2v-2H7v2H5v-6Z"></path>
+        <circle cx="8" cy="14.5" r="1"></circle>
+        <circle cx="16" cy="14.5" r="1"></circle>
+      </svg>
+      <b>차량</b>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="3" width="16" height="18" rx="3"></rect>
+      <path d="M9 17V7h4a3 3 0 0 1 0 6H9m0-3h4"></path>
+    </svg>
+    <b>주차장</b>
+  `;
+}
+
+function setRequestType(requestType) {
+  const normalized = requestFlowDefinitions[requestType]
+    ? requestType
+    : "PARK_IN";
+  document.getElementById("requestType").value = normalized;
+  document.querySelectorAll("[data-request-type]").forEach((button) => {
+    const selected = button.dataset.requestType === normalized;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  updateRequestFlow();
+}
+
 function updateRequestFlow() {
-  const isParkIn = document.getElementById("requestType").value === "PARK_IN";
-  document.getElementById("requestFlowTitle").textContent = isParkIn
-    ? "입차 요청 처리"
-    : "출차 요청 처리";
-  document.getElementById("requestFlowStart").textContent = isParkIn
-    ? "차량"
-    : "주차장";
-  document.getElementById("requestFlowEnd").textContent = isParkIn
-    ? "주차장"
-    : "차량";
+  const requestType = document.getElementById("requestType").value;
+  const flow = requestFlowDefinitions[requestType]
+    || requestFlowDefinitions.PARK_IN;
+  const specificLabel = requestType === "PARK_IN"
+    ? "입차 전용"
+    : "출차 전용";
+  document.getElementById("requestFlowTitle").textContent = flow.title;
+  document.getElementById("requestFlowStart").innerHTML =
+    requestFlowPlaceMarkup(flow.start);
+  document.getElementById("requestFlowEnd").innerHTML =
+    requestFlowPlaceMarkup(flow.end);
   document.getElementById("requestFlowDirection").textContent = "→";
+  document.getElementById("requestFlowSteps").innerHTML = flow.steps
+    .map(
+      ([title, description], index) => `
+        <li class="${[1, 4].includes(index) ? "flow-specific" : ""}">
+          <i>${index + 1}</i>
+          <span>
+            <strong>
+              ${title}
+              ${[1, 4].includes(index) ? `<em>${specificLabel}</em>` : ""}
+            </strong>
+            <small>${description}</small>
+          </span>
+        </li>
+      `
+    )
+    .join("");
   updateRequestAvailability();
+}
+
+function normalizeVehicleNumber(value) {
+  return String(value || "").replace(/\s+/g, "");
+}
+
+function hasSupportedVehicleNumberFormat(value) {
+  const normalized = normalizeVehicleNumber(value);
+  return /^\d{4}$/.test(normalized)
+    || /^(?:[가-힣]{2})?\d{2,3}[가-힣]\d{4}$/.test(normalized);
+}
+
+function evaluateRequestPreflight() {
+  const requestType = document.getElementById("requestType").value;
+  const vehicleNumber = normalizeVehicleNumber(
+    document.getElementById("vehicleNumber").value
+  );
+  const dashboard = latestDashboard;
+  const roleLabel = requestType === "PARK_IN" ? "입차" : "출차";
+  const expectedTeamIds = requestRobotTeams[requestType];
+  const robots = dashboard?.robots || [];
+  const team = expectedTeamIds
+    .map((robotId) => robots.find((robot) => robot.id === robotId))
+    .filter(Boolean);
+  const teamConnected = team.length === expectedTeamIds.length
+    && team.every((robot) => !["ERROR", "OFFLINE"].includes(robot.status));
+  const teamReady = teamConnected && team.every(
+    (robot) => robot.status === "IDLE" && robot.current_task_id == null
+  );
+  const teamLabel = teamReady
+    ? `${roleLabel} L·F · 정상`
+    : teamConnected
+      ? `${roleLabel} L·F · 배정 대기`
+      : `${roleLabel} L·F · 연결 확인`;
+
+  const base = {
+    state: "pending",
+    status: "정보 확인 중",
+    message: "관제 데이터를 수신하면 요청 가능 여부를 표시합니다.",
+    submitBlocked: true,
+    vehicleNumber,
+    targetLabel: requestType === "PARK_IN" ? "가용 주차면" : "차량 위치",
+    target: "확인 중",
+    team: dashboard ? teamLabel : "확인 중",
+    assignment: requestType === "PARK_IN" ? "자동 배정" : null,
+    vehicleState: requestType === "PARK_OUT" ? "입력 대기" : null,
+    eligibility: requestType === "PARK_OUT"
+      ? "차량 조회 후 확인"
+      : null,
+  };
+  if (!dashboard) return base;
+
+  const slots = dashboard.slots || [];
+  const requests = dashboard.requests || [];
+  const normalizedVehicle = vehicleNumber.toLocaleLowerCase("ko-KR");
+  const activeForVehicle = vehicleNumber
+    ? requests.find(
+      (request) =>
+        !["COMPLETED", "CANCELLED"].includes(request.status)
+        && normalizeVehicleNumber(request.vehicle_number)
+          .toLocaleLowerCase("ko-KR")
+          === normalizedVehicle
+    )
+    : null;
+
+  if (requestType === "PARK_IN") {
+    const emptySlots = slots.filter((slot) => slot.status === "EMPTY");
+    const parkedSlot = vehicleNumber
+      ? slots.find(
+        (slot) =>
+          ["RESERVED", "OCCUPIED"].includes(slot.status)
+          && normalizeVehicleNumber(slot.vehicle_number)
+            .toLocaleLowerCase("ko-KR")
+            === normalizedVehicle
+      )
+      : null;
+    base.target = `${emptySlots.length}면`;
+
+    if (!vehicleNumber) {
+      return {
+        ...base,
+        status: "차량 번호를 입력해 주세요.",
+        message: `입력 후 중복 여부와 요청 가능 상태를 확인합니다. 현재 가용 주차면은 ${emptySlots.length}면입니다.`,
+      };
+    }
+    if (!hasSupportedVehicleNumberFormat(vehicleNumber)) {
+      return {
+        ...base,
+        state: "blocked",
+        status: "차량 번호 형식을 확인해 주세요.",
+        message: "예: 12가3456 형식으로 입력해 주세요. 발표용 숫자 차량번호 4자리도 사용할 수 있습니다.",
+      };
+    }
+    if (activeForVehicle) {
+      return {
+        ...base,
+        state: "blocked",
+        status: "입차 요청 불가",
+        message: `${vehicleNumber} 차량의 작업 #${activeForVehicle.id}이 이미 진행 중입니다.`,
+      };
+    }
+    if (parkedSlot) {
+      return {
+        ...base,
+        state: "blocked",
+        status: "입차 요청 불가",
+        message: `${vehicleNumber} 차량은 ${parkedSlot.id}에 주차 또는 예약되어 있습니다. 출차 요청을 선택해 주세요.`,
+      };
+    }
+    if (emptySlots.length === 0) {
+      return {
+        ...base,
+        state: "blocked",
+        status: "입차 요청 불가",
+        message: "현재 가용 주차면이 없습니다.",
+      };
+    }
+    return {
+      ...base,
+      state: teamReady ? "ready" : "warning",
+      status: teamReady ? "입차 요청 가능" : "입차 요청 가능 · 로봇 배정 대기",
+      message: teamReady
+        ? `가용 주차면 ${emptySlots.length}면 · 입차 로봇팀이 대기 중입니다.`
+        : `가용 주차면 ${emptySlots.length}면 · 요청은 등록되며 로봇팀이 준비되면 배정됩니다.`,
+      submitBlocked: false,
+    };
+  }
+
+  base.target = vehicleNumber ? "조회 중" : "차량 번호 입력 후 조회";
+  if (!vehicleNumber) {
+    return {
+      ...base,
+      status: "차량 번호를 입력해 주세요.",
+      message: "차량 번호를 입력하면 현재 주차면과 출차 가능 여부를 확인합니다.",
+    };
+  }
+  if (!hasSupportedVehicleNumberFormat(vehicleNumber)) {
+    return {
+      ...base,
+      state: "blocked",
+      status: "차량 번호 형식을 확인해 주세요.",
+      message: "예: 12가3456 형식으로 입력해 주세요. 발표용 숫자 차량번호 4자리도 사용할 수 있습니다.",
+      target: "조회하지 않음",
+      vehicleState: "형식 오류",
+      eligibility: "불가",
+    };
+  }
+
+  const occupiedSlot = slots.find(
+    (slot) =>
+      slot.status === "OCCUPIED"
+      && normalizeVehicleNumber(slot.vehicle_number)
+        .toLocaleLowerCase("ko-KR")
+        === normalizedVehicle
+  );
+  if (activeForVehicle) {
+    return {
+      ...base,
+      state: "blocked",
+      status: "출차 요청 불가",
+      message: `${vehicleNumber} 차량의 작업 #${activeForVehicle.id}이 이미 진행 중입니다.`,
+      target: activeForVehicle.slot_id || "작업에서 확인",
+      vehicleState: `${requestTypeLabels[activeForVehicle.request_type]} 요청 진행 중`,
+      eligibility: "새 요청 불가",
+    };
+  }
+  if (!occupiedSlot) {
+    return {
+      ...base,
+      state: "blocked",
+      status: "출차 요청 불가",
+      message: "현재 주차 중인 차량에서 찾을 수 없습니다. 차량 번호를 다시 확인해 주세요.",
+      target: "조회 결과 없음",
+      vehicleState: "등록 정보 없음",
+      eligibility: "불가",
+    };
+  }
+  return {
+    ...base,
+    state: teamReady ? "ready" : "warning",
+    status: teamReady ? "출차 요청 가능" : "출차 요청 가능 · 로봇 배정 대기",
+    message: teamReady
+      ? `${vehicleNumber} · ${occupiedSlot.id} 주차 중 · 출차 로봇팀이 대기 중입니다.`
+      : `${vehicleNumber} · ${occupiedSlot.id} 주차 중 · 요청은 등록되며 로봇팀 준비 후 배정됩니다.`,
+    submitBlocked: false,
+    target: `${occupiedSlot.id} · 주차 중`,
+    vehicleState: "주차 중",
+    eligibility: teamReady ? "가능" : "가능 · 로봇 배정 대기",
+  };
+}
+
+function renderRequestPreflight(preflight) {
+  const requestType = document.getElementById("requestType").value;
+  const box = document.getElementById("requestPreflight");
+  box.classList.remove("pending", "ready", "warning", "blocked");
+  box.classList.add(preflight.state);
+  document.getElementById("requestPreflightStatus").textContent =
+    preflight.status;
+  document.getElementById("requestPreflightMessage").textContent =
+    preflight.message;
+  document.getElementById("requestReviewType").textContent =
+    requestTypeLabels[requestType];
+  document.getElementById("requestReviewVehicle").textContent =
+    preflight.vehicleNumber || "입력 대기";
+  document.getElementById("requestReviewTargetLabel").textContent =
+    preflight.targetLabel;
+  document.getElementById("requestReviewTarget").textContent =
+    preflight.target;
+  document.getElementById("requestReviewTeam").textContent =
+    preflight.team;
+  const isParkIn = requestType === "PARK_IN";
+  document
+    .getElementById("requestReviewAssignmentRow")
+    .classList.toggle("hidden", !isParkIn);
+  document
+    .getElementById("requestReviewVehicleStateRow")
+    .classList.toggle("hidden", isParkIn);
+  document
+    .getElementById("requestReviewEligibilityRow")
+    .classList.toggle("hidden", isParkIn);
+  document.getElementById("requestReviewAssignment").textContent =
+    preflight.assignment || "자동 배정";
+  document.getElementById("requestReviewVehicleState").textContent =
+    preflight.vehicleState || "입력 대기";
+  document.getElementById("requestReviewEligibility").textContent =
+    preflight.eligibility || "차량 조회 후 확인";
+  renderVehicleFieldValidation(preflight);
+}
+
+function renderVehicleFieldValidation(preflight) {
+  const input = document.getElementById("vehicleNumber");
+  const error = document.getElementById("vehicleNumberError");
+  let message = "";
+
+  if (vehicleFieldTouched && !preflight.vehicleNumber) {
+    message = "차량 번호를 입력해 주세요.";
+  } else if (
+    vehicleFieldTouched
+    && preflight.vehicleNumber
+    && !hasSupportedVehicleNumberFormat(preflight.vehicleNumber)
+  ) {
+    message = "예: 12가3456 형식으로 입력해 주세요. Mock에서는 숫자 4자리도 사용할 수 있습니다.";
+  }
+
+  input.classList.toggle("invalid", Boolean(message));
+  input.setAttribute("aria-invalid", String(Boolean(message)));
+  error.textContent = message;
+  error.classList.toggle("hidden", !message);
+}
+
+function setRequestFormSubmitting(active) {
+  requestSubmitting = active;
+  const recoveryStatus = latestDashboard?.system?.recovery?.status || "NONE";
+  const recoveryPending = [
+    "SAFETY_STOPPED",
+    "REQUIRED",
+    "RECOVERING",
+    "BLOCKED",
+  ].includes(recoveryStatus);
+  const controlsLocked = active
+    || Boolean(latestDashboard?.system?.emergency_stop)
+    || recoveryPending;
+  document.getElementById("vehicleNumber").disabled = controlsLocked;
+  document.querySelectorAll("[data-request-type]").forEach((button) => {
+    button.disabled = controlsLocked;
+  });
+  document.querySelectorAll("[data-vehicle-number]").forEach((button) => {
+    button.disabled = controlsLocked;
+  });
+  const guide = document.getElementById("mockVehicleGuide");
+  if (guide) guide.toggleAttribute("inert", controlsLocked);
+}
+
+function setRequestSubmitReason(reason = "") {
+  const element = document.getElementById("requestSubmitReason");
+  const button = document.getElementById("requestSubmitButton");
+  element.textContent = reason;
+  element.classList.toggle("hidden", !reason);
+  button.title = reason;
 }
 
 function updateRequestAvailability() {
@@ -4235,6 +4793,17 @@ function updateRequestAvailability() {
   const alternateLabel = requestType === "PARK_IN" ? "출차" : "입차";
   const button = document.getElementById("requestSubmitButton");
   const hint = document.getElementById("requestSafetyHint");
+  const preflight = evaluateRequestPreflight();
+  const defaultButtonLabel = `${roleLabel} 요청 등록`;
+  renderRequestPreflight(preflight);
+  if (requestSubmitting) {
+    button.disabled = true;
+    button.textContent = `${roleLabel} 요청 등록 중…`;
+    setRequestSubmitReason("요청 처리 결과를 기다리는 중");
+    hint.textContent = "";
+    hint.classList.add("hidden");
+    return;
+  }
   const safetyState = latestDashboard?.system?.safety?.state || "UNKNOWN";
   const systemStopped = ["STOPPED_LATCHED", "UNKNOWN"].includes(safetyState);
   const recoveryStatus = latestDashboard?.system?.recovery?.status || "NONE";
@@ -4247,12 +4816,21 @@ function updateRequestAvailability() {
   const obstacle = (latestDashboard?.alerts || []).find(
     (alert) => obstacleAffectsRole(alert, role)
   );
+  const offlineSensors = (latestDashboard?.sensors || []).filter(
+    (sensor) => sensor.status !== "ONLINE"
+  );
 
   button.classList.toggle(
     "safety-blocked",
     systemStopped || recoveryPending || Boolean(obstacle)
   );
-  button.disabled = systemStopped || recoveryPending || Boolean(obstacle);
+  button.disabled = systemStopped
+    || recoveryPending
+    || Boolean(obstacle)
+    || preflight.submitBlocked;
+  setRequestSubmitReason(
+    preflight.submitBlocked ? preflight.status.replace(/[.]$/, "") : ""
+  );
   hint.classList.remove("warning", "danger");
 
   if (systemStopped) {
@@ -4260,6 +4838,7 @@ function updateRequestAvailability() {
     hint.classList.add("danger");
     hint.textContent = "전체 비상정지 상태입니다. 안전 복구와 운영 승인을 완료한 뒤 새 요청을 등록해주세요.";
     hint.classList.remove("hidden");
+    setRequestSubmitReason("비상정지 해제와 안전 복구 완료 필요");
     return;
   }
 
@@ -4279,6 +4858,7 @@ function updateRequestAvailability() {
         ? "대상 로봇이 제한 운전으로 각 도크에 복귀 중입니다."
         : "현장 점검이 완료되었습니다. 대상 로봇의 제한 안전 복귀를 먼저 진행해주세요.";
     hint.classList.remove("hidden");
+    setRequestSubmitReason(button.textContent);
     return;
   }
 
@@ -4291,6 +4871,7 @@ function updateRequestAvailability() {
       ? "대상 로봇이 각 도크로 복귀 중입니다. 위치 확인 후 자동으로 대기 상태가 됩니다."
       : "중간 위치에 정지한 로봇이 복구 대기 상태입니다. 안전 복귀 절차를 완료해주세요.";
     hint.classList.remove("hidden");
+    setRequestSubmitReason(button.textContent);
     return;
   }
 
@@ -4302,34 +4883,98 @@ function updateRequestAvailability() {
       + `${alternateLabel} 요청은 계속 등록할 수 있습니다.`
     );
     hint.classList.remove("hidden");
+    setRequestSubmitReason(`${roleLabel} 통로 장애물 해소 필요`);
     return;
   }
 
-  button.textContent = "요청 등록";
-  hint.textContent = "";
-  hint.classList.add("hidden");
+  button.textContent = preflight.state === "blocked"
+    ? `${roleLabel} 요청 불가`
+    : defaultButtonLabel;
+
+  if (offlineSensors.length && !preflight.submitBlocked) {
+    hint.classList.add("warning");
+    hint.textContent = (
+      `센서 제한 운용 중입니다. 요청은 등록할 수 있지만 `
+      + `${offlineSensors.map((sensor) => sensor.id).join("·")} 데이터 상태에 따라 작업 시작이 지연될 수 있습니다.`
+    );
+    hint.classList.remove("hidden");
+  } else {
+    hint.textContent = "";
+    hint.classList.add("hidden");
+  }
 }
 
+function queueRequestAvailability() {
+  vehicleFieldTouched = true;
+  compactLatestRequestResult();
+  window.clearTimeout(requestValidationTimer);
+  const vehicleNumber = normalizeVehicleNumber(
+    document.getElementById("vehicleNumber").value
+  );
+  if (!vehicleNumber) {
+    updateRequestAvailability();
+    return;
+  }
+
+  const requestType = document.getElementById("requestType").value;
+  const pending = evaluateRequestPreflight();
+  renderRequestPreflight({
+    ...pending,
+    state: "pending",
+    status: "차량 정보 조회 중...",
+    message: "현재 주차 상태와 진행 중인 작업을 확인하고 있습니다.",
+    submitBlocked: true,
+    target: requestType === "PARK_OUT" ? "조회 중" : pending.target,
+    vehicleState: requestType === "PARK_OUT" ? "조회 중" : null,
+    eligibility: requestType === "PARK_OUT" ? "확인 중" : null,
+  });
+  const button = document.getElementById("requestSubmitButton");
+  button.disabled = true;
+  button.textContent = `${requestTypeLabels[requestType]} 요청 등록`;
+  setRequestSubmitReason("차량 정보 조회 중");
+  requestValidationTimer = window.setTimeout(
+    updateRequestAvailability,
+    220
+  );
+}
+
+document.querySelectorAll("[data-request-type]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setRequestType(button.dataset.requestType);
+  });
+});
+
 document
-  .getElementById("requestType")
-  .addEventListener("change", updateRequestFlow);
+  .getElementById("vehicleNumber")
+  .addEventListener("input", queueRequestAvailability);
+document
+  .getElementById("vehicleNumber")
+  .addEventListener("blur", () => {
+    vehicleFieldTouched = true;
+    updateRequestAvailability();
+  });
 
 document
   .getElementById("requestForm")
   .addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (requestSubmitting) return;
 
     const requestType = document.getElementById("requestType").value;
-    const vehicleNumber = document
-      .getElementById("vehicleNumber")
-      .value.trim();
+    const vehicleNumber = normalizeVehicleNumber(
+      document.getElementById("vehicleNumber").value
+    );
 
-    if (!vehicleNumber) {
-      showMessage("차량 번호를 입력해주세요.", true);
+    vehicleFieldTouched = true;
+    updateRequestAvailability();
+    const submitButton = document.getElementById("requestSubmitButton");
+    if (submitButton.disabled) {
       document.getElementById("vehicleNumber").focus();
       return;
     }
 
+    setRequestFormSubmitting(true);
+    updateRequestAvailability();
     try {
       const result = await apiRequest("/requests", {
         method: "POST",
@@ -4339,19 +4984,21 @@ document
         }),
       });
 
-      showMessage(
-        `${requestTypeLabels[result.request_type]} 요청 #${result.id}이 등록되었습니다. 작업·이벤트 탭에서 진행 상태를 확인하세요.`
-      );
-
       pendingFocusRequestId = result.id;
       selectedMapItem = { type: "task", id: String(result.id) };
-      pendingFocusRequestId = null;
       event.target.reset();
-      updateRequestFlow();
+      vehicleFieldTouched = false;
+      setRequestType("PARK_IN");
       await refreshDashboard();
-      activateWorkspaceTab("live");
+      const refreshedRequest = (latestDashboard?.requests || []).find(
+        (request) => String(request.id) === String(result.id)
+      );
+      showRequestResult(refreshedRequest || result);
     } catch (error) {
       showMessage(error.message, true);
+    } finally {
+      setRequestFormSubmitting(false);
+      updateRequestAvailability();
     }
   });
 
@@ -4480,10 +5127,13 @@ document
 
 document.querySelectorAll("[data-vehicle-number]").forEach((button) => {
   button.addEventListener("click", () => {
-    document.getElementById("requestType").value = "PARK_OUT";
-    updateRequestFlow();
+    if (requestSubmitting) return;
+    setRequestType("PARK_OUT");
     const input = document.getElementById("vehicleNumber");
     input.value = button.dataset.vehicleNumber;
+    vehicleFieldTouched = true;
+    compactLatestRequestResult();
+    updateRequestAvailability();
     input.focus();
   });
 });
@@ -4542,20 +5192,6 @@ async function activateEmergencyStop() {
 document
   .getElementById("lidarDetailButton")
   .addEventListener("click", openLidarDetailDialog);
-document.querySelectorAll("[data-lidar-view]").forEach((button) => {
-  button.addEventListener("click", () => {
-    lidarViewMode = button.dataset.lidarView;
-    document.querySelectorAll("[data-lidar-view]").forEach((item) => {
-      item.classList.toggle("active", item === button);
-    });
-    if (latestLidarVisualization) {
-      renderLidarVisualization(latestLidarVisualization);
-    }
-  });
-});
-document
-  .getElementById("lidarVisibilityButton")
-  .addEventListener("click", toggleLidarMarkers);
 document
   .getElementById("emergencyStopButton")
   .addEventListener("click", activateEmergencyStop);
@@ -4566,6 +5202,14 @@ document
 document
   .getElementById("closeLidarDetailDialog")
   .addEventListener("click", closeLidarDetailDialog);
+document
+  .getElementById("lidarViewModeButton")
+  .addEventListener("click", () => {
+    lidarViewMode = lidarViewMode === "full" ? "slots" : "full";
+    if (latestLidarVisualization) {
+      renderLidarVisualization(latestLidarVisualization);
+    }
+  });
 document
   .getElementById("closeSafetyRecoveryDialog")
   .addEventListener("click", () => {
@@ -4752,12 +5396,6 @@ setupWorkspaceTabs();
 setupInspectorTabs();
 updateRequestFlow();
 const initialLidarParams = new URLSearchParams(window.location.search);
-if (["full", "slots"].includes(initialLidarParams.get("lidarView"))) {
-  lidarViewMode = initialLidarParams.get("lidarView");
-  document.querySelectorAll("[data-lidar-view]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.lidarView === lidarViewMode);
-  });
-}
 if (initialLidarParams.get("lidar") === "1") {
   window.requestAnimationFrame(openLidarDetailDialog);
 }

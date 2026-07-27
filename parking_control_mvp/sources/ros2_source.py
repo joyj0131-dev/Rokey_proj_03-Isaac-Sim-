@@ -336,7 +336,15 @@ class Ros2DataSource(DataSource):
             "docks": [],
             "entrance": None,
             "sensors": [
-                {"id": sensor_id, "zone": zone, "x": x, "y": y}
+                {
+                    "id": sensor_id,
+                    "zone": zone,
+                    "x": x,
+                    "y": y,
+                    "z": 5.12,
+                    "fov_deg": 360,
+                    "frame_id": "map",
+                }
                 for sensor_id, zone, x, y, _topic in _LIDAR_CONTRACTS
             ],
         }
@@ -467,7 +475,15 @@ class Ros2DataSource(DataSource):
             parking_map = ParkingMap.load(_default_map_yaml())
             self._map_info = _extract_map_info(parking_map)
             self._map_info["sensors"] = [
-                {"id": sensor_id, "zone": zone, "x": x, "y": y}
+                {
+                    "id": sensor_id,
+                    "zone": zone,
+                    "x": x,
+                    "y": y,
+                    "z": 5.12,
+                    "fov_deg": 360,
+                    "frame_id": "map",
+                }
                 for sensor_id, zone, x, y, _topic in _LIDAR_CONTRACTS
             ]
         except Exception as exc:  # 지도 파일이 없어도 나머지 기능은 계속 동작

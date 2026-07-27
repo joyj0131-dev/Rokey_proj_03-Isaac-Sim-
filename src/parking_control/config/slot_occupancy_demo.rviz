@@ -1,21 +1,11 @@
-Panels:
-  - Class: rviz_common/Displays
-    Name: Displays
-    Property Tree Widget:
-      Expanded:
-        - /Global Options1
-        - /LiDAR Raw1
-        - /LiDAR Height Filtered1
-        - /LiDAR Points In Slots1
-        - /Slot Occupancy Markers1
-    Tree Height: 700
+Panels: []
 Visualization Manager:
   Class: ""
   Displays:
-    - Alpha: 0.22
+    - Alpha: 0.08
       Cell Size: 1
       Class: rviz_default_plugins/Grid
-      Color: 66; 68; 73
+      Color: 58; 60; 65
       Enabled: true
       Line Style:
         Line Width: 0.03
@@ -26,7 +16,7 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: true
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Frames:
         All Enabled: true
@@ -37,16 +27,16 @@ Visualization Manager:
       Show Names: true
       Tree: {}
       Update Interval: 0
-      Value: true
-    - Alpha: 0.16
+      Value: false
+    - Alpha: 0.14
       Class: rviz_default_plugins/PointCloud2
       Color: 135; 138; 142
       Color Transformer: FlatColor
       Decay Time: 1
-      Enabled: true
+      Enabled: false
       Name: LiDAR Raw
       Position Transformer: XYZ
-      Selectable: true
+      Selectable: false
       Size (Pixels): 2
       Size (m): 0.025
       Style: Points
@@ -57,8 +47,8 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /parking/lidar/points_world
       Use Fixed Frame: true
-      Value: true
-    - Alpha: 0.72
+      Value: false
+    - Alpha: 0.80
       Class: rviz_default_plugins/PointCloud2
       Color: 120; 220; 255
       Color Transformer: FlatColor
@@ -66,7 +56,7 @@ Visualization Manager:
       Enabled: true
       Name: LiDAR Height Filtered
       Position Transformer: XYZ
-      Selectable: true
+      Selectable: false
       Size (Pixels): 3
       Size (m): 0.035
       Style: Points
@@ -80,13 +70,13 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz_default_plugins/PointCloud2
-      Color: 255; 145; 105
+      Color: 255; 135; 105
       Color Transformer: FlatColor
       Decay Time: 1
       Enabled: true
       Name: LiDAR Points In Slots
       Position Transformer: XYZ
-      Selectable: true
+      Selectable: false
       Size (Pixels): 5
       Size (m): 0.055
       Style: Points
@@ -100,7 +90,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Slot Occupancy Markers
+      Name: Slot Occupancy
       Namespaces:
         analysis_info: true
         blocked_zones: true
@@ -133,15 +123,12 @@ Visualization Manager:
   Tools:
     - Class: rviz_default_plugins/Interact
     - Class: rviz_default_plugins/MoveCamera
-    - Class: rviz_default_plugins/Select
-    - Class: rviz_default_plugins/FocusCamera
-    - Class: rviz_default_plugins/Measure
   Value: true
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Angle: 0
-      Name: Slot Occupancy Top Down
+      Name: Slot Occupancy Demo
       Scale: 13
       Target Frame: <Fixed Frame>
       X: 5.4
@@ -150,6 +137,6 @@ Visualization Manager:
     Saved: ~
 Window Geometry:
   Height: 900
-  Width: 1440
-  X: 60
-  Y: 40
+  Width: 1500
+  X: 40
+  Y: 30
