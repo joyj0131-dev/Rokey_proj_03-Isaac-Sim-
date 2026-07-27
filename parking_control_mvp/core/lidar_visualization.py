@@ -65,7 +65,7 @@ def build_lidar_visualization(
     sensor_status: str = "OFFLINE",
     topic: str = "/parking/lidar/points_world",
     frame_id: str = "map",
-    sensor_x: float = -7.82,
+    sensor_x: float = 0.5,
     sensor_y: float = 0.0,
     rate_hz: float | None = None,
     last_seen_sec: float | None = None,
@@ -166,6 +166,14 @@ def build_lidar_visualization(
             if frame_id == "map"
             else "CHECK"
         ),
+        "measurement_status": (
+            "OK" if has_live_measurement and point_total else "NO_DATA"
+        ),
+        "status_message": (
+            "정상 수신"
+            if has_live_measurement and point_total
+            else "PointCloud2 메시지 수신 대기"
+        ),
         "sensor_position": {
             "x": sensor_x,
             "y": sensor_y,
@@ -180,6 +188,10 @@ def build_lidar_visualization(
         "slot_point_count": slot_point_count,
         "display_point_count": sampled_total,
         "occupied_count": occupied_count,
+        "empty_count": sum(
+            slot["status"] == "EMPTY" for slot in rendered_slots
+        ),
+        "uncertain_count": 0,
         "mismatch_count": mismatch_count,
         "total_slots": len(rendered_slots),
         "slots": rendered_slots,

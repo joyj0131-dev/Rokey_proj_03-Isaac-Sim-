@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260727-v25-recovery-order" />
+  <link rel="stylesheet" href="/static/style.css?v=20260727-v28-robot-icon" />
 </head>
 <body>
   <div class="app-shell">
@@ -385,6 +385,9 @@
       </div>
       <div class="lidar-toolbar-groups">
         <div class="lidar-live-metrics" aria-label="실시간 포인트 처리량">
+          <span>최근 수신 <strong id="lidarLastSeen">—</strong></span>
+          <span>수신 주기 <strong id="lidarRate">—</strong></span>
+          <span>frame <strong id="lidarFrame">—</strong></span>
           <span>수신 <strong id="lidarReceivedPointCount">—</strong></span>
           <span>유효 <strong id="lidarValidPointCount">—</strong></span>
           <span>화면 표시 <strong id="lidarDisplayPointCount">—</strong></span>
@@ -409,7 +412,7 @@
         aria-label="LiDAR 포인트클라우드와 주차면 점유 상태"
       ></canvas>
       <div id="lidarDetailEmpty" class="lidar-detail-empty hidden">
-        <strong>LiDAR 데이터 수신 대기</strong>
+        <strong id="lidarDetailEmptyTitle">LiDAR 데이터 수신 대기</strong>
         <span id="lidarDetailEmptyTopic">PointCloud2 토픽과 ROS2 연결 상태를 확인하세요.</span>
       </div>
     </div>
@@ -421,6 +424,7 @@
         <span><i class="slot-point"></i>슬롯 집계 포인트</span>
         <span><i class="empty-slot"></i>공석</span>
         <span><i class="occupied-slot"></i>점유</span>
+        <span><i class="uncertain-slot"></i>불확실</span>
       </div>
       <div id="lidarConsistencyWarning" class="lidar-consistency-warning hidden">
         <strong>상태 불일치</strong>
@@ -553,6 +557,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=20260727-v25-recovery-order"></script>
+  <script src="/static/app.js?v=20260727-v28-robot-icon"></script>
 </body>
 </html>

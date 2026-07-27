@@ -27,6 +27,7 @@ from datetime import datetime
 
 import mysql.connector
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
@@ -40,7 +41,13 @@ from sensor_msgs.msg import JointState, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Float32, String
 
-from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
+from parking_robot_interfaces.msg import (
+    ObstacleAlert,
+    SafetyState,
+    SlotOccupancy,
+    SlotOccupancyArray,
+    TaskState,
+)
 from parking_robot_interfaces.srv import (
     ActivateEmergencyStop,
     ApproveOperation,
@@ -128,7 +135,7 @@ _SLOT_STATUS_FROM_TASK = {
 }
 
 _LIDAR_CONTRACTS = (
-    ("L1", "주차장 전체", -7.82, 0.0, "/parking/lidar/points_world"),
+    ("L1", "주차장 전체", 0.5, 0.0, "/parking/lidar/points_world"),
 )
 
 _V4_ROBOT_IDS = (
@@ -340,6 +347,8 @@ class Ros2DataSource(DataSource):
         }
         self._lidar_visualization: dict | None = None
         self._lidar_visualization_updated_at: float | None = None
+        self._slot_occupancy: dict | None = None
+        self._slot_occupancy_updated_at: float | None = None
         self._perception_lock = threading.Lock()
         self._robot_pose_x: dict[str, float] = {}
         self._robot_motion: dict[str, dict[str, float]] = {}
@@ -388,6 +397,12 @@ class Ros2DataSource(DataSource):
         )
         self._node.create_subscription(
             TaskState, config.TASK_STATE_TOPIC, self._on_task_state, 10
+        )
+        self._node.create_subscription(
+            SlotOccupancyArray,
+            config.SLOT_OCCUPANCY_TOPIC,
+            self._on_slot_occupancy,
+            safety_qos,
         )
         for sensor_id, _zone, _x, _y, topic in _LIDAR_CONTRACTS:
             self._node.create_subscription(
@@ -467,7 +482,7 @@ class Ros2DataSource(DataSource):
     def _spin_executor(self) -> None:
         try:
             self._executor.spin()
-        except ExternalShutdownException:
+        except (ExternalShutdownException, RCLError):
             pass
 
     def stop(self) -> None:
@@ -697,7 +712,7 @@ class Ros2DataSource(DataSource):
             (
                 sensor_id,
                 "주차장 전체",
-                -7.82,
+                0.5,
                 0.0,
                 "/parking/lidar/points_world",
             ),
@@ -717,6 +732,56 @@ class Ros2DataSource(DataSource):
         with self._sensor_lock:
             self._lidar_visualization = snapshot
             self._lidar_visualization_updated_at = now
+
+    def _on_slot_occupancy(self, message: SlotOccupancyArray) -> None:
+        """safety_monitor가 확정한 판정을 웹용 계약으로 캐시한다."""
+        status_labels = {
+            SlotOccupancy.STATUS_WAITING: "WAITING",
+            SlotOccupancy.STATUS_EMPTY: "EMPTY",
+            SlotOccupancy.STATUS_OCCUPIED: "OCCUPIED",
+            SlotOccupancy.STATUS_UNCERTAIN: "UNCERTAIN",
+        }
+        measurement_labels = {
+            SlotOccupancyArray.MEASUREMENT_WAITING: "WAITING",
+            SlotOccupancyArray.MEASUREMENT_OK: "OK",
+            SlotOccupancyArray.MEASUREMENT_NO_VALID_POINTS: "NO_VALID_POINTS",
+            SlotOccupancyArray.MEASUREMENT_TF_ERROR: "TF_ERROR",
+        }
+        slots = {
+            slot.slot_id: {
+                "id": slot.slot_id,
+                "status": status_labels.get(slot.status, "WAITING"),
+                "point_count": int(slot.point_count),
+                "point_threshold": int(slot.point_threshold),
+                "height_threshold_m": float(slot.height_threshold_m),
+                "x": float(slot.center.x),
+                "y": float(slot.center.y),
+                "width": float(slot.width),
+                "length": float(slot.length),
+            }
+            for slot in message.slots
+        }
+        snapshot = {
+            "sensor_id": message.sensor_id or "L1",
+            "topic": message.source_topic or "/parking/lidar/points_world",
+            "frame_id": message.header.frame_id or "map",
+            "measurement_status": measurement_labels.get(
+                message.measurement_status, "WAITING"
+            ),
+            "status_message": message.status_message,
+            "point_total": int(message.received_point_count),
+            "valid_point_count": int(message.filtered_point_count),
+            "slot_point_count": int(message.slot_point_count),
+            "stabilization_frames": int(message.stabilization_frames),
+            "slots": slots,
+        }
+        if slots:
+            first = next(iter(slots.values()))
+            snapshot["height_threshold_m"] = first["height_threshold_m"]
+            snapshot["point_threshold"] = first["point_threshold"]
+        with self._sensor_lock:
+            self._slot_occupancy = snapshot
+            self._slot_occupancy_updated_at = time.monotonic()
 
     def get_sensor_status(self) -> list[dict]:
         now = time.monotonic()
@@ -746,13 +811,25 @@ class Ros2DataSource(DataSource):
         status = statuses[0] if statuses else {
             "id": "L1",
             "status": "OFFLINE",
+            "topic": "/parking/lidar/points_world",
             "rate_hz": None,
             "last_seen_sec": None,
         }
+        now = time.monotonic()
         with self._sensor_lock:
             snapshot = (
                 copy.deepcopy(self._lidar_visualization)
                 if self._lidar_visualization is not None
+                else None
+            )
+            occupancy = (
+                copy.deepcopy(self._slot_occupancy)
+                if self._slot_occupancy is not None
+                else None
+            )
+            occupancy_age = (
+                now - self._slot_occupancy_updated_at
+                if self._slot_occupancy_updated_at is not None
                 else None
             )
 
@@ -787,19 +864,97 @@ class Ros2DataSource(DataSource):
         snapshot["topic"] = status["topic"]
         snapshot["rate_hz"] = status["rate_hz"]
         snapshot["last_seen_sec"] = status["last_seen_sec"]
-        snapshot["coordinate_status"] = (
-            "WAITING"
-            if status["status"] != "ONLINE"
-            else "OK"
-            if snapshot.get("frame_id") == "map"
-            else "CHECK"
-        )
         if status["status"] != "ONLINE":
             for slot in snapshot["slots"]:
                 slot["status"] = "UNAVAILABLE"
                 slot["status_match"] = None
+                slot["point_count"] = None
+            snapshot["measurement_status"] = "NO_DATA"
+            snapshot["status_message"] = (
+                "PointCloud2 메시지가 들어오지 않습니다."
+            )
+            snapshot["coordinate_status"] = "WAITING"
             snapshot["occupied_count"] = 0
+            snapshot["empty_count"] = 0
+            snapshot["uncertain_count"] = 0
             snapshot["mismatch_count"] = 0
+            return snapshot
+
+        if occupancy is None or occupancy_age is None or occupancy_age > 3.0:
+            for slot in snapshot["slots"]:
+                slot["status"] = "WAITING"
+                slot["status_match"] = None
+                slot["point_count"] = None
+            snapshot["measurement_status"] = "RESULT_WAITING"
+            snapshot["status_message"] = (
+                "PointCloud2는 수신 중이지만 슬롯 판정 결과를 기다리고 있습니다."
+            )
+            snapshot["coordinate_status"] = (
+                "OK" if snapshot.get("frame_id") == "map" else "CHECK"
+            )
+            snapshot["valid_point_count"] = None
+            snapshot["slot_point_count"] = None
+            snapshot["occupied_count"] = 0
+            snapshot["empty_count"] = 0
+            snapshot["uncertain_count"] = 0
+            snapshot["mismatch_count"] = 0
+            return snapshot
+
+        occupancy_slots = occupancy.pop("slots")
+        snapshot.update(occupancy)
+        snapshot["source"] = "ROS2_SHARED_OCCUPANCY"
+        snapshot["occupancy_last_seen_sec"] = round(occupancy_age, 2)
+        snapshot["coordinate_status"] = (
+            "ERROR"
+            if snapshot["measurement_status"] == "TF_ERROR"
+            else "OK"
+            if snapshot.get("frame_id") == "map"
+            else "CHECK"
+        )
+        merged_slots = []
+        seen = set()
+        for slot in snapshot["slots"]:
+            lidar_slot = occupancy_slots.get(slot["id"])
+            if lidar_slot is None:
+                slot.update(
+                    status="WAITING",
+                    point_count=None,
+                    status_match=None,
+                )
+            else:
+                control_status = slot.get("control_status", "UNKNOWN")
+                lidar_status = lidar_slot["status"]
+                slot.update(lidar_slot)
+                slot["control_status"] = control_status
+                slot["status_match"] = (
+                    lidar_status == control_status
+                    if lidar_status in {"OCCUPIED", "EMPTY"}
+                    and control_status in {"OCCUPIED", "EMPTY"}
+                    else None
+                )
+                seen.add(slot["id"])
+            merged_slots.append(slot)
+        for slot_id, lidar_slot in occupancy_slots.items():
+            if slot_id not in seen:
+                merged_slots.append({
+                    **lidar_slot,
+                    "control_status": "UNKNOWN",
+                    "status_match": None,
+                })
+        snapshot["slots"] = merged_slots
+        snapshot["total_slots"] = len(merged_slots)
+        snapshot["occupied_count"] = sum(
+            slot["status"] == "OCCUPIED" for slot in merged_slots
+        )
+        snapshot["empty_count"] = sum(
+            slot["status"] == "EMPTY" for slot in merged_slots
+        )
+        snapshot["uncertain_count"] = sum(
+            slot["status"] == "UNCERTAIN" for slot in merged_slots
+        )
+        snapshot["mismatch_count"] = sum(
+            slot["status_match"] is False for slot in merged_slots
+        )
         return snapshot
 
     def get_cooperative_load_states(self) -> list[CooperativeLoadState]:

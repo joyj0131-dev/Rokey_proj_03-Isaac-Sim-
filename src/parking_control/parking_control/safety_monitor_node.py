@@ -1,55 +1,61 @@
 #!/usr/bin/env python3
-"""safety_monitor: LiDAR 월드 포인트클라우드 하나로 두 가지를 한다.
+"""LiDAR 장애물 감시와 슬롯 점유 검증 결과를 함께 발행한다.
 
-  ① 통로 장애물 감지 → obstacle_alert 토픽 발행 (parking_robot_system의
-     safety_monitor 스켈레톤과 같은 인터페이스)
-  ② 주차 슬롯 점유 판정 → parking_slots.status를 실시간으로 갱신
-  둘의 판정 결과는 parking_status_markers(MarkerArray — 슬롯은 초록/빨강
-  박스, 막힌 통로는 빨강 반투명 박스)로도 발행한다. RViz2에서
-  config/lidar_live.rviz를 열고 Marker Array 디스플레이(토픽:
-  parking_status_markers)만 하나 추가하면 실시간으로 주차 현황·장애물이
-  눈에 보인다.
+입력 PointCloud2는 map 좌표로 변환한 뒤 한 번만 판정한다. 같은 결과에서
+RViz2용 필터 cloud/marker와 웹 UI용 SlotOccupancyArray를 만들기 때문에 두
+화면의 슬롯별 포인트 수와 상태가 어긋나지 않는다.
 
-같은 LiDAR 데이터를 보는 감시 기능이라 노드 하나로 합쳤다(구독·DB 연결을
-두 번 만들 이유가 없음). 담당자가 아직 미정인 팀 공유 스켈레톤
-(parking_robot_system)은 건드리지 않고, 이 노드가 그 자리를 대신할 수
-있는 독립 구현이다(sim_orchestrator와 같은 패턴 — 필요하면 팀 합의 후 교체).
-
-무엇이 막았는지/점유했는지(사람/차량/기타)는 구분하지 않는다 —
-ObstacleAlert.msg가 불리언 하나뿐이고, 주차 목적에도 있다/없다면
-충분하기 때문이다.
-
-2026-07-25: 이전 버전은 자체 lidar_topic 파라미터(추정 토픽명)로 raw
-센서 좌표를 구독한 뒤 core/lidar_frame_transform.py(검증 안 된 센서
-오프셋 계산)로 직접 월드 좌표 변환을 했었다. 그 토픽명은 실제로 존재하지
-않았고(실측 결과 진짜 발행 토픽은 /parking/lidar/ceiling_01/points_usd,
-scripts/lidar/capture_lidar.py --live가 발행), 변환도 이미 검증된
-scripts/lidar/ros_pointcloud_world_relay.py가 같은 일을 하고 있었다 —
-raw 토픽들을 구독해 USD Y-up → ROS map 변환까지 끝낸 뒤
-/parking/lidar/points_world로 재발행한다(scripts/lidar/run_live_rviz.sh가
-캡처+릴레이+RViz를 한 번에 띄우는 스크립트). 그래서 이 노드는 이제 자체
-변환 없이 그 결과 토픽을 바로 구독한다 — 이 노드가 다시 같은 이름으로
-points_world를 발행하면 릴레이와 퍼블리셔가 중복되므로 더 이상 발행하지
-않는다(RViz는 릴레이가 내는 걸 직접 본다).
-
-주의: 브릿지/캡처/릴레이가 안 떠 있으면 토픽에 데이터가 안 들어와서 이
-노드는 그냥 조용히 대기만 한다 (에러는 안 남).
+LiDAR 판정은 DB의 운영 상태를 덮어쓰지 않는다. DB는 작업·예약 정책의
+기준이고, LiDAR는 웹에서 불일치 경고를 만드는 독립 검증 값이다.
 """
 
 import numpy as np
 import rclpy
+import time
+from rclpy.duration import Duration
 from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+from rclpy.time import Time
+from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
+from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
-from parking_robot_interfaces.msg import ObstacleAlert
+from parking_robot_interfaces.msg import (
+    ObstacleAlert,
+    SlotOccupancy,
+    SlotOccupancyArray,
+)
 
 from parking_control.core.db import ParkingDB
 from parking_control.core.graph import ParkingMap
 from parking_control.core.obstacle_detector import detect_blocked_zones, zone_boxes
-from parking_control.core.slot_occupancy_detector import detect as detect_slot_occupancy
+from parking_control.core.slot_occupancy_detector import (
+    HEIGHT_THRESHOLD_M,
+    POINT_THRESHOLD,
+    STABILIZATION_FRAMES,
+    STATUS_EMPTY,
+    STATUS_OCCUPIED,
+    STATUS_UNCERTAIN,
+    SlotDecisionStabilizer,
+    detect_with_masks,
+)
 from parking_control.parking_slot_manager_node import _default_map_yaml
+
+
+_STATUS_TO_MSG = {
+    "WAITING": SlotOccupancy.STATUS_WAITING,
+    STATUS_EMPTY: SlotOccupancy.STATUS_EMPTY,
+    STATUS_OCCUPIED: SlotOccupancy.STATUS_OCCUPIED,
+    STATUS_UNCERTAIN: SlotOccupancy.STATUS_UNCERTAIN,
+}
 
 
 class SafetyMonitorNode(Node):
@@ -62,55 +68,235 @@ class SafetyMonitorNode(Node):
         self.declare_parameter("db_password", "parking1234")
         self.declare_parameter("db_name", "parking")
         self.declare_parameter("map_yaml", _default_map_yaml())
-        # 2026-07-25: scripts/lidar/ros_pointcloud_world_relay.py가 이미 raw
-        # 센서 토픽들을 구독해 ROS map(월드) 좌표로 변환·병합해 이 토픽으로 낸다
-        # (scripts/lidar/run_live_rviz.sh가 캡처+릴레이+RViz를 한 번에 띄움).
         self.declare_parameter("lidar_world_topic", "/parking/lidar/points_world")
+        self.declare_parameter(
+            "filtered_topic", "/parking/lidar/points_filtered"
+        )
+        self.declare_parameter(
+            "slot_points_topic", "/parking/lidar/points_in_slots"
+        )
+        self.declare_parameter(
+            "slot_marker_topic", "/parking/slot_markers"
+        )
+        self.declare_parameter(
+            "slot_occupancy_topic", "/parking/slot_occupancy"
+        )
+        self.declare_parameter("target_frame", "map")
+        self.declare_parameter("height_threshold_m", HEIGHT_THRESHOLD_M)
+        self.declare_parameter("point_threshold", POINT_THRESHOLD)
+        self.declare_parameter(
+            "stabilization_frames", STABILIZATION_FRAMES
+        )
+        self.declare_parameter("visual_publish_hz", 5.0)
+        # parking_environment_v4.usd의 CeilingLidarCenter 실측 위치.
+        self.declare_parameter("sensor_id", "L1")
+        self.declare_parameter("sensor_x", 0.5)
+        self.declare_parameter("sensor_y", 0.0)
+        self.declare_parameter("sensor_z", 5.12)
 
         p = self.get_parameter
+        self._input_topic = str(p("lidar_world_topic").value)
+        self._target_frame = str(p("target_frame").value)
+        self._height_threshold = float(p("height_threshold_m").value)
+        self._point_threshold = int(p("point_threshold").value)
+        self._stabilization_frames = int(p("stabilization_frames").value)
+        visual_publish_hz = float(p("visual_publish_hz").value)
+        if visual_publish_hz <= 0:
+            raise ValueError("visual_publish_hz는 0보다 커야 합니다")
+        self._visual_publish_period = 1.0 / visual_publish_hz
+        self._sensor_id = str(p("sensor_id").value)
+        self._sensor_position = (
+            float(p("sensor_x").value),
+            float(p("sensor_y").value),
+            float(p("sensor_z").value),
+        )
+        if self._point_threshold < 1:
+            raise ValueError("point_threshold는 1 이상이어야 합니다")
+
         self._db = ParkingDB(
-            host=p("db_host").value, user=p("db_user").value,
-            password=p("db_password").value, database=p("db_name").value)
+            host=p("db_host").value,
+            user=p("db_user").value,
+            password=p("db_password").value,
+            database=p("db_name").value,
+        )
         self._map = ParkingMap.load(p("map_yaml").value)
         self._zone_boxes = zone_boxes(self._map)
-        self._last_slot_status = {}   # slot_id -> 마지막으로 DB에 쓴 상태 (중복 쓰기 방지)
+        slot_ids = self._map.nodes_of_kind("slot")
+        self._stabilizer = SlotDecisionStabilizer(
+            slot_ids, frames=self._stabilization_frames
+        )
+        self._last_reported_status = {}
+        self._last_cloud_at = None
+        self._last_visual_publish_at = None
+        self._offline_state_published = False
 
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        latched_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        cloud_qos = QoSProfile(
+            depth=5,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
         self._alert_pub = self.create_publisher(
             ObstacleAlert, "/obstacle_alert", 10
         )
+        self._filtered_pub = self.create_publisher(
+            PointCloud2,
+            str(p("filtered_topic").value),
+            cloud_qos,
+        )
+        self._slot_points_pub = self.create_publisher(
+            PointCloud2,
+            str(p("slot_points_topic").value),
+            cloud_qos,
+        )
+        self._occupancy_pub = self.create_publisher(
+            SlotOccupancyArray,
+            str(p("slot_occupancy_topic").value),
+            latched_qos,
+        )
         self._marker_pub = self.create_publisher(
-            MarkerArray, "parking_status_markers", 10)
+            MarkerArray,
+            str(p("slot_marker_topic").value),
+            latched_qos,
+        )
+        # 이전 RViz/스크립트 호환. 신규 설정은 /parking/slot_markers를 쓴다.
+        self._legacy_marker_pub = self.create_publisher(
+            MarkerArray, "parking_status_markers", latched_qos
+        )
         self.create_subscription(
-            PointCloud2, p("lidar_world_topic").value, self._on_pointcloud, 10)
+            PointCloud2,
+            self._input_topic,
+            self._on_pointcloud,
+            qos_profile_sensor_data,
+        )
+        self.create_timer(0.5, self._publish_offline_state_if_needed)
 
-        slot_count = len(self._map.nodes_of_kind("slot"))
         self.get_logger().info(
-            f"safety_monitor 시작 (lidar_world_topic={p('lidar_world_topic').value}, "
-            f"통로 {len(self._zone_boxes)}개 + 슬롯 {slot_count}개 감시) — "
-            "캡처+릴레이(scripts/lidar/run_live_rviz.sh)가 연결되기 전까지는 "
-            "대기만 합니다.")
+            "safety_monitor 시작: "
+            f"{self._input_topic} → filtered/slot points/occupancy/markers "
+            f"(frame={self._target_frame}, z>{self._height_threshold:.2f}m, "
+            f"points>={self._point_threshold}, 안정화={self._stabilization_frames}프레임)"
+        )
 
-    def _on_pointcloud(self, msg):
-        # ros_pointcloud_world_relay.py가 이미 ROS map(월드) 좌표로 변환해 내보내므로
-        # 여기서는 추가 변환 없이 그대로 쓴다. read_points()는 구조화 배열(필드별
-        # named dtype)을 반환하므로 np.array(list(...), dtype=float64)로 바로
-        # 캐스팅하면 에러가 난다 — 필드를 각각 뽑아서 일반 (N,3) 배열로 조립한다.
+    @staticmethod
+    def _cloud_to_array(message):
         cloud = point_cloud2.read_points(
-            msg, field_names=("x", "y", "z"), skip_nans=True)
+            message, field_names=("x", "y", "z"), skip_nans=True
+        )
         if cloud.size == 0:
-            return
-        points = np.column_stack(
-            [cloud["x"], cloud["y"], cloud["z"]]).astype(np.float64)
+            return np.empty((0, 3), dtype=np.float64)
+        return np.column_stack(
+            [cloud["x"], cloud["y"], cloud["z"]]
+        ).astype(np.float64)
 
+    @staticmethod
+    def _apply_transform(points, transform):
+        """geometry_msgs/Transform을 (N,3) 점에 적용한다."""
+        if points.size == 0:
+            return points
+        q = transform.rotation
+        norm = np.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w)
+        if norm <= 1e-12:
+            raise ValueError("TF quaternion의 크기가 0입니다")
+        x, y, z, w = q.x / norm, q.y / norm, q.z / norm, q.w / norm
+        rotation = np.array([
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ])
+        translation = np.array([
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+        ])
+        return points @ rotation.T + translation
+
+    def _to_target_frame(self, points, message):
+        source_frame = message.header.frame_id.strip()
+        if not source_frame:
+            raise TransformException("PointCloud2 header.frame_id가 비어 있습니다")
+        if source_frame == self._target_frame:
+            return points
+        stamped = self._tf_buffer.lookup_transform(
+            self._target_frame,
+            source_frame,
+            Time.from_msg(message.header.stamp),
+            timeout=Duration(seconds=0.1),
+        )
+        return self._apply_transform(points, stamped.transform)
+
+    def _on_pointcloud(self, message):
+        now = time.monotonic()
+        self._last_cloud_at = now
+        self._offline_state_published = False
+        received = self._cloud_to_array(message)
+        try:
+            points = self._to_target_frame(received, message)
+        except (TransformException, ValueError) as error:
+            self.get_logger().error(
+                f"LiDAR TF 변환 실패 ({message.header.frame_id or 'empty'}"
+                f" → {self._target_frame}): {error}"
+            )
+            self._stabilizer.reset()
+            self._publish_measurement_error(
+                message,
+                received_count=len(received),
+                detail=str(error),
+            )
+            return
+
+        frame_results, height_mask, slot_mask = detect_with_masks(
+            points,
+            self._map,
+            height_threshold=self._height_threshold,
+            point_threshold=self._point_threshold,
+        )
+        stable_results = self._stabilizer.update(frame_results)
+        filtered = np.ascontiguousarray(points[height_mask], dtype=np.float32)
+        in_slots = np.ascontiguousarray(points[slot_mask], dtype=np.float32)
+
+        header = Header()
+        header.stamp = message.header.stamp
+        header.frame_id = self._target_frame
         blocked = self._check_obstacles(points)
-        slot_results = self._update_slot_occupancy(points)
-        self._publish_markers(blocked, slot_results)
+        occupancy = self._build_occupancy_message(
+            header,
+            stable_results,
+            received_count=len(received),
+            filtered_count=len(filtered),
+            slot_count=len(in_slots),
+        )
+        self._occupancy_pub.publish(occupancy)
+        if (
+            self._last_visual_publish_at is None
+            or now - self._last_visual_publish_at >= self._visual_publish_period
+        ):
+            self._last_visual_publish_at = now
+            self._filtered_pub.publish(
+                point_cloud2.create_cloud_xyz32(header, filtered)
+            )
+            self._slot_points_pub.publish(
+                point_cloud2.create_cloud_xyz32(header, in_slots)
+            )
+            markers = self._build_markers(header, blocked, stable_results)
+            self._marker_pub.publish(markers)
+            self._legacy_marker_pub.publish(markers)
+        self._log_status_changes(stable_results)
 
     def _check_obstacles(self, points):
         robot_positions = self._db.all_robot_positions()
-        blocked = detect_blocked_zones(points, self._zone_boxes, robot_positions)
-        blocked_zones = sorted(zid for zid, is_blocked in blocked.items() if is_blocked)
-
+        blocked = detect_blocked_zones(
+            points, self._zone_boxes, robot_positions
+        )
+        blocked_zones = sorted(
+            zone_id for zone_id, value in blocked.items() if value
+        )
         alert = ObstacleAlert()
         alert.obstacle_detected = bool(blocked_zones)
         if blocked_zones:
@@ -118,82 +304,272 @@ class SafetyMonitorNode(Node):
             alert.description = f"통로 막힘: {', '.join(blocked_zones)}"
             alert.location.x = (x0 + x1) / 2
             alert.location.y = (y0 + y1) / 2
-            self.get_logger().warn(alert.description)
         self._alert_pub.publish(alert)
         return blocked
 
-    def _update_slot_occupancy(self, points):
-        # 로봇/차량 구분 없이 판정한다 — 로봇이 슬롯 위에 있다는 것 자체가
-        # 지금 그 칸에 뭔가(차든 로봇이든) 있다는 뜻이라 제외할 이유가 없다
-        # (통로 장애물 감지와 달리 여기서는 robot_positions을 빼지 않는다).
-        results = detect_slot_occupancy(points, self._map)
-        for slot_id, r in results.items():
-            new_status = "OCCUPIED" if r["occupied"] else "EMPTY"
-            if new_status != self._last_slot_status.get(slot_id):
-                self._db.set_slot_status(slot_id, new_status)
-                self._last_slot_status[slot_id] = new_status
-                self.get_logger().info(f"슬롯 {slot_id}: {new_status} (LiDAR 판정)")
-        return results
+    def _build_occupancy_message(
+        self,
+        header,
+        results,
+        *,
+        received_count,
+        filtered_count,
+        slot_count,
+    ):
+        message = SlotOccupancyArray()
+        message.header = header
+        message.sensor_id = self._sensor_id
+        message.source_topic = self._input_topic
+        message.measurement_status = (
+            SlotOccupancyArray.MEASUREMENT_NO_VALID_POINTS
+            if filtered_count == 0
+            else SlotOccupancyArray.MEASUREMENT_OK
+        )
+        message.status_message = (
+            "PointCloud2는 수신됐지만 높이 필터를 통과한 포인트가 없습니다."
+            if filtered_count == 0
+            else "정상 수신"
+        )
+        message.received_point_count = received_count
+        message.filtered_point_count = filtered_count
+        message.slot_point_count = slot_count
+        message.stabilization_frames = self._stabilization_frames
+        width = float(self._map.meta["params"]["space_width"])
+        length = float(self._map.meta["params"]["space_length"])
+        for slot_id, result in results.items():
+            slot = SlotOccupancy()
+            slot.slot_id = slot_id
+            slot.status = _STATUS_TO_MSG[result["status"]]
+            slot.point_count = result["point_count"]
+            slot.point_threshold = self._point_threshold
+            slot.height_threshold_m = self._height_threshold
+            slot.center.x = float(result["x"])
+            slot.center.y = float(result["y"])
+            slot.width = width
+            slot.length = length
+            message.slots.append(slot)
+        return message
 
-    def _publish_markers(self, blocked, slot_results):
-        """슬롯 점유/통로 막힘 판정을 RViz2 MarkerArray로 시각화(2026-07-23).
+    def _publish_measurement_error(self, source, *, received_count, detail):
+        waiting_results = self._waiting_results()
+        message = SlotOccupancyArray()
+        message.header.stamp = source.header.stamp
+        message.header.frame_id = self._target_frame
+        message.sensor_id = self._sensor_id
+        message.source_topic = self._input_topic
+        message.measurement_status = SlotOccupancyArray.MEASUREMENT_TF_ERROR
+        message.status_message = f"map 좌표 변환 실패: {detail}"
+        message.received_point_count = received_count
+        message.stabilization_frames = self._stabilization_frames
+        for slot_id, result in waiting_results.items():
+            slot = SlotOccupancy()
+            slot.slot_id = slot_id
+            slot.status = SlotOccupancy.STATUS_WAITING
+            slot.point_threshold = self._point_threshold
+            slot.height_threshold_m = self._height_threshold
+            slot.center.x = float(result["x"])
+            slot.center.y = float(result["y"])
+            slot.width = float(result["width"])
+            slot.length = float(result["length"])
+            message.slots.append(slot)
+        self._occupancy_pub.publish(message)
+        header = message.header
+        empty = np.empty((0, 3), dtype=np.float32)
+        self._filtered_pub.publish(
+            point_cloud2.create_cloud_xyz32(header, empty)
+        )
+        self._slot_points_pub.publish(
+            point_cloud2.create_cloud_xyz32(header, empty)
+        )
+        markers = self._build_markers(header, {}, waiting_results)
+        self._marker_pub.publish(markers)
+        self._legacy_marker_pub.publish(markers)
 
-        슬롯: 초록(빈칸)/빨강(점유) 박스 + 텍스트 라벨.
-        통로: 막힌 구간만 빨강 반투명 박스로 표시(평소엔 안 그림 — 통로 18개를
-        늘 다 그리면 화면이 지저분해지고, "막힘"이야말로 실시간으로 눈에 띄어야
-        하는 정보라 그것만 그린다)."""
-        space_w = self._map.meta["params"]["space_width"]
-        space_l = self._map.meta["params"]["space_length"]
+    def _publish_offline_state_if_needed(self):
+        age = (
+            None
+            if self._last_cloud_at is None
+            else time.monotonic() - self._last_cloud_at
+        )
+        if age is not None and age <= 3.0:
+            return
+        if self._offline_state_published:
+            return
+        self._offline_state_published = True
+        self._stabilizer.reset()
+        message = SlotOccupancyArray()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self._target_frame
+        message.sensor_id = self._sensor_id
+        message.source_topic = self._input_topic
+        message.measurement_status = SlotOccupancyArray.MEASUREMENT_WAITING
+        message.status_message = "PointCloud2 메시지 수신 대기"
+        message.stabilization_frames = self._stabilization_frames
+        waiting_results = self._waiting_results()
+        for slot_id, result in waiting_results.items():
+            slot = SlotOccupancy()
+            slot.slot_id = slot_id
+            slot.status = SlotOccupancy.STATUS_WAITING
+            slot.point_threshold = self._point_threshold
+            slot.height_threshold_m = self._height_threshold
+            slot.center.x = float(result["x"])
+            slot.center.y = float(result["y"])
+            slot.width = float(result["width"])
+            slot.length = float(result["length"])
+            message.slots.append(slot)
+        self._occupancy_pub.publish(message)
+        empty = np.empty((0, 3), dtype=np.float32)
+        self._filtered_pub.publish(
+            point_cloud2.create_cloud_xyz32(message.header, empty)
+        )
+        self._slot_points_pub.publish(
+            point_cloud2.create_cloud_xyz32(message.header, empty)
+        )
+        markers = self._build_markers(message.header, {}, waiting_results)
+        self._marker_pub.publish(markers)
+        self._legacy_marker_pub.publish(markers)
+
+    def _waiting_results(self):
+        width = float(self._map.meta["params"]["space_width"])
+        length = float(self._map.meta["params"]["space_length"])
+        return {
+            slot_id: {
+                "x": self._map.node_pos(slot_id)[0],
+                "y": self._map.node_pos(slot_id)[1],
+                "width": width,
+                "length": length,
+                "status": "WAITING",
+                "point_count": 0,
+            }
+            for slot_id in self._map.nodes_of_kind("slot")
+        }
+
+    def _build_markers(self, header, blocked, results):
         markers = MarkerArray()
-        now = self.get_clock().now().to_msg()
-        idx = 0
+        clear = Marker()
+        clear.action = Marker.DELETEALL
+        markers.markers.append(clear)
+        marker_id = 1
+        width = float(self._map.meta["params"]["space_width"])
+        length = float(self._map.meta["params"]["space_length"])
 
-        for slot_id, r in slot_results.items():
-            m = Marker()
-            m.header.frame_id = "map"
-            m.header.stamp = now
-            m.ns = "slots"
-            m.id = idx
-            idx += 1
-            m.type = Marker.CUBE
-            m.action = Marker.ADD
-            m.pose.position.x = r["x"]
-            m.pose.position.y = r["y"]
-            m.pose.position.z = 0.05
-            m.pose.orientation.w = 1.0
-            m.scale.x = space_w * 0.9
-            m.scale.y = space_l * 0.9
-            m.scale.z = 0.05
-            m.color.a = 0.6
-            if r["occupied"]:
-                m.color.r, m.color.g, m.color.b = 1.0, 0.15, 0.15
-            else:
-                m.color.r, m.color.g, m.color.b = 0.15, 0.85, 0.15
-            markers.markers.append(m)
+        colors = {
+            STATUS_EMPTY: (0.1, 0.9, 0.2),
+            STATUS_OCCUPIED: (1.0, 0.1, 0.1),
+            STATUS_UNCERTAIN: (1.0, 0.55, 0.05),
+            "WAITING": (0.55, 0.58, 0.62),
+        }
+        labels = {
+            STATUS_EMPTY: "공석",
+            STATUS_OCCUPIED: "점유",
+            STATUS_UNCERTAIN: "불확실",
+            "WAITING": "판정 대기",
+        }
+        for slot_id, result in results.items():
+            color = colors[result["status"]]
+            fill = self._marker(header, "slot_fill", marker_id, Marker.CUBE)
+            marker_id += 1
+            fill.pose.position.x = float(result["x"])
+            fill.pose.position.y = float(result["y"])
+            fill.pose.position.z = 0.03
+            fill.scale.x, fill.scale.y, fill.scale.z = width, length, 0.05
+            fill.color.r, fill.color.g, fill.color.b = color
+            fill.color.a = 0.28
+            markers.markers.append(fill)
+
+            border = self._marker(
+                header, "slot_boundary", marker_id, Marker.LINE_STRIP
+            )
+            marker_id += 1
+            border.scale.x = 0.08
+            border.color.r, border.color.g, border.color.b = color
+            border.color.a = 1.0
+            for x, y in (
+                (result["x"] - width / 2, result["y"] - length / 2),
+                (result["x"] + width / 2, result["y"] - length / 2),
+                (result["x"] + width / 2, result["y"] + length / 2),
+                (result["x"] - width / 2, result["y"] + length / 2),
+                (result["x"] - width / 2, result["y"] - length / 2),
+            ):
+                point = Point()
+                point.x, point.y, point.z = float(x), float(y), 0.08
+                border.points.append(point)
+            markers.markers.append(border)
+
+            text = self._marker(header, "slot_text", marker_id, Marker.TEXT_VIEW_FACING)
+            marker_id += 1
+            text.pose.position.x = float(result["x"])
+            text.pose.position.y = float(result["y"])
+            text.pose.position.z = 0.65
+            text.scale.z = 0.42
+            text.color.r = text.color.g = text.color.b = 1.0
+            text.color.a = 1.0
+            text.text = (
+                f"{slot_id}\n{labels[result['status']]}\n"
+                f"유효 {result['point_count']} / 기준 {self._point_threshold}"
+            )
+            markers.markers.append(text)
 
         for zone_id, is_blocked in blocked.items():
             if not is_blocked:
                 continue
             x0, x1, y0, y1 = self._zone_boxes[zone_id]
-            m = Marker()
-            m.header.frame_id = "map"
-            m.header.stamp = now
-            m.ns = "blocked_zones"
-            m.id = idx
-            idx += 1
-            m.type = Marker.CUBE
-            m.action = Marker.ADD
-            m.pose.position.x = (x0 + x1) / 2
-            m.pose.position.y = (y0 + y1) / 2
-            m.pose.position.z = 0.1
-            m.pose.orientation.w = 1.0
-            m.scale.x = x1 - x0
-            m.scale.y = y1 - y0
-            m.scale.z = 0.2
-            m.color.r, m.color.g, m.color.b, m.color.a = 1.0, 0.0, 0.0, 0.35
-            markers.markers.append(m)
+            marker = self._marker(
+                header, "blocked_zones", marker_id, Marker.CUBE
+            )
+            marker_id += 1
+            marker.pose.position.x = (x0 + x1) / 2
+            marker.pose.position.y = (y0 + y1) / 2
+            marker.pose.position.z = 0.1
+            marker.scale.x = x1 - x0
+            marker.scale.y = y1 - y0
+            marker.scale.z = 0.2
+            marker.color.r, marker.color.a = 1.0, 0.35
+            markers.markers.append(marker)
 
-        self._marker_pub.publish(markers)
+        sx, sy, sz = self._sensor_position
+        sensor = self._marker(header, "lidar_sensor", marker_id, Marker.SPHERE)
+        marker_id += 1
+        sensor.pose.position.x, sensor.pose.position.y = sx, sy
+        sensor.pose.position.z = sz
+        sensor.scale.x = sensor.scale.y = sensor.scale.z = 0.35
+        sensor.color.r, sensor.color.g, sensor.color.b, sensor.color.a = (
+            0.1, 0.55, 1.0, 1.0
+        )
+        markers.markers.append(sensor)
+        sensor_text = self._marker(
+            header, "lidar_sensor", marker_id, Marker.TEXT_VIEW_FACING
+        )
+        sensor_text.pose.position.x, sensor_text.pose.position.y = sx, sy
+        sensor_text.pose.position.z = sz + 0.45
+        sensor_text.scale.z = 0.35
+        sensor_text.color.r = sensor_text.color.g = sensor_text.color.b = 1.0
+        sensor_text.color.a = 1.0
+        sensor_text.text = self._sensor_id
+        markers.markers.append(sensor_text)
+        return markers
+
+    @staticmethod
+    def _marker(header, namespace, marker_id, marker_type):
+        marker = Marker()
+        marker.header = header
+        marker.ns = namespace
+        marker.id = marker_id
+        marker.type = marker_type
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        return marker
+
+    def _log_status_changes(self, results):
+        for slot_id, result in results.items():
+            status = result["status"]
+            if self._last_reported_status.get(slot_id) == status:
+                continue
+            self._last_reported_status[slot_id] = status
+            self.get_logger().info(
+                f"LiDAR 검증 {slot_id}: {status} "
+                f"({result['point_count']} / {self._point_threshold} points)"
+            )
 
     def destroy_node(self):
         self._db.close()
@@ -209,7 +585,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

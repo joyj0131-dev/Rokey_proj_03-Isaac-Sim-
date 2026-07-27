@@ -1,6 +1,6 @@
 meta:
   generated_by: generate_map.py
-  frame: ros_map
+  frame: map
   usd_to_ros: ros_x = usd_x, ros_y = -usd_z (v4.usd 실측 기반, 2026-07-25)
   source: isaacpjt/Isaac_envo/parking/parking_environment_v4.usd (ArucoMarkerPreview
     스코프) + src/parkbot_aruco/parkbot_aruco/site_map_v4.py(ENTRY/EXIT 변환 기준)

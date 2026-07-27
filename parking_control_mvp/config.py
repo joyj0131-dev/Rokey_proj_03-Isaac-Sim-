@@ -27,6 +27,9 @@ if PARKING_MODE not in VALID_MODES:
 DISPATCH_SERVICE_NAME = os.getenv("PARKING_DISPATCH_SERVICE", "dispatch_parking_task")
 OBSTACLE_ALERT_TOPIC = os.getenv("PARKING_OBSTACLE_TOPIC", "obstacle_alert")
 TASK_STATE_TOPIC = os.getenv("PARKING_TASK_STATE_TOPIC", "task_state")
+SLOT_OCCUPANCY_TOPIC = os.getenv(
+    "PARKING_SLOT_OCCUPANCY_TOPIC", "/parking/slot_occupancy"
+)
 DISPATCH_SERVICE_TIMEOUT_SEC = float(os.getenv("PARKING_DISPATCH_TIMEOUT_SEC", "5.0"))
 
 # task_dispatcher가 쓰는 MySQL과 동일한 DB를 읽기 전용으로 폴링한다
