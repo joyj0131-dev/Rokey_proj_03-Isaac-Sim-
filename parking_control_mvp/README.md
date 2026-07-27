@@ -10,7 +10,8 @@
   - `sources/mock_source.py` — Mock 구현체 (기존 로직 이관)
   - `config.py` — `PARKING_MODE` 환경변수 (mock / ros2)
   - `main.py` — FastAPI 라우팅만 담당
-- ros2 모드는 task_dispatcher 인터페이스 확정 후 `sources/ros2_source.py`로 추가 예정
+- `sources/ros2_source.py`가 task_dispatcher, 안전 관제, 로봇 위치 및 ArUco
+  진단 토픽을 받아 실제 ROS2 모드 화면을 구성
 
 ### 기능
 - 작업 단계를 dispatcher 예상 흐름에 맞춰 6단계로 확장:

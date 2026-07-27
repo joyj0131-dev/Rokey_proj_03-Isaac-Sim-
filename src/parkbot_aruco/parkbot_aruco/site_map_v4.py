@@ -22,6 +22,18 @@ SERVES_ROLE = {
     "GATE_OUT": ENTRY, "W_OUT": ENTRY,
     "D_OUT_1": ENTRY, "D_OUT_2": ENTRY,
     "XN": ENTRY, "A1'": ENTRY, "A2'": ENTRY, "A3'": ENTRY,
+    # 진입 회랑 드리프트 보정 마커(z=+7.075 라인, 유일 ID 61~64).
+    "LANE_1": ENTRY, "LANE_2": ENTRY, "LANE_3": ENTRY, "LANE_4": ENTRY,
+    # 주차 슬롯 진입 마커(2026-07-27, 유일 ID 65~70). _F=주차칸 앞(z≈3.5),
+    # _C=슬롯 가운데 최종정지(z≈0). 세 슬롯 A1/A2/A3.
+    "A1_F": ENTRY, "A1_C": ENTRY, "A2_F": ENTRY, "A2_C": ENTRY,
+    "A3_F": ENTRY, "A3_C": ENTRY,
+    # 출차(남쪽) 대칭 슬롯 앞 마커(유일 ID 71~73, z≈-3.5). lane 은 기존 id 0/1/2(A1/A2/A3)
+    # 를 z=-7.075 로 옮겨 대칭, 가운데(z=0)는 입차와 공유.
+    "A1_FX": EXIT, "A2_FX": EXIT, "A3_FX": EXIT,
+    # 인계 베이 입구(Mission Phase C, Task C4 — parking_v4_runner.spawn_bay_marker
+    # 가 런타임 스폰. z=+7.075 로 이미 ENTRY 부호 규약을 따른다).
+    "BAY_OUT_ENTRY": ENTRY,
     # z 음수 = 출차
     "GATE_IN": EXIT, "W_IN": EXIT,
     "D_IN_1": EXIT, "D_IN_2": EXIT,

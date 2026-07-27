@@ -1,0 +1,21 @@
+# [R5a] 차 밑 진입 안무: 저속 전진 + 좌우 뎁스캠 중앙유지(vy) -> 지정 트로프(축)
+# 통과가 axle_detector_node 에 의해 확정되면(이미 그 축을 지나친 뒤) 후진해
+# 그 축 중간값에서 정지. 로봇 1대 단위(ingress_node.py, R5a) — 두 로봇 조율
+# (스태거링/충돌회피)은 R5b 오케스트레이터의 몫이다.
+int32 trough_index      # 0=첫 트로프(후축), 1=둘째 트로프(전축) -- axle_detector_node 의
+                         #   /robot_<id>/axle_index 와 동일한 0-based 규약(그 노드가 이
+                         #   목표와 같은 세션에서 0부터 새로 세기 시작한다고 가정)
+float32 forward_speed   # m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+float32 return_speed    # m/s. 0.0(생략) => ingress_node 파라미터 기본값 사용
+---
+bool success
+string stop_reason           # midpoint_reached | timeout | pose_stale | depth_lost | canceled
+float32 stop_x                # 최종 정지 좌표(주행좌표계 world x)
+float32 target_axle_x         # axle_detector_node 가 보고한 목표 트로프 중심 x(정렬 목표였던 값)
+float32 est_max_lateral_dev_m # 진단용: 명령 vy 의 시간적분 기반 추정치. GT 실측이 아님(이 노드는
+                               #   지면진실 좌표를 모른다) -- 실제 횡편차 검증은 외부 스모크가 GT로 한다
+---
+string phase       # SEEK | RETURN | SETTLING
+float32 current_x
+int32 troughs_seen
+float32 vy_cmd

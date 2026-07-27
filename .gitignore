@@ -15,6 +15,7 @@ __pycache__/
 
 # Isaac Sim / Omniverse
 *.usd~
+*.bak
 *.usda~
 .thumbnails/
 kit_cache/

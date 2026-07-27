@@ -26,6 +26,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/DetectVehicle.action"
   "action/AlignVehicle.action"
   "action/ControlLift.action"
+  "action/IngressUnderTruck.action"
+  "action/CarryToSlot.action"
   DEPENDENCIES geometry_msgs
 )
 

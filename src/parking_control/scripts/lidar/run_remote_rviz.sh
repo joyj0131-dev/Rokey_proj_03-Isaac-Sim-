@@ -9,7 +9,7 @@ WORLD_RELAY="$SCRIPT_DIR/ros_pointcloud_world_relay.py"
 
 source /opt/ros/humble/setup.bash
 set -u
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-122}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
 relay_pid=""

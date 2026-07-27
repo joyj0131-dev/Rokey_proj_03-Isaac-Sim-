@@ -100,7 +100,7 @@ cd /home/rokey/Desktop/feature_UI/Rokey_proj_03-Isaac-Sim-
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
-export ROS_DOMAIN_ID=122
+export ROS_DOMAIN_ID=126
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 

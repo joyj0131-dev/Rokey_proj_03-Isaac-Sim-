@@ -9,7 +9,7 @@ PUBLISHER_SCRIPT="$SCRIPT_DIR/run_lidar_publisher_v4.sh"
 
 source /opt/ros/humble/setup.bash
 set -u
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-122}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-126}"
 
 isaac_pid=""
 rviz_pid=""
