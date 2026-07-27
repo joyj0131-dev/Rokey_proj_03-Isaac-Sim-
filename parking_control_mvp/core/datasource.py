@@ -15,6 +15,7 @@ from .models import (
     OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
+    RobotRecoveryRequest,
     SafetyResetRequest,
     VisionAlignmentState,
 )
@@ -55,6 +56,16 @@ class DataSource(ABC):
             "blockers": [],
             "updated_at": "",
         }
+        self._recovery_state = {
+            "status": "NONE",
+            "robot_ids": [],
+            "source_request_ids": [],
+            "load_state": "CLEAR",
+            "control_available": False,
+            "message": "",
+            "started_at": None,
+            "completed_at": None,
+        }
 
     @property
     def emergency_stop_active(self) -> bool:
@@ -66,6 +77,25 @@ class DataSource(ABC):
             **self._safety_state,
             "affected_task_ids": list(self._safety_state["affected_task_ids"]),
             "blockers": list(self._safety_state["blockers"]),
+        }
+
+    @property
+    def recovery_state(self) -> dict:
+        return {
+            **self._recovery_state,
+            "robot_ids": list(self._recovery_state["robot_ids"]),
+            "source_request_ids": list(
+                self._recovery_state["source_request_ids"]
+            ),
+        }
+
+    @property
+    def recovery_pending(self) -> bool:
+        return self._recovery_state["status"] in {
+            "SAFETY_STOPPED",
+            "REQUIRED",
+            "RECOVERING",
+            "BLOCKED",
         }
 
     def start(self) -> None:
@@ -106,6 +136,13 @@ class DataSource(ABC):
             "현재 모드에서는 운영 복귀 승인을 사용할 수 없습니다.", status_code=403
         )
 
+    def start_safe_recovery(self, payload: RobotRecoveryRequest) -> dict:
+        """원 작업을 재개하지 않고 로봇만 검증된 도크로 복귀시킨다."""
+        raise DataSourceError(
+            "현재 제어 모드에는 안전 복귀 제어기가 연결되어 있지 않습니다.",
+            status_code=503,
+        )
+
     def resolve_alert(self, alert_id: int) -> None:
         """알림 해제. 기본 구현은 StateStore에서 비활성화만 수행."""
         with self.store.lock:
@@ -139,6 +176,37 @@ class DataSource(ABC):
     def get_sensor_status(self) -> list[dict]:
         """웹 도면에 표시할 센서 연결 상태. 구현이 없으면 빈 목록."""
         return []
+
+    def get_lidar_visualization(self) -> dict:
+        """LiDAR 상세 화면용 축소 포인트와 슬롯별 판정 결과."""
+        return {
+            "sensor_id": "L1",
+            "sensor_status": "OFFLINE",
+            "topic": "/parking/lidar/points_world",
+            "source": "UNAVAILABLE",
+            "frame_id": "map",
+            "coordinate_status": "WAITING",
+            "sensor_position": {"x": -7.82, "y": 0.0},
+            "rate_hz": None,
+            "last_seen_sec": None,
+            "height_threshold_m": 0.15,
+            "point_threshold": 30,
+            "bounds": {
+                "min_x": -24.0,
+                "max_x": 14.0,
+                "min_y": -12.0,
+                "max_y": 12.0,
+            },
+            "point_total": 0,
+            "valid_point_count": 0,
+            "slot_point_count": 0,
+            "display_point_count": 0,
+            "occupied_count": 0,
+            "mismatch_count": 0,
+            "total_slots": 0,
+            "slots": [],
+            "points": {"ignored": [], "used": [], "slot_used": []},
+        }
 
     def get_cooperative_load_states(self) -> list[CooperativeLoadState]:
         """진행 작업별 협동 적재 상태. 데이터 계약이 없으면 빈 목록."""

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260727-v22-load-vision" />
+  <link rel="stylesheet" href="/static/style.css?v=20260727-v25-recovery-order" />
 </head>
 <body>
   <div class="app-shell">
@@ -115,6 +115,13 @@
               ></section>
 
               <div class="map-header-status">
+                <button
+                  id="lidarDetailButton"
+                  type="button"
+                  class="map-toggle-button lidar-detail-button"
+                >
+                  LiDAR 상세 보기
+                </button>
                 <button
                   id="lidarVisibilityButton"
                   type="button"
@@ -354,13 +361,85 @@
     </div>
   </div>
 
+  <dialog id="lidarDetailDialog" class="lidar-detail-dialog">
+    <div class="lidar-dialog-header">
+      <div>
+        <span class="lidar-dialog-kicker">SENSOR ANALYTICS</span>
+        <h2>LiDAR 기반 슬롯 점유 판단</h2>
+        <p>바닥 포인트를 제외하고 주차면 내부의 유효 반사점으로 점유 여부를 판단합니다.</p>
+      </div>
+      <button
+        id="closeLidarDetailDialog"
+        type="button"
+        class="dialog-close-button lidar-dialog-close"
+        aria-label="LiDAR 상세 화면 닫기"
+      >×</button>
+    </div>
+
+    <div class="lidar-dialog-toolbar">
+      <div class="lidar-live-state">
+        <i id="lidarDetailStatusDot"></i>
+        <strong id="lidarDetailStatus">데이터 확인 중</strong>
+        <span id="lidarDetailSource">—</span>
+        <span id="lidarTfStatus" class="lidar-coordinate-status">좌표 확인 대기</span>
+      </div>
+      <div class="lidar-toolbar-groups">
+        <div class="lidar-live-metrics" aria-label="실시간 포인트 처리량">
+          <span>수신 <strong id="lidarReceivedPointCount">—</strong></span>
+          <span>유효 <strong id="lidarValidPointCount">—</strong></span>
+          <span>화면 표시 <strong id="lidarDisplayPointCount">—</strong></span>
+        </div>
+        <div class="lidar-thresholds" aria-label="점유 판정 기준">
+          <em>판정 기준</em>
+          <span>높이 <strong id="lidarHeightThreshold">—</strong></span>
+          <span>포인트 <strong id="lidarPointThreshold">—</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lidar-chart-shell">
+      <div class="lidar-view-toggle" role="group" aria-label="LiDAR 화면 범위">
+        <button type="button" class="active" data-lidar-view="full">전체 맵</button>
+        <button type="button" data-lidar-view="slots">주차면 확대</button>
+      </div>
+      <canvas
+        id="lidarDetailCanvas"
+        width="1400"
+        height="720"
+        aria-label="LiDAR 포인트클라우드와 주차면 점유 상태"
+      ></canvas>
+      <div id="lidarDetailEmpty" class="lidar-detail-empty hidden">
+        <strong>LiDAR 데이터 수신 대기</strong>
+        <span id="lidarDetailEmptyTopic">PointCloud2 토픽과 ROS2 연결 상태를 확인하세요.</span>
+      </div>
+    </div>
+
+    <div class="lidar-dialog-footer">
+      <div class="lidar-chart-legend" aria-label="LiDAR 포인트 범례">
+        <span><i class="floor-point"></i>바닥·판정 제외 포인트</span>
+        <span><i class="used-point"></i>높이 기준 이상 포인트</span>
+        <span><i class="slot-point"></i>슬롯 집계 포인트</span>
+        <span><i class="empty-slot"></i>공석</span>
+        <span><i class="occupied-slot"></i>점유</span>
+      </div>
+      <div id="lidarConsistencyWarning" class="lidar-consistency-warning hidden">
+        <strong>상태 불일치</strong>
+        <span>LiDAR 판정과 메인 관제 슬롯 상태를 확인하세요.</span>
+      </div>
+      <div id="lidarOccupancySummary" class="lidar-occupancy-summary">
+        <span>점유 현황</span>
+        <strong>—</strong>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="safetyRecoveryDialog" class="safety-recovery-dialog">
     <div class="safety-dialog-header">
       <div>
         <span class="safety-kicker">관제 안전 복구</span>
         <h2>비상정지 복구 절차</h2>
         <p id="safetyRecoverySummary">
-          현장 점검과 운영 복귀 승인을 분리하여 진행합니다.
+          현장 점검 후 로봇을 먼저 도크에 복귀시키고, 마지막에 정상 운영을 승인합니다.
         </p>
       </div>
       <button
@@ -378,8 +457,8 @@
       <div class="safety-step-heading">
         <i>1</i>
         <div>
-          <strong>현장 점검 · 해제 요청</strong>
-          <span>점검 승인만으로 로봇은 움직이지 않습니다.</span>
+          <strong>현장 안전 점검 승인</strong>
+          <span>점검 승인 후에도 정상 운전은 차단되며, 제한 복귀만 준비됩니다.</span>
         </div>
       </div>
       <label>
@@ -404,39 +483,76 @@
         <label><input id="checkSensors" type="checkbox" /> 센서·통신 상태 확인 또는 계획된 비활성 확인</label>
       </div>
       <button type="submit" class="primary-button danger-button">
-        점검 완료 · 해제 요청
+        점검 완료 · 제한 복귀 준비
+      </button>
+    </form>
+
+    <form id="robotRecoveryForm" class="safety-step-form hidden">
+      <div class="safety-step-heading recovery">
+        <i>2</i>
+        <div>
+          <strong>제한 로봇 안전 복귀</strong>
+          <span>정상 운전은 차단한 채 대상 로봇만 저속으로 각 도크에 복귀시킵니다.</span>
+        </div>
+      </div>
+      <div id="robotRecoveryTargets" class="robot-recovery-targets"></div>
+      <label>
+        <span>복귀 승인 담당자 ID</span>
+        <input id="robotRecoveryOperator" type="text" maxlength="64" required />
+      </label>
+      <label>
+        <span>복귀 판단 근거</span>
+        <textarea
+          id="robotRecoveryNote"
+          rows="3"
+          minlength="5"
+          maxlength="1000"
+          placeholder="현재 위치, 적재물 분리, 도크 복귀 경로 확인 결과를 입력하세요."
+          required
+        ></textarea>
+      </label>
+      <div class="safety-checklist">
+        <label><input id="checkRecoveryPath" type="checkbox" /> 도크까지 복귀 경로가 안전함</label>
+        <label><input id="checkRecoveryLoad" type="checkbox" /> 차량·적재물을 분리했거나 별도 안전 확보함</label>
+        <label><input id="checkRecoveryArms" type="checkbox" /> 리프트 암 회수 상태를 확인함</label>
+        <label><input id="checkRecoverySensors" type="checkbox" /> 복귀에 필요한 센서·통신이 정상임</label>
+      </div>
+      <div id="robotRecoveryUnavailable" class="recovery-unavailable hidden"></div>
+      <button id="startRobotRecoveryButton" type="submit" class="primary-button">
+        로봇 안전 복귀 시작
       </button>
     </form>
 
     <form id="operationApprovalForm" class="safety-step-form hidden">
       <div class="safety-step-heading ready">
-        <i>2</i>
+        <i>3</i>
         <div>
-          <strong>운영 복귀 승인</strong>
-          <span>기존 작업은 재개하지 않고 새 작업 접수만 허용합니다.</span>
+          <strong>정상 운영 복귀 승인</strong>
+          <span>대상 로봇의 도크 도달을 확인한 뒤 새 작업 접수를 허용합니다.</span>
         </div>
       </div>
+      <div id="operationRecoverySummary" class="robot-recovery-targets"></div>
       <label>
-        <span>승인 담당자 ID</span>
+        <span>최종 승인 담당자 ID</span>
         <input id="operationApprovalOperator" type="text" maxlength="64" required />
       </label>
       <label>
-        <span>운영 복귀 사유</span>
+        <span>정상 운영 승인 근거</span>
         <textarea
           id="operationApprovalNote"
           rows="3"
           minlength="5"
           maxlength="1000"
-          placeholder="현재 위치 확인 및 새 작업 가능 판단 근거를 입력하세요."
+          placeholder="도크 도달, 로봇 상태, 작업 구역의 최종 확인 결과를 입력하세요."
           required
         ></textarea>
       </label>
       <button type="submit" class="primary-button">
-        운영 복귀 승인
+        정상 운영 복귀 승인
       </button>
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=20260727-v22-load-vision"></script>
+  <script src="/static/app.js?v=20260727-v25-recovery-order"></script>
 </body>
 </html>

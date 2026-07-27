@@ -157,17 +157,30 @@ class SafetySupervisorNode(Node):
     def _activate(self, request, response):
         with self._lock:
             current = self._db.get_safety_state()
-            if current["state"] != NORMAL:
+            if current["state"] == STOPPED_LATCHED:
                 response.accepted = True
                 response.state = current["state"]
                 response.stop_epoch = int(current["stop_epoch"])
                 response.message = "비상정지가 이미 유지되고 있습니다."
                 return response
+            if current["state"] not in {NORMAL, READY_FOR_OPERATION}:
+                response.accepted = False
+                response.state = current["state"]
+                response.stop_epoch = int(current["stop_epoch"])
+                response.message = "현재 안전 상태에서는 비상정지를 갱신할 수 없습니다."
+                return response
 
             operator_id = request.operator_id.strip() or "control_ui"
             reason = request.reason.strip() or "관제 UI 전체 비상정지"
             epoch = int(current["stop_epoch"]) + 1
-            affected = list(dict.fromkeys(request.affected_task_ids))
+            affected = list(
+                dict.fromkeys(
+                    [
+                        *current["affected_task_ids"],
+                        *request.affected_task_ids,
+                    ]
+                )
+            )
             self._write_state(
                 state=STOPPED_LATCHED,
                 stop_epoch=epoch,
@@ -240,7 +253,7 @@ class SafetySupervisorNode(Node):
             response.stop_epoch = int(current["stop_epoch"])
             response.message = (
                 "점검 결과가 승인되었습니다. 로봇은 계속 정지 상태이며 "
-                "별도의 운영 복귀 승인이 필요합니다."
+                "영향 로봇은 제한 안전 복귀를 먼저 완료해야 합니다."
             )
             response.blockers = []
             return response
@@ -292,8 +305,8 @@ class SafetySupervisorNode(Node):
             response.state = NORMAL
             response.stop_epoch = int(current["stop_epoch"])
             response.message = (
-                "운영 복귀가 승인되었습니다. 기존 작업은 재개되지 않으며 "
-                "새 작업 지시만 접수합니다."
+                "정상 운영 복귀가 승인되었습니다. 기존 취소 작업은 재개되지 않으며 "
+                "새 작업만 접수합니다."
             )
             response.blockers = []
             self.get_logger().info(

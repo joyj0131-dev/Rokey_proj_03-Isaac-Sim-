@@ -19,6 +19,7 @@ from core.models import (
     ParkingRequest,
     ParkingRequestCreate,
     RequestStatus,
+    RobotRecoveryRequest,
     SafetyResetRequest,
 )
 from core.state_store import StateStore
@@ -107,14 +108,15 @@ def get_system():
     snapshot = store.snapshot()
     alerts = snapshot["alerts"]
 
-    has_error = datasource.emergency_stop_active or any(
+    safety = datasource.safety_state
+    has_error = safety["state"] in {"STOPPED_LATCHED", "UNKNOWN"} or any(
         alert.level == "ERROR" for alert in alerts
     )
     sensors = datasource.get_sensor_status()
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
         and any(sensor["status"] != "ONLINE" for sensor in sensors)
-    )
+    ) or datasource.recovery_pending
 
     health = "ERROR" if has_error else "WARNING" if has_warning else "OK"
 
@@ -123,7 +125,8 @@ def get_system():
         "mock_controls": datasource.supports_mock_controls,
         "mock_auto_advance": datasource.mock_auto_advance,
         "emergency_stop": datasource.emergency_stop_active,
-        "safety": datasource.safety_state,
+        "safety": safety,
+        "recovery": datasource.recovery_state,
         "health": health,
     }
 
@@ -136,13 +139,14 @@ def get_dashboard():
     alerts = snapshot["alerts"]
     sensors = datasource.get_sensor_status()
 
-    has_error = datasource.emergency_stop_active or any(
+    safety = datasource.safety_state
+    has_error = safety["state"] in {"STOPPED_LATCHED", "UNKNOWN"} or any(
         alert.level == "ERROR" for alert in alerts
     )
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
         and any(sensor["status"] != "ONLINE" for sensor in sensors)
-    )
+    ) or datasource.recovery_pending
 
     return {
         "robots": snapshot["robots"],
@@ -169,12 +173,19 @@ def get_dashboard():
             "mock_controls": datasource.supports_mock_controls,
             "mock_auto_advance": datasource.mock_auto_advance,
             "emergency_stop": datasource.emergency_stop_active,
-            "safety": datasource.safety_state,
+            "safety": safety,
+            "recovery": datasource.recovery_state,
             "health": (
                 "ERROR" if has_error else "WARNING" if has_warning else "OK"
             ),
         },
     }
+
+
+@app.get("/api/lidar/visualization")
+def get_lidar_visualization():
+    """센서 상세 모달용 축소 포인트클라우드와 슬롯 점유 판정."""
+    return datasource.get_lidar_visualization()
 
 
 # ----------------------------------------------------------------------
@@ -217,7 +228,7 @@ def request_safety_reset(payload: SafetyResetRequest):
     return {
         "message": result.get(
             "message",
-            "점검 결과가 승인되었습니다. 별도의 운영 복귀 승인이 필요합니다.",
+            "점검 결과가 승인되었습니다. 대상 로봇의 안전 복귀를 먼저 진행해주세요.",
         ),
         "safety": datasource.safety_state,
     }
@@ -229,9 +240,22 @@ def approve_operation(payload: OperationApprovalRequest):
     return {
         "message": result.get(
             "message",
-            "운영 복귀가 승인되었습니다. 새 작업 지시를 접수할 수 있습니다.",
+            "정상 운영 복귀가 승인되었습니다. 새 작업을 접수할 수 있습니다.",
         ),
         "safety": datasource.safety_state,
+        "recovery": datasource.recovery_state,
+    }
+
+
+@app.post("/api/safety/start-recovery")
+def start_safe_recovery(payload: RobotRecoveryRequest):
+    result = _handle(datasource.start_safe_recovery, payload)
+    return {
+        "message": result.get(
+            "message",
+            "안전 복귀를 시작했습니다. 도크 위치 확인 후 대기 상태로 전환됩니다.",
+        ),
+        "recovery": datasource.recovery_state,
     }
 
 

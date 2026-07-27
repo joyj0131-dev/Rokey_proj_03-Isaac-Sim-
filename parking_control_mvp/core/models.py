@@ -70,7 +70,16 @@ class ParkingRequest(BaseModel):
 
 class Robot(BaseModel):
     id: str
-    status: Literal["IDLE", "BUSY", "CHARGING", "ERROR", "OFFLINE"]
+    status: Literal[
+        "IDLE",
+        "BUSY",
+        "CHARGING",
+        "ERROR",
+        "OFFLINE",
+        "SAFETY_STOPPED",
+        "RECOVERY_REQUIRED",
+        "RECOVERING",
+    ]
     battery: int
     current_task_id: int | None = None
     error_message: str | None = None
@@ -119,6 +128,17 @@ class SafetyResetRequest(BaseModel):
 class OperationApprovalRequest(BaseModel):
     operator_id: str = Field(min_length=1, max_length=64)
     approval_note: str = Field(min_length=5, max_length=1000)
+
+
+class RobotRecoveryRequest(BaseModel):
+    """취소된 원 작업과 분리해 로봇만 안전 도크로 복귀시키는 승인."""
+
+    operator_id: str = Field(min_length=1, max_length=64)
+    recovery_note: str = Field(min_length=5, max_length=1000)
+    path_clear: bool
+    load_cleared: bool
+    arms_retracted: bool
+    sensors_ready: bool
 
 
 class Alert(BaseModel):

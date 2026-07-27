@@ -17,6 +17,7 @@ SEARCHING/APPROACHING/PICKED_UP/MOVING 상태를 모두 수용한다. NAVIGATING
 LIFTING 또는 PICKED_UP을 이미 관측했는지로 구분한다.
 """
 
+import copy
 import json
 import math
 import threading
@@ -36,6 +37,7 @@ from rclpy.qos import (
 )
 from geometry_msgs.msg import PointStamped, PoseStamped, Twist
 from sensor_msgs.msg import JointState, PointCloud2
+from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Float32, String
 
 from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
@@ -51,6 +53,7 @@ from parking_control.parking_slot_manager_node import _default_map_yaml
 
 import config
 from core.datasource import DataSource, DataSourceError
+from core.lidar_visualization import build_lidar_visualization
 from core.obstacle_scope import blocking_obstacle, blocking_request_message
 from core.safety_incident import (
     open_obstacle_incident,
@@ -67,6 +70,7 @@ from core.models import (
     RequestStatus,
     RequestType,
     Robot,
+    RobotRecoveryRequest,
     SupportPointState,
     VisionAlignmentState,
 )
@@ -137,6 +141,18 @@ _ARM_TARGET_RAD = math.pi / 2.0
 _SUPPORT_POINT_JOINTS = (
     ("left", ("arm_left_front_joint", "arm_left_rear_joint")),
     ("right", ("arm_right_front_joint", "arm_right_rear_joint")),
+)
+_SAFETY_TASK_TERMINATION_MARKERS = (
+    "비상정지",
+    "안전 정지",
+    "전체 정지",
+    "취소",
+    "emergency stop",
+    "emergency_stop",
+    "safety stop",
+    "e-stop",
+    "estop",
+    "cancel",
 )
 
 
@@ -300,6 +316,10 @@ class Ros2DataSource(DataSource):
             motion_allowed=False,
             blockers=["중앙 safety_supervisor 상태 수신 대기"],
         )
+        self._recovery_state.update(
+            control_available=False,
+            message="실제 로봇 안전 복귀 제어기 연결 대기",
+        )
 
         self._map_lock = threading.Lock()
         self._task_id_map: dict[str, int] = {}     # external_task_id -> internal id
@@ -318,6 +338,8 @@ class Ros2DataSource(DataSource):
             sensor_id: deque(maxlen=30)
             for sensor_id, _zone, _x, _y, _topic in _LIDAR_CONTRACTS
         }
+        self._lidar_visualization: dict | None = None
+        self._lidar_visualization_updated_at: float | None = None
         self._perception_lock = threading.Lock()
         self._robot_pose_x: dict[str, float] = {}
         self._robot_motion: dict[str, dict[str, float]] = {}
@@ -371,7 +393,7 @@ class Ros2DataSource(DataSource):
             self._node.create_subscription(
                 PointCloud2,
                 topic,
-                lambda _msg, sid=sensor_id: self._on_lidar(sid),
+                lambda msg, sid=sensor_id: self._on_lidar(sid, msg),
                 qos_profile_sensor_data,
             )
         for robot_id in _V4_ROBOT_IDS:
@@ -598,7 +620,26 @@ class Ros2DataSource(DataSource):
             self.store.robots.extend(
                 Robot(
                     id=row["robot_id"],
-                    status=row["status"],
+                    status=(
+                        "SAFETY_STOPPED"
+                        if (
+                            row["robot_id"] in self._recovery_state["robot_ids"]
+                            and self._recovery_state["status"]
+                            == "SAFETY_STOPPED"
+                        )
+                        else "RECOVERY_REQUIRED"
+                        if (
+                            row["robot_id"] in self._recovery_state["robot_ids"]
+                            and self._recovery_state["status"]
+                            in {"REQUIRED", "BLOCKED"}
+                        )
+                        else "RECOVERING"
+                        if (
+                            row["robot_id"] in self._recovery_state["robot_ids"]
+                            and self._recovery_state["status"] == "RECOVERING"
+                        )
+                        else row["status"]
+                    ),
                     battery=(
                         int(row["battery_percent"])
                         if row["battery_percent"] is not None
@@ -619,9 +660,63 @@ class Ros2DataSource(DataSource):
     def get_map_info(self) -> dict:
         return self._map_info
 
-    def _on_lidar(self, sensor_id: str) -> None:
+    def _on_lidar(self, sensor_id: str, message: PointCloud2) -> None:
+        now = time.monotonic()
         with self._sensor_lock:
-            self._sensor_received[sensor_id].append(time.monotonic())
+            self._sensor_received[sensor_id].append(now)
+            last_snapshot = self._lidar_visualization_updated_at
+
+        # 원본 PointCloud2 변환은 상세 화면에 필요한 1 Hz만 수행한다.
+        if last_snapshot is not None and now - last_snapshot < 1.0:
+            return
+
+        cloud = point_cloud2.read_points(
+            message, field_names=("x", "y", "z"), skip_nans=True
+        )
+        with self.store.lock:
+            slots = [
+                slot.model_copy(deep=True)
+                for slot in self.store.parking_slots
+                if slot.x is not None and slot.y is not None
+            ]
+        if not slots:
+            slots = [
+                {
+                    "id": node["id"],
+                    "x": node["x"],
+                    "y": node["y"],
+                }
+                for node in self._map_info.get("nodes", [])
+                if node.get("kind") == "slot"
+            ]
+        contract = next(
+            (
+                item for item in _LIDAR_CONTRACTS
+                if item[0] == sensor_id
+            ),
+            (
+                sensor_id,
+                "주차장 전체",
+                -7.82,
+                0.0,
+                "/parking/lidar/points_world",
+            ),
+        )
+        snapshot = build_lidar_visualization(
+            cloud,
+            slots,
+            sensor_id=sensor_id,
+            sensor_status="ONLINE",
+            topic=contract[4],
+            frame_id=message.header.frame_id or "map",
+            sensor_x=contract[2],
+            sensor_y=contract[3],
+            last_seen_sec=0.0,
+            source="ROS2_POINTCLOUD",
+        )
+        with self._sensor_lock:
+            self._lidar_visualization = snapshot
+            self._lidar_visualization_updated_at = now
 
     def get_sensor_status(self) -> list[dict]:
         now = time.monotonic()
@@ -645,6 +740,67 @@ class Ros2DataSource(DataSource):
                     }
                 )
         return statuses
+
+    def get_lidar_visualization(self) -> dict:
+        statuses = self.get_sensor_status()
+        status = statuses[0] if statuses else {
+            "id": "L1",
+            "status": "OFFLINE",
+            "rate_hz": None,
+            "last_seen_sec": None,
+        }
+        with self._sensor_lock:
+            snapshot = (
+                copy.deepcopy(self._lidar_visualization)
+                if self._lidar_visualization is not None
+                else None
+            )
+
+        if snapshot is None:
+            with self.store.lock:
+                slots = [
+                    slot.model_copy(deep=True)
+                    for slot in self.store.parking_slots
+                    if slot.x is not None and slot.y is not None
+                ]
+            if not slots:
+                slots = [
+                    {
+                        "id": node["id"],
+                        "x": node["x"],
+                        "y": node["y"],
+                    }
+                    for node in self._map_info.get("nodes", [])
+                    if node.get("kind") == "slot"
+                ]
+            snapshot = build_lidar_visualization(
+                [],
+                slots,
+                sensor_id=status["id"],
+                sensor_status=status["status"],
+                topic=status["topic"],
+                rate_hz=status["rate_hz"],
+                last_seen_sec=status["last_seen_sec"],
+                source="ROS2_POINTCLOUD",
+            )
+        snapshot["sensor_status"] = status["status"]
+        snapshot["topic"] = status["topic"]
+        snapshot["rate_hz"] = status["rate_hz"]
+        snapshot["last_seen_sec"] = status["last_seen_sec"]
+        snapshot["coordinate_status"] = (
+            "WAITING"
+            if status["status"] != "ONLINE"
+            else "OK"
+            if snapshot.get("frame_id") == "map"
+            else "CHECK"
+        )
+        if status["status"] != "ONLINE":
+            for slot in snapshot["slots"]:
+                slot["status"] = "UNAVAILABLE"
+                slot["status_match"] = None
+            snapshot["occupied_count"] = 0
+            snapshot["mismatch_count"] = 0
+        return snapshot
 
     def get_cooperative_load_states(self) -> list[CooperativeLoadState]:
         with self.store.lock:
@@ -1037,21 +1193,44 @@ class Ros2DataSource(DataSource):
             if status is not None:
                 self._fine_status[msg.task_id] = status
 
-        if msg.state == "FAILED":
+        if msg.state == "FAILED" and not self._is_safety_task_termination(msg):
             with self.store.lock:
+                message = (
+                    f"{msg.robot_id} 작업 실패"
+                    f"{f' ({msg.current_step})' if msg.current_step else ''}"
+                )
+                duplicate = any(
+                    alert.active
+                    and alert.category == AlertCategory.ROBOT_ERROR
+                    and alert.robot_id == (msg.robot_id or None)
+                    and alert.message == message
+                    for alert in self.store.alerts
+                )
+                if duplicate:
+                    return
                 self.store.alerts.append(
                     Alert(
                         id=self.store.next_alert_id(),
                         level=AlertLevel.ERROR,
                         category=AlertCategory.ROBOT_ERROR,
-                        message=(
-                            f"{msg.robot_id} 작업 실패"
-                            f"{f' ({msg.current_step})' if msg.current_step else ''}"
-                        ),
+                        message=message,
                         robot_id=msg.robot_id or None,
                         created_at=_now(),
                     )
                 )
+
+    def _is_safety_task_termination(self, msg: TaskState) -> bool:
+        """비상정지·취소로 끝난 action을 로봇 고장으로 오분류하지 않는다."""
+        detail = (msg.current_step or "").strip().lower()
+        if any(
+            marker in detail
+            for marker in _SAFETY_TASK_TERMINATION_MARKERS
+        ):
+            return True
+        return (
+            self._safety_state["state"] != "NORMAL"
+            and msg.task_id in self._safety_state["affected_task_ids"]
+        )
 
     def _on_safety_state(self, msg: SafetyState) -> None:
         self._last_safety_state_at = time.monotonic()
@@ -1069,6 +1248,93 @@ class Ros2DataSource(DataSource):
         with self.store.lock:
             self._safety_state = state
             self._emergency_stop_active = msg.state != "NORMAL"
+            if msg.affected_task_ids and not self._recovery_state["robot_ids"]:
+                affected_external_ids = set(msg.affected_task_ids)
+                affected_requests = [
+                    request
+                    for request in self.store.requests
+                    if request.external_task_id in affected_external_ids
+                ]
+                recovery_robot_ids = list(
+                    dict.fromkeys(
+                        robot_id
+                        for request in affected_requests
+                        for robot_id in request.robot_ids
+                    )
+                )
+                if recovery_robot_ids:
+                    self._recovery_state = {
+                        "status": "SAFETY_STOPPED",
+                        "robot_ids": recovery_robot_ids,
+                        "source_request_ids": [
+                            request.id for request in affected_requests
+                        ],
+                        "load_state": "LOAD_STATE_REQUIRES_INSPECTION",
+                        "control_available": False,
+                        "message": (
+                            "중앙 비상정지의 영향 로봇을 확인했습니다. "
+                            "현재 위치를 유지하며 별도 도크 복귀가 필요합니다."
+                        ),
+                        "started_at": None,
+                        "completed_at": None,
+                    }
+            if self._recovery_state["robot_ids"]:
+                if msg.state == "STOPPED_LATCHED":
+                    self._recovery_state.update(
+                        status="SAFETY_STOPPED",
+                        message=(
+                            "로봇은 현재 위치에서 안전 정지했습니다. "
+                            "원 작업은 취소되며 별도 복귀가 필요합니다."
+                        ),
+                    )
+                elif msg.state == "READY_FOR_OPERATION":
+                    self._recovery_state.update(
+                        status="REQUIRED",
+                        message=(
+                            "현장 점검이 완료되었습니다. 제한 안전 복귀 "
+                            "제어기를 통해 도크 복귀를 먼저 완료해야 합니다."
+                        ),
+                    )
+                elif (
+                    msg.state == "NORMAL"
+                    and self._recovery_state["status"] == "SAFETY_STOPPED"
+                ):
+                    self._recovery_state.update(
+                        status="REQUIRED",
+                        message=(
+                            "운영 복귀는 승인되었지만 영향 로봇의 도크 복귀는 "
+                            "완료되지 않았습니다. 안전 복귀 제어기 연결이 필요합니다."
+                        ),
+                    )
+                recovery_robot_status = {
+                    "SAFETY_STOPPED": "SAFETY_STOPPED",
+                    "REQUIRED": "RECOVERY_REQUIRED",
+                    "BLOCKED": "RECOVERY_REQUIRED",
+                    "RECOVERING": "RECOVERING",
+                }.get(self._recovery_state["status"])
+                if recovery_robot_status:
+                    for robot_id in self._recovery_state["robot_ids"]:
+                        robot = self.store.find_robot(robot_id)
+                        if robot is not None:
+                            robot.status = recovery_robot_status
+                            robot.current_task_id = None
+            # TaskState FAILED가 SafetyState보다 먼저 도착해 이미 만들어진
+            # "작업 실패" 경고도, 영향 로봇의 안전정지 결과라면 중복 노출하지
+            # 않는다. 구동부/통신 등 구체적인 로봇 고장 알림은 그대로 둔다.
+            affected_recovery_robots = set(
+                self._recovery_state["robot_ids"]
+            )
+            if msg.state != "NORMAL" and affected_recovery_robots:
+                for item in self.store.alerts:
+                    if (
+                        item.active
+                        and item.category == AlertCategory.ROBOT_ERROR
+                        and item.robot_id in affected_recovery_robots
+                        and item.message.startswith(
+                            f"{item.robot_id} 작업 실패"
+                        )
+                    ):
+                        item.active = False
             alert = next(
                 (
                     item
@@ -1079,13 +1345,20 @@ class Ros2DataSource(DataSource):
             )
             if msg.state == "NORMAL":
                 if alert is not None:
-                    alert.active = False
+                    if self.recovery_pending:
+                        alert.level = AlertLevel.WARNING
+                        alert.message = (
+                            "운영 복귀가 승인되었지만 대상 로봇은 복구 대기입니다. "
+                            "실제 도크 복귀 제어기를 연결해주세요."
+                        )
+                    else:
+                        alert.active = False
                 return
 
             if msg.state == "READY_FOR_OPERATION":
                 message = (
                     "안전 점검이 승인되었습니다. 로봇은 계속 정지 상태이며 "
-                    "별도의 운영 복귀 승인이 필요합니다."
+                    "대상 로봇의 제한 안전 복귀가 필요합니다."
                 )
             elif msg.state == "UNKNOWN":
                 message = "중앙 안전 관리자 상태를 확인할 수 없습니다."
@@ -1098,7 +1371,11 @@ class Ros2DataSource(DataSource):
                 self.store.alerts.append(
                     Alert(
                         id=self.store.next_alert_id(),
-                        level=AlertLevel.ERROR,
+                        level=(
+                            AlertLevel.WARNING
+                            if msg.state == "READY_FOR_OPERATION"
+                            else AlertLevel.ERROR
+                        ),
                         category=AlertCategory.EMERGENCY_STOP,
                         message=message,
                         robot_id=None,
@@ -1106,6 +1383,11 @@ class Ros2DataSource(DataSource):
                     )
                 )
             else:
+                alert.level = (
+                    AlertLevel.WARNING
+                    if msg.state == "READY_FOR_OPERATION"
+                    else AlertLevel.ERROR
+                )
                 alert.message = message
 
     @property
@@ -1137,6 +1419,12 @@ class Ros2DataSource(DataSource):
         if self.emergency_stop_active:
             raise DataSourceError(
                 "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
+                status_code=423,
+            )
+        if self.recovery_pending:
+            raise DataSourceError(
+                "안전 복귀가 완료되지 않은 로봇이 있습니다. "
+                "실제 도크 복귀와 위치 확인 후 새 작업을 등록해주세요.",
                 status_code=423,
             )
         with self.store.lock:
@@ -1220,16 +1508,54 @@ class Ros2DataSource(DataSource):
                 for request in self.store.requests
                 if request.status not in TERMINAL_STATUSES
             ]
-            if self.safety_state["state"] in {
-                "STOPPED_LATCHED",
-                "READY_FOR_OPERATION",
-            }:
+            if self.safety_state["state"] == "STOPPED_LATCHED":
                 return len(active_requests)
-            task_ids = [
-                request.external_task_id
-                for request in active_requests
-                if request.external_task_id
+            previous_recovery_robot_ids = (
+                list(self._recovery_state["robot_ids"])
+                if self.recovery_pending
+                else []
+            )
+            previous_source_ids = (
+                list(self._recovery_state["source_request_ids"])
+                if previous_recovery_robot_ids
+                else []
+            )
+            recovery_source_requests = [
+                request
+                for request in self.store.requests
+                if request.id in previous_source_ids
             ]
+            task_ids = list(
+                dict.fromkeys(
+                    request.external_task_id
+                    for request in [
+                        *active_requests,
+                        *recovery_source_requests,
+                    ]
+                    if request.external_task_id
+                )
+            )
+            recovery_robot_ids = list(
+                dict.fromkeys(
+                    [
+                        *previous_recovery_robot_ids,
+                        *[
+                            robot_id
+                            for request in active_requests
+                            for robot_id in request.robot_ids
+                        ],
+                    ]
+                )
+            )
+            load_present = any(
+                request.status
+                in {
+                    RequestStatus.LIFTING,
+                    RequestStatus.MOVING_TO_SLOT,
+                    RequestStatus.RETURNING,
+                }
+                for request in active_requests
+            )
 
         request = ActivateEmergencyStop.Request(
             operator_id="control_ui",
@@ -1243,6 +1569,37 @@ class Ros2DataSource(DataSource):
         )
         if not response.accepted:
             raise DataSourceError(response.message, status_code=409)
+        with self.store.lock:
+            self._recovery_state = {
+                "status": (
+                    "SAFETY_STOPPED" if recovery_robot_ids else "NONE"
+                ),
+                "robot_ids": recovery_robot_ids,
+                "source_request_ids": list(
+                    dict.fromkeys(
+                        [
+                            *previous_source_ids,
+                            *[request.id for request in active_requests],
+                        ]
+                    )
+                ),
+                "load_state": (
+                    "LOAD_REQUIRES_CLEARANCE"
+                    if load_present
+                    or self._recovery_state["load_state"]
+                    == "LOAD_REQUIRES_CLEARANCE"
+                    else "CLEAR"
+                ),
+                "control_available": False,
+                "message": (
+                    "로봇은 현재 위치에서 안전 정지했습니다. 실제 도크 복귀 "
+                    "제어기가 연결되기 전에는 대기 상태로 표시하지 않습니다."
+                    if recovery_robot_ids
+                    else ""
+                ),
+                "started_at": None,
+                "completed_at": None,
+            }
         return len(active_requests)
 
     def request_safety_reset(self, payload) -> dict:
@@ -1260,6 +1617,14 @@ class Ros2DataSource(DataSource):
         if not response.accepted:
             detail = "; ".join(response.blockers) or response.message
             raise DataSourceError(detail, status_code=409)
+        if self._recovery_state["status"] == "SAFETY_STOPPED":
+            self._recovery_state.update(
+                status="REQUIRED",
+                message=(
+                    "점검이 완료되었습니다. 실제 로봇의 제한 안전 복귀 "
+                    "제어기를 연결해 도크 복귀를 먼저 실행해야 합니다."
+                ),
+            )
         return {
             "state": response.state,
             "stop_epoch": int(response.stop_epoch),
@@ -1268,6 +1633,11 @@ class Ros2DataSource(DataSource):
         }
 
     def approve_operation(self, payload) -> dict:
+        if self.recovery_pending:
+            raise DataSourceError(
+                "대상 로봇의 도크 복귀와 위치 확인을 먼저 완료해주세요.",
+                status_code=409,
+            )
         request = ApproveOperation.Request(
             operator_id=payload.operator_id.strip(),
             approval_note=payload.approval_note.strip(),
@@ -1284,6 +1654,23 @@ class Ros2DataSource(DataSource):
             "message": response.message,
             "blockers": list(response.blockers),
         }
+
+    def start_safe_recovery(self, payload: RobotRecoveryRequest) -> dict:
+        if self._safety_state["state"] != "READY_FOR_OPERATION":
+            raise DataSourceError(
+                "현장 안전 점검 승인 후에만 제한 안전 복귀를 시작할 수 있습니다.",
+                status_code=409,
+            )
+        if self._recovery_state["status"] != "REQUIRED":
+            raise DataSourceError(
+                "안전 복귀가 필요한 로봇이 없습니다.", status_code=409
+            )
+        raise DataSourceError(
+            "실제 로봇 안전 복귀 제어기가 아직 연결되지 않았습니다. "
+            "현재 위치에서 정지를 유지하며 fusion 제어 측에 도크 복귀 action을 "
+            "연결한 뒤 실행해주세요.",
+            status_code=503,
+        )
 
     def _call_safety_service(self, client, request, label):
         if client is None or not client.wait_for_service(

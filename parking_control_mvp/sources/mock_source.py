@@ -10,6 +10,10 @@ import time
 from datetime import datetime
 
 from core.datasource import DataSource, DataSourceError
+from core.lidar_visualization import (
+    build_lidar_visualization,
+    build_mock_pointcloud,
+)
 from core.obstacle_scope import blocking_obstacle, blocking_request_message
 from core.safety_incident import (
     open_obstacle_incident,
@@ -29,6 +33,7 @@ from core.models import (
     RequestStatus,
     RequestType,
     Robot,
+    RobotRecoveryRequest,
     SafetyResetRequest,
     SupportPointState,
     VisionAlignmentState,
@@ -89,6 +94,8 @@ class MockDataSource(DataSource):
         self._auto_thread: threading.Thread | None = None
         self._stage_started: dict[int, float] = {}
         self._route_progress: dict[int, tuple[RequestStatus, int]] = {}
+        self._recovery_routes: dict[str, list[tuple[float, float]]] = {}
+        self._recovery_route_progress: dict[str, int] = {}
         self._load_defaults(clear_counters=False)
 
     def start(self) -> None:
@@ -137,6 +144,18 @@ class MockDataSource(DataSource):
             self.store.safety_incidents.clear()
             self._stage_started.clear()
             self._route_progress.clear()
+            self._recovery_routes.clear()
+            self._recovery_route_progress.clear()
+            self._recovery_state = {
+                "status": "NONE",
+                "robot_ids": [],
+                "source_request_ids": [],
+                "load_state": "CLEAR",
+                "control_available": True,
+                "message": "",
+                "started_at": None,
+                "completed_at": None,
+            }
 
     def get_map_info(self) -> dict:
         nodes = [
@@ -185,12 +204,28 @@ class MockDataSource(DataSource):
         return [
             {
                 "id": "L1",
-                "topic": "/parking/lidar/ceiling/points",
+                "topic": "/parking/lidar/points_world",
                 "status": "MOCK",
                 "rate_hz": None,
                 "last_seen_sec": None,
             },
         ]
+
+    def get_lidar_visualization(self) -> dict:
+        with self.store.lock:
+            slots = [
+                slot.model_copy(deep=True)
+                for slot in self.store.parking_slots
+            ]
+        points = build_mock_pointcloud(slots)
+        return build_lidar_visualization(
+            points,
+            slots,
+            sensor_status="MOCK",
+            rate_hz=1.0,
+            last_seen_sec=0.0,
+            source="MOCK_SAMPLE",
+        )
 
     def _mock_lift_progress(self, request: ParkingRequest) -> float:
         """현재 단계에서의 리프트 전개율. 실제 센서값이 아닌 Mock 시나리오 값."""
@@ -368,9 +403,9 @@ class MockDataSource(DataSource):
             ]
 
     def reset(self) -> None:
-        if self._emergency_stop_active:
+        if self._emergency_stop_active or self.recovery_pending:
             raise DataSourceError(
-                "비상정지 상태에서는 화면 초기화를 사용할 수 없습니다. 시스템을 재기동해주세요.",
+                "비상정지 또는 로봇 안전 복귀 중에는 화면 초기화를 사용할 수 없습니다.",
                 status_code=423,
             )
         self._load_defaults(clear_counters=True)
@@ -388,6 +423,12 @@ class MockDataSource(DataSource):
             if self._emergency_stop_active:
                 raise DataSourceError(
                     "비상정지 상태에서는 새 작업을 등록할 수 없습니다.",
+                    status_code=423,
+                )
+            if self.recovery_pending:
+                raise DataSourceError(
+                    "안전 복귀가 완료되지 않은 로봇이 있습니다. "
+                    "도크 복귀와 위치 확인 후 새 작업을 등록해주세요.",
                     status_code=423,
                 )
             obstacle = blocking_obstacle(
@@ -671,6 +712,9 @@ class MockDataSource(DataSource):
             advance_ids: list[int] = []
 
             with self.store.lock:
+                if self._recovery_state["status"] == "RECOVERING":
+                    self._advance_safe_recovery(elapsed)
+                    continue
                 if self._emergency_stop_active:
                     continue
                 for request in self.store.requests:
@@ -703,6 +747,87 @@ class MockDataSource(DataSource):
                 except DataSourceError:
                     # 대기 요청에 아직 가용 로봇이 없으면 다음 tick에 재시도한다.
                     continue
+
+    def _build_safe_recovery_routes(self) -> None:
+        """현재 위치에서 전용 통로를 거쳐 각 로봇 도크로 가는 경로를 만든다."""
+        self._recovery_routes.clear()
+        self._recovery_route_progress.clear()
+        for robot_index, robot_id in enumerate(
+            self._recovery_state["robot_ids"]
+        ):
+            robot = self.store.find_robot(robot_id)
+            dock = _WAITING_DOCK_BY_ROBOT.get(robot_id)
+            if robot is None or dock is None:
+                continue
+            if (
+                robot.x is not None
+                and robot.y is not None
+                and math.hypot(robot.x - dock[0], robot.y - dock[1]) <= 0.15
+            ):
+                self._recovery_routes[robot_id] = [dock]
+                self._recovery_route_progress[robot_id] = 0
+                continue
+            is_entry = robot_id.startswith("entry_")
+            lane_y = _ENTRY_LANE_Y if is_entry else _EXIT_LANE_Y
+            formation_index = 0 if robot_id.endswith("lead") else 1
+            crossing_target = self._formation((_CROSSING_X, lane_y))[
+                formation_index
+            ]
+            current_x = robot.x if robot.x is not None else crossing_target[0]
+            lane_target = (current_x, crossing_target[1])
+            self._recovery_routes[robot_id] = [
+                lane_target,
+                crossing_target,
+                dock,
+            ]
+            self._recovery_route_progress[robot_id] = 0
+
+    def _advance_safe_recovery(self, elapsed: float) -> None:
+        """별도 복귀 작업을 진행하고 도크 도달이 확인된 뒤에만 IDLE 처리한다."""
+        if any(
+            alert.active and alert.category == AlertCategory.OBSTACLE
+            for alert in self.store.alerts
+        ):
+            return
+
+        all_reached = True
+        for robot_id in self._recovery_state["robot_ids"]:
+            robot = self.store.find_robot(robot_id)
+            route = self._recovery_routes.get(robot_id, [])
+            index = self._recovery_route_progress.get(robot_id, 0)
+            if robot is None or not route:
+                all_reached = False
+                continue
+            if index < len(route):
+                if self._move_robot(robot, route[index], elapsed):
+                    index += 1
+                    self._recovery_route_progress[robot_id] = index
+            if index < len(route):
+                all_reached = False
+
+        if not all_reached:
+            return
+
+        for robot_id in self._recovery_state["robot_ids"]:
+            robot = self.store.find_robot(robot_id)
+            dock = _WAITING_DOCK_BY_ROBOT.get(robot_id)
+            if robot is None or dock is None:
+                continue
+            robot.x, robot.y = dock
+            robot.status = "IDLE"
+            robot.current_task_id = None
+        self._recovery_state.update(
+            status="COMPLETED",
+            message="모든 대상 로봇의 도크 복귀와 위치 확인이 완료되었습니다.",
+            completed_at=_now(),
+        )
+        for alert in self.store.alerts:
+            if alert.active and alert.category == AlertCategory.EMERGENCY_STOP:
+                alert.level = AlertLevel.WARNING
+                alert.message = (
+                    "대상 로봇의 도크 복귀가 완료되었습니다. "
+                    "최종 확인 후 정상 운영 복귀를 승인해주세요."
+                )
 
     def _apply_parking_result(self, request: ParkingRequest) -> None:
         slot = self.store.find_slot(request.slot_id) if request.slot_id else None
@@ -779,7 +904,7 @@ class MockDataSource(DataSource):
     def emergency_stop(self) -> int:
         """Mock 이동을 중단하고 중앙 안전 복구 절차와 같은 상태를 만든다."""
         with self.store.lock:
-            if self.emergency_stop_active:
+            if self._safety_state["state"] == "STOPPED_LATCHED":
                 return sum(
                     request.status not in TERMINAL_STATUSES
                     for request in self.store.requests
@@ -792,6 +917,44 @@ class MockDataSource(DataSource):
                 if request.status not in TERMINAL_STATUSES
             ]
             active_count = len(active_requests)
+            previous_recovery_robot_ids = (
+                list(self._recovery_state["robot_ids"])
+                if self.recovery_pending
+                else []
+            )
+            recovery_robot_ids = list(
+                dict.fromkeys(
+                    [
+                        *previous_recovery_robot_ids,
+                        *[
+                            robot_id
+                            for request in active_requests
+                            for robot_id in request.robot_ids
+                        ],
+                    ]
+                )
+            )
+            source_request_ids = list(
+                dict.fromkeys(
+                    [
+                        *(
+                            self._recovery_state["source_request_ids"]
+                            if previous_recovery_robot_ids
+                            else []
+                        ),
+                        *[request.id for request in active_requests],
+                    ]
+                )
+            )
+            load_present = any(
+                request.status
+                in {
+                    RequestStatus.LIFTING,
+                    RequestStatus.MOVING_TO_SLOT,
+                    RequestStatus.RETURNING,
+                }
+                for request in active_requests
+            )
             for request in active_requests:
                 request.status = RequestStatus.CANCELLED
                 request.completed_at = _now()
@@ -799,10 +962,35 @@ class MockDataSource(DataSource):
                     slot = self.store.find_slot(request.slot_id)
                     if slot and slot.status == "RESERVED":
                         slot.status = "EMPTY"
-            for robot in self.store.robots:
-                if robot.current_task_id is not None:
+                        slot.vehicle_number = None
+            for robot_id in recovery_robot_ids:
+                robot = self.store.find_robot(robot_id)
+                if robot is not None:
                     robot.current_task_id = None
-                    robot.status = "IDLE"
+                    robot.status = "SAFETY_STOPPED"
+            self._recovery_state = {
+                "status": (
+                    "SAFETY_STOPPED" if recovery_robot_ids else "NONE"
+                ),
+                "robot_ids": recovery_robot_ids,
+                "source_request_ids": source_request_ids,
+                "load_state": (
+                    "LOAD_REQUIRES_CLEARANCE"
+                    if load_present
+                    or self._recovery_state["load_state"]
+                    == "LOAD_REQUIRES_CLEARANCE"
+                    else "CLEAR"
+                ),
+                "control_available": True,
+                "message": (
+                    "로봇은 현재 위치에서 안전 정지했습니다. "
+                    "원 작업은 취소되며 점검 후 별도 도크 복귀가 필요합니다."
+                    if recovery_robot_ids
+                    else ""
+                ),
+                "started_at": None,
+                "completed_at": None,
+            }
             self._safety_state = {
                 "state": "STOPPED_LATCHED",
                 "motion_allowed": False,
@@ -856,19 +1044,49 @@ class MockDataSource(DataSource):
                 blockers=[],
                 updated_at=_now(),
             )
+            if self._recovery_state["status"] == "SAFETY_STOPPED":
+                self._recovery_state.update(
+                    status="REQUIRED",
+                    message=(
+                        "현장 점검이 완료되었습니다. 제한된 안전 복귀로 "
+                        "대상 로봇을 먼저 도크에 복귀시켜주세요."
+                    ),
+                )
+                for robot_id in self._recovery_state["robot_ids"]:
+                    robot = self.store.find_robot(robot_id)
+                    if robot is not None:
+                        robot.status = "RECOVERY_REQUIRED"
             for alert in self.store.alerts:
                 if alert.active and alert.category == AlertCategory.EMERGENCY_STOP:
+                    alert.level = AlertLevel.WARNING
                     alert.message = (
                         "안전 점검이 승인되었습니다. 로봇은 계속 정지 상태이며 "
-                        "별도의 운영 복귀 승인이 필요합니다."
+                        "대상 로봇의 제한 안전 복귀가 필요합니다."
                     )
-            return self.safety_state
+            result = self.safety_state
+            result["message"] = (
+                "점검 결과가 승인되었습니다. 대상 로봇을 제한 안전 복귀로 "
+                "도크에 이동시킨 뒤 정상 운영을 승인해주세요."
+                if self.recovery_pending
+                else "점검 결과가 승인되었습니다. 정상 운영 복귀 승인이 필요합니다."
+            )
+            return result
 
     def approve_operation(self, payload: OperationApprovalRequest) -> dict:
         with self.store.lock:
             if self._safety_state["state"] != "READY_FOR_OPERATION":
                 raise DataSourceError(
                     "안전 점검 승인 후에만 운영 복귀할 수 있습니다.",
+                    status_code=409,
+                )
+            if self._recovery_state["status"] in {
+                "SAFETY_STOPPED",
+                "REQUIRED",
+                "RECOVERING",
+                "BLOCKED",
+            }:
+                raise DataSourceError(
+                    "대상 로봇의 도크 복귀와 위치 확인을 먼저 완료해주세요.",
                     status_code=409,
                 )
             self._safety_state.update(
@@ -883,7 +1101,62 @@ class MockDataSource(DataSource):
             for alert in self.store.alerts:
                 if alert.active and alert.category == AlertCategory.EMERGENCY_STOP:
                     alert.active = False
-            return self.safety_state
+            result = self.safety_state
+            result["message"] = (
+                "정상 운영 복귀가 승인되었습니다. 기존 취소 작업은 재개되지 않으며 "
+                "새 작업만 접수합니다."
+            )
+            return result
+
+    def start_safe_recovery(self, payload: RobotRecoveryRequest) -> dict:
+        with self.store.lock:
+            if self._safety_state["state"] != "READY_FOR_OPERATION":
+                raise DataSourceError(
+                    "현장 안전 점검 승인 후에만 제한 안전 복귀를 시작할 수 있습니다.",
+                    status_code=409,
+                )
+            if self._recovery_state["status"] != "REQUIRED":
+                raise DataSourceError(
+                    "안전 복귀가 필요한 로봇이 없거나 이미 복귀 중입니다.",
+                    status_code=409,
+                )
+            checks = {
+                "복귀 경로 안전": payload.path_clear,
+                "차량·적재물 분리 또는 별도 안전 확보": payload.load_cleared,
+                "리프트 암 회수": payload.arms_retracted,
+                "복귀용 센서·통신": payload.sensors_ready,
+            }
+            missing = [label for label, checked in checks.items() if not checked]
+            if missing:
+                raise DataSourceError(
+                    f"확인하지 않은 복귀 조건: {', '.join(missing)}",
+                    status_code=409,
+                )
+            self._build_safe_recovery_routes()
+            if len(self._recovery_routes) != len(
+                self._recovery_state["robot_ids"]
+            ):
+                self._recovery_state.update(
+                    status="BLOCKED",
+                    message="일부 로봇의 도크 또는 위치 정보를 확인할 수 없습니다.",
+                )
+                raise DataSourceError(
+                    self._recovery_state["message"], status_code=409
+                )
+            for robot_id in self._recovery_state["robot_ids"]:
+                robot = self.store.find_robot(robot_id)
+                if robot is not None:
+                    robot.status = "RECOVERING"
+            self._recovery_state.update(
+                status="RECOVERING",
+                message=(
+                    "취소된 작업은 재개하지 않고 대상 로봇만 전용 통로를 따라 "
+                    "각 도크로 복귀합니다."
+                ),
+                started_at=_now(),
+                completed_at=None,
+            )
+            return self.recovery_state
 
     def trigger_robot_error(self) -> Alert:
         """로봇 오류 이벤트를 발생시킨다. 작업 중 로봇 우선, 없으면 첫 정상 로봇."""

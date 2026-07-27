@@ -6,6 +6,9 @@ const statusLabels = {
   CHARGING: "충전 중",
   ERROR: "오류",
   OFFLINE: "연결 끊김",
+  SAFETY_STOPPED: "안전 정지",
+  RECOVERY_REQUIRED: "복구 대기",
+  RECOVERING: "복귀 중",
   EMPTY: "빈 공간",
   RESERVED: "예약",
   OCCUPIED: "주차 중",
@@ -40,6 +43,10 @@ let latestDashboard = null;
 let selectedMapItem = null;
 let pendingFocusRequestId = null;
 let showLidarMarkers = false;
+let latestLidarVisualization = null;
+let lidarViewMode = "full";
+let lidarDetailRefreshTimer = null;
+let lidarDetailLoading = false;
 let lastDashboardReceivedAt = null;
 let messageHideTimer = null;
 let recentWorkflowEvents = [];
@@ -398,6 +405,11 @@ function formatApiError(data) {
       robots_stopped: "전체 로봇 정지 확인",
       load_secured: "차량·리프트 지지 상태 확인",
       sensors_checked: "센서·통신 상태 확인",
+      recovery_note: "복귀 판단 근거",
+      path_clear: "복귀 경로 안전 확인",
+      load_cleared: "차량·적재물 안전 확인",
+      arms_retracted: "리프트 암 회수 확인",
+      sensors_ready: "복귀용 센서·통신 확인",
     };
     const messages = detail.map((error) => {
       const field = Array.isArray(error?.loc)
@@ -428,6 +440,9 @@ function formatApiError(data) {
 
 function renderSummary(summary, robots, sensors, system, alerts = [], requests = []) {
   const robotHealthy = robots.filter((robot) => !["ERROR", "OFFLINE"].includes(robot.status)).length;
+  const recoveryRobots = robots.filter((robot) =>
+    ["SAFETY_STOPPED", "RECOVERY_REQUIRED", "RECOVERING"].includes(robot.status)
+  );
   const obstacleAlerts = alerts.filter(
     (alert) => alert.category === "OBSTACLE"
   );
@@ -480,15 +495,27 @@ function renderSummary(summary, robots, sensors, system, alerts = [], requests =
       value: `${robotHealthy} / ${robots.length}`,
       badge: unavailableRobots.length
         ? "확인 필요"
+        : recoveryRobots.length
+          ? recoveryRobots.some((robot) => robot.status === "RECOVERING")
+            ? "복귀 중"
+            : "복구 필요"
         : pausedRobots.length ? "일시 정지" : "정상",
       detail: unavailableRobots.length
         ? `${unavailableRobots.map((robot) => shortRobotName(robot.id)).join(" · ")} 확인`
+        : recoveryRobots.length
+          ? `${recoveryRobots.map((robot) => shortRobotName(robot.id)).join(" · ")} ${
+              recoveryRobots.some((robot) => robot.status === "RECOVERING")
+                ? "도크 복귀 중"
+                : "현재 위치 안전 정지"
+            }`
         : pausedRobots.length
           ? `${pausedRobots.map((robot) => shortRobotName(robot.id)).join(" · ")} 장애물 대기`
         : robots.length > 1
           ? "입차·출차 로봇 팀 연결"
           : robots[0] ? `${shortRobotName(robots[0].id)} 연결` : "로봇 데이터 없음",
-      tone: robotHealthy === robots.length && !pausedRobots.length
+      tone: robotHealthy === robots.length
+        && !pausedRobots.length
+        && !recoveryRobots.length
         ? "success"
         : "warning",
     },
@@ -1328,6 +1355,332 @@ function toggleLidarMarkers() {
   renderSelectionDetail(latestDashboard);
 }
 
+function lidarStatusLabel(status) {
+  if (status === "ONLINE") return "실시간 데이터 수신";
+  if (status === "MOCK") return "샘플 데이터 시연";
+  return "데이터 수신 대기";
+}
+
+function renderLidarVisualization(data) {
+  latestLidarVisualization = data;
+  const canvas = document.getElementById("lidarDetailCanvas");
+  const shell = canvas.parentElement;
+  const empty = document.getElementById("lidarDetailEmpty");
+  const statusBox = document.querySelector(".lidar-live-state");
+  const status = String(data.sensor_status || "OFFLINE").toUpperCase();
+  const ignored = data.points?.ignored || [];
+  const used = data.points?.used || [];
+  const slotUsed = data.points?.slot_used || [];
+  const hasMeasurement = ["ONLINE", "MOCK"].includes(status);
+  const lastSeenLabel = data.last_seen_sec == null
+    ? "최근 수신 기록 없음"
+    : Number(data.last_seen_sec) <= 1
+      ? "방금 수신"
+      : `${Number(data.last_seen_sec).toFixed(1)}초 전 수신`;
+
+  statusBox.classList.remove("online", "mock", "offline");
+  statusBox.classList.add(status.toLowerCase());
+  document.getElementById("lidarDetailStatus").textContent =
+    `${data.sensor_id || "L1"} ${lidarStatusLabel(status)}`;
+  document.getElementById("lidarDetailSource").textContent = [
+    "PointCloud2",
+    data.rate_hz == null ? null : `${Number(data.rate_hz).toFixed(1)} Hz`,
+    data.frame_id ? `frame: ${data.frame_id}` : null,
+    lastSeenLabel,
+  ].filter(Boolean).join(" · ");
+  const coordinateStatus = document.getElementById("lidarTfStatus");
+  coordinateStatus.classList.remove("ok", "check");
+  if (data.coordinate_status === "OK") {
+    coordinateStatus.classList.add("ok");
+    coordinateStatus.textContent = `${data.frame_id || "map"} 좌표 수신`;
+  } else if (data.coordinate_status === "CHECK") {
+    coordinateStatus.classList.add("check");
+    coordinateStatus.textContent = `${data.frame_id || "unknown"} 좌표계 확인 필요`;
+  } else {
+    coordinateStatus.textContent = "좌표 변환 확인 대기";
+  }
+  document.getElementById("lidarDetailEmptyTopic").textContent =
+    `${data.topic || "/parking/lidar/points_world"} 토픽과 ROS2 연결 상태를 확인하세요.`;
+  document.getElementById("lidarHeightThreshold").textContent =
+    `${Number(data.height_threshold_m || 0).toFixed(2)}m`;
+  document.getElementById("lidarPointThreshold").textContent =
+    `${data.point_threshold || 0}개`;
+  document.getElementById("lidarReceivedPointCount").textContent =
+    Number(data.point_total || 0).toLocaleString();
+  document.getElementById("lidarValidPointCount").textContent =
+    Number(data.valid_point_count || 0).toLocaleString();
+  document.getElementById("lidarDisplayPointCount").textContent =
+    Number(data.display_point_count || 0).toLocaleString();
+  const unavailableCount = (data.slots || []).filter(
+    (slot) => slot.status === "UNAVAILABLE"
+  ).length;
+  const emptyCount = Math.max(
+    0,
+    Number(data.total_slots || 0)
+      - Number(data.occupied_count || 0)
+      - unavailableCount
+  );
+  document.querySelector("#lidarOccupancySummary strong").textContent =
+    unavailableCount
+      ? `판정 대기 ${unavailableCount}`
+      : `${data.occupied_count || 0} / ${
+        data.total_slots || 0
+      }면 점유 · 공석 ${emptyCount}`;
+  const mismatchedSlots = (data.slots || []).filter(
+    (slot) => slot.status_match === false
+  );
+  const consistencyWarning = document.getElementById(
+    "lidarConsistencyWarning"
+  );
+  consistencyWarning.classList.toggle("hidden", mismatchedSlots.length === 0);
+  consistencyWarning.querySelector("span").textContent = mismatchedSlots.length
+    ? `${mismatchedSlots.map((slot) => slot.id).join(" · ")} — LiDAR 판정과 메인 관제 상태를 확인하세요.`
+    : "LiDAR 판정과 메인 관제 슬롯 상태가 일치합니다.";
+  empty.classList.toggle("hidden", hasMeasurement);
+
+  const width = Math.max(760, Math.round(shell.clientWidth));
+  const height = Math.max(500, Math.round(canvas.clientHeight));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  const context = canvas.getContext("2d");
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#1a1b19";
+  context.fillRect(0, 0, width, height);
+
+  const fullBounds = data.bounds || {
+    min_x: -24,
+    max_x: 14,
+    min_y: -12,
+    max_y: 12,
+  };
+  const margin = { left: 66, right: 26, top: 66, bottom: 52 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  let bounds = { ...fullBounds };
+  if (lidarViewMode === "slots" && (data.slots || []).length) {
+    const slots = data.slots;
+    const rawMinX = Math.min(
+      ...slots.map((slot) => slot.x - slot.width / 2)
+    ) - 1.5;
+    const rawMaxX = Math.max(
+      ...slots.map((slot) => slot.x + slot.width / 2)
+    ) + 1.5;
+    const rawMinY = Math.min(
+      ...slots.map((slot) => slot.y - slot.length / 2)
+    ) - 1.5;
+    const rawMaxY = Math.max(
+      ...slots.map((slot) => slot.y + slot.length / 2)
+    ) + 1.5;
+    const centerX = (rawMinX + rawMaxX) / 2;
+    const centerY = (rawMinY + rawMaxY) / 2;
+    let xSpan = rawMaxX - rawMinX;
+    let ySpan = rawMaxY - rawMinY;
+    const plotAspect = plotWidth / plotHeight;
+    if (xSpan / ySpan < plotAspect) xSpan = ySpan * plotAspect;
+    else ySpan = xSpan / plotAspect;
+    bounds = {
+      min_x: centerX - xSpan / 2,
+      max_x: centerX + xSpan / 2,
+      min_y: centerY - ySpan / 2,
+      max_y: centerY + ySpan / 2,
+    };
+  }
+  const sx = (x) =>
+    margin.left
+    + ((x - bounds.min_x) / (bounds.max_x - bounds.min_x)) * plotWidth;
+  const sy = (y) =>
+    margin.top
+    + ((bounds.max_y - y) / (bounds.max_y - bounds.min_y)) * plotHeight;
+
+  context.fillStyle = "#f2f2ee";
+  context.font = "600 17px sans-serif";
+  context.textAlign = "center";
+  context.fillText(
+    `LiDAR 기반 슬롯 점유 판단 — ${data.occupied_count || 0}/${
+      data.total_slots || 0
+    }면 주차 중  (높이 임계값 ${Number(
+      data.height_threshold_m || 0
+    ).toFixed(2)}m · 포인트 임계값 ${data.point_threshold || 0}개)`,
+    width / 2,
+    31
+  );
+
+  context.strokeStyle = "#454842";
+  context.lineWidth = 1;
+  context.font = "11px sans-serif";
+  context.fillStyle = "#c5c6c0";
+  const firstXTick = Math.ceil(bounds.min_x / 5) * 5;
+  for (let x = firstXTick; x <= bounds.max_x; x += 5) {
+    const px = sx(x);
+    context.beginPath();
+    context.moveTo(px, margin.top);
+    context.lineTo(px, margin.top + plotHeight);
+    context.stroke();
+    context.textAlign = "center";
+    context.fillText(String(x), px, height - 27);
+  }
+  const firstYTick = Math.ceil(bounds.min_y / 5) * 5;
+  for (let y = firstYTick; y <= bounds.max_y; y += 5) {
+    const py = sy(y);
+    context.beginPath();
+    context.moveTo(margin.left, py);
+    context.lineTo(margin.left + plotWidth, py);
+    context.stroke();
+    context.textAlign = "right";
+    context.fillText(String(y), margin.left - 10, py + 4);
+  }
+
+  context.strokeStyle = "#70736c";
+  context.strokeRect(margin.left, margin.top, plotWidth, plotHeight);
+  context.fillStyle = "#d1d2cc";
+  context.textAlign = "center";
+  context.font = "12px sans-serif";
+  context.fillText("x (m)", margin.left + plotWidth / 2, height - 7);
+  context.save();
+  context.translate(17, margin.top + plotHeight / 2);
+  context.rotate(-Math.PI / 2);
+  context.fillText("y (m)", 0, 0);
+  context.restore();
+
+  function drawPoints(points, color, radius) {
+    context.fillStyle = color;
+    context.beginPath();
+    for (const point of points) {
+      const px = sx(Number(point[0]));
+      const py = sy(Number(point[1]));
+      context.moveTo(px + radius, py);
+      context.arc(px, py, radius, 0, Math.PI * 2);
+    }
+    context.fill();
+  }
+
+  drawPoints(ignored, "rgba(106, 109, 102, 0.48)", 1.2);
+  drawPoints(used, "rgba(156, 200, 232, 0.5)", 1.55);
+  drawPoints(slotUsed, "rgba(243, 180, 159, 0.88)", 1.85);
+
+  const sensor = data.sensor_position;
+  if (
+    sensor
+    && sensor.x >= bounds.min_x
+    && sensor.x <= bounds.max_x
+    && sensor.y >= bounds.min_y
+    && sensor.y <= bounds.max_y
+  ) {
+    const sensorX = sx(sensor.x);
+    const sensorY = sy(sensor.y);
+    context.strokeStyle = "rgba(96, 165, 250, 0.5)";
+    context.lineWidth = 1.5;
+    for (const radius of [9, 17]) {
+      context.beginPath();
+      context.arc(sensorX, sensorY, radius, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.fillStyle = "#60a5fa";
+    context.beginPath();
+    context.arc(sensorX, sensorY, 4.5, 0, Math.PI * 2);
+    context.fill();
+    context.font = "700 10px sans-serif";
+    context.textAlign = "left";
+    context.fillText(data.sensor_id || "L1", sensorX + 10, sensorY - 9);
+  }
+
+  for (const slot of data.slots || []) {
+    const x0 = sx(slot.x - slot.width / 2);
+    const x1 = sx(slot.x + slot.width / 2);
+    const y0 = sy(slot.y + slot.length / 2);
+    const y1 = sy(slot.y - slot.length / 2);
+    const occupied = slot.status === "OCCUPIED";
+    const unavailable = slot.status === "UNAVAILABLE";
+    const mismatched = slot.status_match === false;
+    context.fillStyle = unavailable
+      ? "rgba(64, 76, 82, 0.48)"
+      : occupied
+        ? "rgba(205, 67, 64, 0.43)"
+        : "rgba(8, 128, 35, 0.48)";
+    context.strokeStyle = mismatched
+      ? "#f59e0b"
+      : unavailable
+      ? "#81909a"
+      : occupied
+        ? "#f05a54"
+        : "#16a43a";
+    context.lineWidth = mismatched ? 3 : 2;
+    context.fillRect(x0, y0, x1 - x0, y1 - y0);
+    context.strokeRect(x0, y0, x1 - x0, y1 - y0);
+
+    const centerX = (x0 + x1) / 2;
+    const centerY = (y0 + y1) / 2;
+    context.textAlign = "center";
+    context.fillStyle = "#f5f5f1";
+    context.font = "700 17px sans-serif";
+    context.fillText(slot.id, centerX, centerY - 18);
+    context.font = "700 12px sans-serif";
+    context.fillStyle = unavailable
+      ? "#cbd5db"
+      : occupied
+        ? "#ffd5cd"
+        : "#c7f5d2";
+    context.fillText(
+      unavailable ? "판정 대기" : occupied ? "점유" : "공석",
+      centerX,
+      centerY + 2
+    );
+    context.fillStyle = "#f0f1eb";
+    context.font = "10px sans-serif";
+    context.fillText(
+      unavailable
+        ? `유효 — / 기준 ${data.point_threshold || 0}`
+        : `유효 ${slot.point_count} / 기준 ${data.point_threshold || 0}`,
+      centerX,
+      centerY + 20
+    );
+    if (mismatched) {
+      context.fillStyle = "#f59e0b";
+      context.beginPath();
+      context.arc(x1 - 12, y0 + 12, 8, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = "#201b12";
+      context.font = "800 11px sans-serif";
+      context.fillText("!", x1 - 12, y0 + 16);
+    }
+  }
+}
+
+async function refreshLidarDetail() {
+  if (lidarDetailLoading) return;
+  const dialog = document.getElementById("lidarDetailDialog");
+  if (!dialog?.open) return;
+  lidarDetailLoading = true;
+  try {
+    const data = await apiRequest("/lidar/visualization");
+    renderLidarVisualization(data);
+  } catch (error) {
+    document.querySelector(".lidar-live-state").classList.add("offline");
+    document.getElementById("lidarDetailStatus").textContent =
+      "상세 데이터 조회 실패";
+    document.getElementById("lidarDetailSource").textContent = error.message;
+  } finally {
+    lidarDetailLoading = false;
+  }
+}
+
+function openLidarDetailDialog() {
+  const dialog = document.getElementById("lidarDetailDialog");
+  if (!dialog.open) dialog.showModal();
+  refreshLidarDetail();
+  window.clearInterval(lidarDetailRefreshTimer);
+  lidarDetailRefreshTimer = window.setInterval(refreshLidarDetail, 1000);
+}
+
+function closeLidarDetailDialog() {
+  const dialog = document.getElementById("lidarDetailDialog");
+  if (dialog.open) dialog.close();
+  window.clearInterval(lidarDetailRefreshTimer);
+  lidarDetailRefreshTimer = null;
+}
+
 function pointDistance(left, right) {
   if (left?.x == null || left?.y == null || right?.x == null || right?.y == null) {
     return Number.POSITIVE_INFINITY;
@@ -2164,10 +2517,21 @@ function renderSelectionDetail(dashboard) {
       }
       return sensor.status !== "ONLINE";
     });
+    const recovery = dashboard.system?.recovery || {};
+    const requestNeedsRecovery = (
+      recovery.source_request_ids || []
+    ).some((requestId) => String(requestId) === String(request.id))
+      && ["SAFETY_STOPPED", "REQUIRED", "RECOVERING", "BLOCKED"].includes(
+        recovery.status
+      );
     const safetyLabel = requestObstacle
       ? `${
           requestIncident ? `${formatSafetyIncidentId(requestIncident.id)} · ` : ""
         }${obstacleZoneLabel(requestObstacle.zone_id)} 장애물 대기`
+      : requestNeedsRecovery
+        ? recovery.status === "RECOVERING"
+          ? "담당 로봇 도크 복귀 중"
+          : "담당 로봇 복구 필요 · 현재 위치 안전 정지"
       : unavailableSensors.length
         ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 미수신 · 안전 감지 제한 운용`
         : "정상";
@@ -2230,7 +2594,11 @@ function renderSelectionDetail(dashboard) {
           cooperationWarning ? "warning" : "normal"
         }">● ${cooperationLabel}</span></dd></div>
         <div><dt>안전 상태</dt><dd><span class="detail-state ${
-          requestObstacle ? "danger" : unavailableSensors.length ? "warning" : "normal"
+          requestObstacle
+            ? "danger"
+            : requestNeedsRecovery || unavailableSensors.length
+              ? "warning"
+              : "normal"
         }">● ${safetyLabel}</span></dd></div>
       </dl>
     `;
@@ -2439,7 +2807,15 @@ function renderSelectionDetail(dashboard) {
   const targetLabel = currentRequest
     ? currentRequest.slot_id || "주차면 배정 중"
     : "없음";
-  const safetyLabel = robotAlert?.message || robot.error_message || "이상 없음";
+  const recoverySafetyLabel = {
+    SAFETY_STOPPED: "비상정지 유지 · 현재 위치 고정",
+    RECOVERY_REQUIRED: "현장 점검 완료 · 도크 복귀 필요",
+    RECOVERING: "안전 경로로 도크 복귀 중",
+  }[robot.status];
+  const safetyLabel = robotAlert?.message
+    || robot.error_message
+    || recoverySafetyLabel
+    || "이상 없음";
   const isObstaclePaused = robotAlert?.category === "OBSTACLE";
   detail.innerHTML = `
     <span class="detail-kicker">로봇 상세</span>
@@ -2463,7 +2839,11 @@ function renderSelectionDetail(dashboard) {
       <div><dt>목표 주차면</dt><dd>${targetLabel}</dd></div>
       <div><dt>할당 요청</dt><dd>${requestLabel}</dd></div>
       <div><dt>통신</dt><dd><span class="detail-state ${robot.status === "OFFLINE" ? "warning" : "normal"}">● ${communicationLabel}</span></dd></div>
-      <div><dt>안전</dt><dd><span class="detail-state ${robotAlert || robot.error_message ? "danger" : "normal"}">● ${safetyLabel}</span></dd></div>
+      <div><dt>안전</dt><dd><span class="detail-state ${
+        robotAlert || robot.error_message
+          ? "danger"
+          : recoverySafetyLabel ? "warning" : "normal"
+      }">● ${safetyLabel}</span></dd></div>
     </dl>
   `;
 }
@@ -3422,12 +3802,27 @@ function renderSystem(system) {
     state: system.emergency_stop ? "STOPPED_LATCHED" : "NORMAL",
     motion_allowed: !system.emergency_stop,
   };
+  const recovery = system.recovery || { status: "NONE", robot_ids: [] };
+  const recoveryPending = [
+    "SAFETY_STOPPED",
+    "REQUIRED",
+    "RECOVERING",
+    "BLOCKED",
+  ].includes(recovery.status);
   const warningReason = safety.state === "READY_FOR_OPERATION"
-    ? "운영 복귀 승인 대기"
+    ? recovery.status === "RECOVERING"
+      ? "제한 로봇 복귀 중"
+      : ["NONE", "COMPLETED"].includes(recovery.status)
+        ? "정상 운영 승인 대기"
+        : "로봇 안전 복귀 필요"
     : safety.state === "UNKNOWN"
       ? "안전 관리자 확인 필요"
       : system.emergency_stop
         ? "비상정지 작동"
+    : recovery.status === "RECOVERING"
+      ? "로봇 안전 복귀 중"
+      : recoveryPending
+        ? "로봇 복구 필요"
     : activeAlerts.find(
     (alert) => alert.category === "OBSTACLE"
   )
@@ -3455,30 +3850,31 @@ function renderSystem(system) {
   }
 
   const emergencyButton = document.getElementById("emergencyStopButton");
-  emergencyButton.disabled = Boolean(system.emergency_stop);
-  emergencyButton.classList.toggle("active", Boolean(system.emergency_stop));
-  emergencyButton.innerHTML = system.emergency_stop
-    ? `<span aria-hidden="true">■</span> ${
-        safety.state === "READY_FOR_OPERATION"
-          ? "안전 점검 완료"
-          : "비상정지 작동 중"
-      }`
-    : `<span aria-hidden="true">■</span> 비상정지`;
+  const hardStopped = safety.state === "STOPPED_LATCHED";
+  emergencyButton.disabled = hardStopped;
+  emergencyButton.classList.toggle("active", hardStopped);
+  emergencyButton.innerHTML = hardStopped
+    ? `<span aria-hidden="true">■</span> 비상정지 작동 중`
+    : recovery.status === "RECOVERING"
+      ? `<span aria-hidden="true">■</span> 복귀 운전 정지`
+      : `<span aria-hidden="true">■</span> 비상정지`;
 
   document.querySelectorAll("#requestForm input, #requestForm select, #requestForm button")
     .forEach((control) => {
-      control.disabled = Boolean(system.emergency_stop);
+      control.disabled = Boolean(system.emergency_stop) || recoveryPending;
     });
 
   // 백업은 모드와 무관하게 항상 노출 (서버 호출 없이 현재 화면 데이터만 내려받음).
   document
     .getElementById("resetButton")
     .classList.toggle("hidden", system.mode !== "mock");
-  document.getElementById("resetButton").disabled = Boolean(system.emergency_stop);
+  document.getElementById("resetButton").disabled =
+    Boolean(system.emergency_stop) || recoveryPending;
   document
     .getElementById("dbResetButton")
     .classList.toggle("hidden", system.mode !== "ros2");
-  document.getElementById("dbResetButton").disabled = Boolean(system.emergency_stop);
+  document.getElementById("dbResetButton").disabled =
+    Boolean(system.emergency_stop) || recoveryPending;
   document
     .getElementById("mockVehicleGuide")
     .classList.toggle("hidden", !system.mock_controls);
@@ -3500,15 +3896,30 @@ function renderSafetyRecoveryDialog(system) {
   const safety = system?.safety || {};
   const resetForm = document.getElementById("safetyResetForm");
   const approvalForm = document.getElementById("operationApprovalForm");
+  const recoveryForm = document.getElementById("robotRecoveryForm");
   const stateBox = document.getElementById("safetyRecoveryState");
+  const recovery = system?.recovery || {
+    status: "NONE",
+    robot_ids: [],
+    control_available: false,
+  };
   const labels = {
     STOPPED_LATCHED: "비상정지 · 현장 점검 필요",
-    READY_FOR_OPERATION: "점검 완료 · 운영 복귀 승인 대기",
+    READY_FOR_OPERATION: "점검 완료 · 다음 복구 단계 확인",
     NORMAL: "정상 운영",
     UNKNOWN: "중앙 안전 상태 확인 중",
   };
+  const recoveryStateLabel = safety.state === "READY_FOR_OPERATION"
+    ? recovery.status === "RECOVERING"
+      ? "제한 안전 복귀 운전 중"
+      : recovery.status === "COMPLETED"
+        ? "도크 복귀 완료 · 정상 운영 승인 대기"
+        : recovery.status === "NONE"
+          ? "점검 완료 · 정상 운영 승인 대기"
+          : "점검 완료 · 로봇 안전 복귀 필요"
+    : null;
   stateBox.innerHTML = `
-    <strong>${labels[safety.state] || safety.state || "상태 확인 중"}</strong>
+    <strong>${recoveryStateLabel || labels[safety.state] || safety.state || "상태 확인 중"}</strong>
     <span>정지 세대 #${safety.stop_epoch || 0}</span>
     ${safety.reason ? `<p>${safety.reason}</p>` : ""}
     ${(safety.blockers || []).length
@@ -3516,14 +3927,79 @@ function renderSafetyRecoveryDialog(system) {
       : ""}
   `;
   resetForm.classList.toggle("hidden", safety.state !== "STOPPED_LATCHED");
-  approvalForm.classList.toggle(
-    "hidden", safety.state !== "READY_FOR_OPERATION"
-  );
+  const showRecovery = safety.state === "READY_FOR_OPERATION"
+    && ["REQUIRED", "RECOVERING", "BLOCKED"].includes(
+      recovery.status
+    );
+  const showApproval = safety.state === "READY_FOR_OPERATION"
+    && ["NONE", "COMPLETED"].includes(recovery.status);
+  approvalForm.classList.toggle("hidden", !showApproval);
+  recoveryForm.classList.toggle("hidden", !showRecovery);
+  if (showRecovery) {
+    const recoveryLabels = {
+      REQUIRED: "복구 대기",
+      RECOVERING: "도크 복귀 중",
+      BLOCKED: "복귀 차단",
+      COMPLETED: "도크 복귀 완료",
+    };
+    const targetNames = (recovery.robot_ids || []).map(shortRobotName);
+    document.getElementById("robotRecoveryTargets").innerHTML = `
+      <strong>${recoveryLabels[recovery.status] || recovery.status}</strong>
+      <span>대상 로봇 · ${targetNames.join(" · ") || "없음"}</span>
+      <p>${recovery.message || "현재 위치와 도크 경로를 확인해주세요."}</p>
+    `;
+    const unavailable = document.getElementById("robotRecoveryUnavailable");
+    const startButton = document.getElementById("startRobotRecoveryButton");
+    const cannotStart = recovery.control_available === false
+      || recovery.status !== "REQUIRED";
+    startButton.disabled = cannotStart;
+    startButton.textContent = recovery.status === "RECOVERING"
+      ? "로봇 도크 복귀 중"
+      : recovery.status === "COMPLETED"
+        ? "도크 복귀 완료"
+        : recovery.control_available === false
+          ? "실제 복귀 제어기 연결 필요"
+          : "로봇 안전 복귀 시작";
+    unavailable.classList.toggle(
+      "hidden", recovery.control_available !== false
+    );
+    unavailable.textContent = recovery.control_available === false
+      ? "현재 ROS2 관제에는 도크 복귀 action이 연결되지 않았습니다. "
+        + "로봇은 현재 위치에서 정지를 유지하며, 제어기 연결 전에는 대기로 표시하지 않습니다."
+      : "";
+  }
+  if (showApproval) {
+    const targetNames = (recovery.robot_ids || []).map(shortRobotName);
+    document.getElementById("operationRecoverySummary").innerHTML = `
+      <strong>${
+        recovery.status === "COMPLETED"
+          ? "2단계 완료 · 도크 복귀 확인"
+          : "복귀 대상 로봇 없음"
+      }</strong>
+      <span>${
+        targetNames.length
+          ? `확인 로봇 · ${targetNames.join(" · ")}`
+          : "현장 점검 결과를 기준으로 정상 운영 승인을 진행합니다."
+      }</span>
+      <p>${
+        recovery.status === "COMPLETED"
+          ? recovery.message
+          : "정상 운영 승인 후에만 새 작업을 접수합니다."
+      }</p>
+    `;
+  }
   if (
-    safety.state === "READY_FOR_OPERATION" &&
+    showApproval &&
     !document.getElementById("operationApprovalOperator").value
   ) {
     document.getElementById("operationApprovalOperator").value =
+      safety.operator_id || "";
+  }
+  if (
+    showRecovery
+    && !document.getElementById("robotRecoveryOperator").value
+  ) {
+    document.getElementById("robotRecoveryOperator").value =
       safety.operator_id || "";
   }
 }
@@ -3691,19 +4167,61 @@ function updateRequestAvailability() {
   const alternateLabel = requestType === "PARK_IN" ? "출차" : "입차";
   const button = document.getElementById("requestSubmitButton");
   const hint = document.getElementById("requestSafetyHint");
-  const systemStopped = Boolean(latestDashboard?.system?.emergency_stop);
+  const safetyState = latestDashboard?.system?.safety?.state || "UNKNOWN";
+  const systemStopped = ["STOPPED_LATCHED", "UNKNOWN"].includes(safetyState);
+  const recoveryStatus = latestDashboard?.system?.recovery?.status || "NONE";
+  const recoveryPending = [
+    "SAFETY_STOPPED",
+    "REQUIRED",
+    "RECOVERING",
+    "BLOCKED",
+  ].includes(recoveryStatus);
   const obstacle = (latestDashboard?.alerts || []).find(
     (alert) => obstacleAffectsRole(alert, role)
   );
 
-  button.classList.toggle("safety-blocked", systemStopped || Boolean(obstacle));
-  button.disabled = systemStopped || Boolean(obstacle);
+  button.classList.toggle(
+    "safety-blocked",
+    systemStopped || recoveryPending || Boolean(obstacle)
+  );
+  button.disabled = systemStopped || recoveryPending || Boolean(obstacle);
   hint.classList.remove("warning", "danger");
 
   if (systemStopped) {
     button.textContent = "비상정지 해제 후 등록 가능";
     hint.classList.add("danger");
     hint.textContent = "전체 비상정지 상태입니다. 안전 복구와 운영 승인을 완료한 뒤 새 요청을 등록해주세요.";
+    hint.classList.remove("hidden");
+    return;
+  }
+
+  if (safetyState === "READY_FOR_OPERATION") {
+    const waitingForFinalApproval = ["NONE", "COMPLETED"].includes(
+      recoveryStatus
+    );
+    button.textContent = waitingForFinalApproval
+      ? "정상 운영 승인 후 등록 가능"
+      : recoveryStatus === "RECOVERING"
+        ? "로봇 도크 복귀 완료 후 등록 가능"
+        : "로봇 안전 복귀 후 등록 가능";
+    hint.classList.add("warning");
+    hint.textContent = waitingForFinalApproval
+      ? "로봇 도크 복귀 확인이 끝났습니다. 최종 정상 운영 승인을 완료해주세요."
+      : recoveryStatus === "RECOVERING"
+        ? "대상 로봇이 제한 운전으로 각 도크에 복귀 중입니다."
+        : "현장 점검이 완료되었습니다. 대상 로봇의 제한 안전 복귀를 먼저 진행해주세요.";
+    hint.classList.remove("hidden");
+    return;
+  }
+
+  if (recoveryPending) {
+    button.textContent = recoveryStatus === "RECOVERING"
+      ? "로봇 도크 복귀 완료 후 등록 가능"
+      : "로봇 안전 복귀 후 등록 가능";
+    hint.classList.add("warning");
+    hint.textContent = recoveryStatus === "RECOVERING"
+      ? "대상 로봇이 각 도크로 복귀 중입니다. 위치 확인 후 자동으로 대기 상태가 됩니다."
+      : "중간 위치에 정지한 로봇이 복구 대기 상태입니다. 안전 복귀 절차를 완료해주세요.";
     hint.classList.remove("hidden");
     return;
   }
@@ -3915,7 +4433,9 @@ async function resolveAlert(alertId) {
 }
 
 async function activateEmergencyStop() {
-  if (latestDashboard?.system?.emergency_stop) return;
+  if (
+    latestDashboard?.system?.safety?.state === "STOPPED_LATCHED"
+  ) return;
   const activeRequests = (latestDashboard?.requests || []).filter(
     (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
   );
@@ -3927,7 +4447,11 @@ async function activateEmergencyStop() {
   ).filter((robot) => robot.status !== "OFFLINE").length;
   if (
     !window.confirm(
-      "모든 로봇에 비상정지를 요청합니다.\n\n"
+      `${
+        latestDashboard?.system?.recovery?.status === "RECOVERING"
+          ? "제한 복귀 운전을 즉시 정지합니다."
+          : "모든 로봇에 비상정지를 요청합니다."
+      }\n\n`
       + `현재 진행 작업: ${activeRequests.length}건\n`
       + `정지 대상 로봇: ${targetRobotCount}대\n\n`
       + "진행 중인 작업은 중단되며 현장 점검과 별도의 운영 복귀 승인이 필요합니다."
@@ -3948,6 +4472,20 @@ async function activateEmergencyStop() {
 }
 
 document
+  .getElementById("lidarDetailButton")
+  .addEventListener("click", openLidarDetailDialog);
+document.querySelectorAll("[data-lidar-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    lidarViewMode = button.dataset.lidarView;
+    document.querySelectorAll("[data-lidar-view]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    if (latestLidarVisualization) {
+      renderLidarVisualization(latestLidarVisualization);
+    }
+  });
+});
+document
   .getElementById("lidarVisibilityButton")
   .addEventListener("click", toggleLidarMarkers);
 document
@@ -3957,6 +4495,9 @@ document
   .getElementById("restoreSensorAlertsButton")
   .addEventListener("click", restoreSensorAlerts);
 
+document
+  .getElementById("closeLidarDetailDialog")
+  .addEventListener("click", closeLidarDetailDialog);
 document
   .getElementById("closeSafetyRecoveryDialog")
   .addEventListener("click", () => {
@@ -4018,7 +4559,9 @@ document
     event.preventDefault();
     if (
       !window.confirm(
-        "운영 복귀를 승인할까요?\n기존 작업은 재개되지 않으며 새 작업 접수만 허용됩니다."
+        "정상 운영 복귀를 승인할까요?\n"
+        + "대상 로봇의 도크 도달 확인이 끝난 상태에서만 승인해야 합니다.\n"
+        + "기존 취소 작업은 재개되지 않으며 새 작업만 접수합니다."
       )
     )
       return;
@@ -4040,7 +4583,13 @@ document
       await refreshDashboard();
       window.setTimeout(() => {
         const dialog = document.getElementById("safetyRecoveryDialog");
-        if (dialog.open && latestDashboard?.system?.safety?.state === "NORMAL") {
+        const recoveryStatus =
+          latestDashboard?.system?.recovery?.status || "NONE";
+        if (
+          dialog.open
+          && latestDashboard?.system?.safety?.state === "NORMAL"
+          && ["NONE", "COMPLETED"].includes(recoveryStatus)
+        ) {
           dialog.close();
         }
       }, 1200);
@@ -4051,17 +4600,108 @@ document
     }
   });
 
+document
+  .getElementById("robotRecoveryForm")
+  .addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const recoveryChecks = [
+      ["checkRecoveryPath", "도크까지 복귀 경로 안전"],
+      ["checkRecoveryLoad", "차량·적재물 분리 또는 별도 안전 확보"],
+      ["checkRecoveryArms", "리프트 암 회수"],
+      ["checkRecoverySensors", "복귀용 센서·통신"],
+    ];
+    const uncheckedChecks = recoveryChecks.filter(
+      ([elementId]) => !document.getElementById(elementId).checked
+    );
+    if (uncheckedChecks.length) {
+      setSafetyRecoveryMessage(
+        `복귀 시작 전 모든 조건을 확인해주세요.\n${
+          uncheckedChecks.map(([, label]) => `• ${label}`).join("\n")
+        }`,
+        true
+      );
+      document.getElementById(uncheckedChecks[0][0]).focus();
+      return;
+    }
+    if (
+      !window.confirm(
+        "대상 로봇만 안전 도크로 복귀시킬까요?\n"
+        + "취소된 차량 작업은 재개되지 않으며, 도크 도달 확인 후에만 대기로 전환됩니다."
+      )
+    )
+      return;
+
+    const button = event.submitter;
+    button.disabled = true;
+    try {
+      const result = await apiRequest("/safety/start-recovery", {
+        method: "POST",
+        body: JSON.stringify({
+          operator_id: document
+            .getElementById("robotRecoveryOperator")
+            .value.trim(),
+          recovery_note: document
+            .getElementById("robotRecoveryNote")
+            .value.trim(),
+          path_clear: document.getElementById("checkRecoveryPath").checked,
+          load_cleared: document.getElementById("checkRecoveryLoad").checked,
+          arms_retracted: document.getElementById("checkRecoveryArms").checked,
+          sensors_ready: document.getElementById("checkRecoverySensors").checked,
+        }),
+      });
+      setSafetyRecoveryMessage(result.message);
+      await refreshDashboard();
+    } catch (error) {
+      setSafetyRecoveryMessage(error.message, true);
+    } finally {
+      button.disabled =
+        latestDashboard?.system?.recovery?.status !== "REQUIRED";
+    }
+  });
+
 window.advanceRequest = advanceRequest;
 window.resolveAlert = resolveAlert;
+
+document
+  .getElementById("lidarDetailDialog")
+  .addEventListener("close", () => {
+    window.clearInterval(lidarDetailRefreshTimer);
+    lidarDetailRefreshTimer = null;
+  });
+document
+  .getElementById("lidarDetailDialog")
+  .addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeLidarDetailDialog();
+  });
+window.addEventListener("resize", () => {
+  const dialog = document.getElementById("lidarDetailDialog");
+  if (dialog?.open && latestLidarVisualization) {
+    renderLidarVisualization(latestLidarVisualization);
+  }
+});
 
 setupWorkspaceTabs();
 setupInspectorTabs();
 updateRequestFlow();
+const initialLidarParams = new URLSearchParams(window.location.search);
+if (["full", "slots"].includes(initialLidarParams.get("lidarView"))) {
+  lidarViewMode = initialLidarParams.get("lidarView");
+  document.querySelectorAll("[data-lidar-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.lidarView === lidarViewMode);
+  });
+}
+if (initialLidarParams.get("lidar") === "1") {
+  window.requestAnimationFrame(openLidarDetailDialog);
+}
 
 async function runDashboardRefreshLoop() {
   await refreshDashboard();
   const hasActiveTask = (latestDashboard?.summary?.active_requests || 0) > 0;
-  window.setTimeout(runDashboardRefreshLoop, hasActiveTask ? 250 : 2000);
+  const recoveryActive = latestDashboard?.system?.recovery?.status === "RECOVERING";
+  window.setTimeout(
+    runDashboardRefreshLoop,
+    hasActiveTask || recoveryActive ? 250 : 2000
+  );
 }
 
 runDashboardRefreshLoop();

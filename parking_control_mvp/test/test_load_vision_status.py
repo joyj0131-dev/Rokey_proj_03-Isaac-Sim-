@@ -7,12 +7,14 @@ import time
 from geometry_msgs.msg import PointStamped, PoseStamped, Twist
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, String
+from parking_robot_interfaces.msg import SafetyState, TaskState
 
 from core.models import (
     ParkingRequest,
     ParkingRequestCreate,
     RequestStatus,
     RequestType,
+    Robot,
 )
 from core.state_store import StateStore
 from sources.mock_source import MockDataSource
@@ -223,3 +225,79 @@ def test_ros2_arm_imbalance_and_stalled_motion_raise_estimated_warnings():
     assert load.load_anomaly_suspected is True
     assert load.synchronized is False
     assert load.stable is False
+
+
+def test_ros2_safety_state_keeps_affected_robots_out_of_idle():
+    store = StateStore()
+    source = Ros2DataSource(store)
+    store.requests.append(
+        ParkingRequest(
+            id=3,
+            request_type=RequestType.PARK_IN,
+            vehicle_number="88가8888",
+            slot_id="A2",
+            robot_id="entry_lead",
+            robot_ids=["entry_lead", "entry_follow"],
+            status=RequestStatus.MOVING_TO_SLOT,
+            created_at="2026-07-27T10:00:00",
+            external_task_id="task-safe-stop",
+        )
+    )
+    store.robots.extend(
+        [
+            Robot(
+                id="entry_lead",
+                status="IDLE",
+                battery=90,
+                x=1.0,
+                y=-6.0,
+            ),
+            Robot(
+                id="entry_follow",
+                status="IDLE",
+                battery=88,
+                x=1.0,
+                y=-4.0,
+            ),
+        ]
+    )
+    failed = TaskState()
+    failed.task_id = "task-safe-stop"
+    failed.robot_id = "entry_lead"
+    failed.state = "FAILED"
+    source._on_task_state(failed)
+    assert any(
+        alert.category.value == "ROBOT_ERROR"
+        for alert in store.snapshot()["alerts"]
+    )
+
+    stopped = SafetyState()
+    stopped.state = "STOPPED_LATCHED"
+    stopped.motion_allowed = False
+    stopped.stop_epoch = 1
+    stopped.reason = "test emergency stop"
+    stopped.affected_task_ids = ["task-safe-stop"]
+    source._on_safety_state(stopped)
+
+    assert source.recovery_state["status"] == "SAFETY_STOPPED"
+    assert not any(
+        alert.category.value == "ROBOT_ERROR"
+        for alert in store.snapshot()["alerts"]
+    )
+    assert all(
+        store.find_robot(robot_id).status == "SAFETY_STOPPED"
+        for robot_id in ("entry_lead", "entry_follow")
+    )
+
+    ready = SafetyState()
+    ready.state = "READY_FOR_OPERATION"
+    ready.motion_allowed = False
+    ready.stop_epoch = 1
+    ready.affected_task_ids = ["task-safe-stop"]
+    source._on_safety_state(ready)
+
+    assert source.recovery_state["status"] == "REQUIRED"
+    assert all(
+        store.find_robot(robot_id).status == "RECOVERY_REQUIRED"
+        for robot_id in ("entry_lead", "entry_follow")
+    )
