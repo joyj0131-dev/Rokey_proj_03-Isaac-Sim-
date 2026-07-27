@@ -150,6 +150,8 @@ def get_dashboard():
         "requests": list(reversed(requests)),
         "alerts": list(reversed(alerts)),
         "safety_incidents": list(reversed(snapshot["safety_incidents"])),
+        "cooperative_loads": datasource.get_cooperative_load_states(),
+        "vision_alignments": datasource.get_vision_alignment_states(),
         "map": datasource.get_map_info(),
         "sensors": sensors,
         "summary": {

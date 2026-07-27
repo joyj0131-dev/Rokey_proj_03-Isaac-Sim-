@@ -21,6 +21,7 @@ from core.models import (
     Alert,
     AlertCategory,
     AlertLevel,
+    CooperativeLoadState,
     OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
@@ -29,6 +30,8 @@ from core.models import (
     RequestType,
     Robot,
     SafetyResetRequest,
+    SupportPointState,
+    VisionAlignmentState,
 )
 from core.state_store import StateStore
 
@@ -188,6 +191,181 @@ class MockDataSource(DataSource):
                 "last_seen_sec": None,
             },
         ]
+
+    def _mock_lift_progress(self, request: ParkingRequest) -> float:
+        """현재 단계에서의 리프트 전개율. 실제 센서값이 아닌 Mock 시나리오 값."""
+        if request.status == RequestStatus.LIFTING:
+            age = time.monotonic() - self._stage_started.get(
+                request.id, time.monotonic()
+            )
+            return max(0.0, min(1.0, age / self._LIFT_HOLD_SEC))
+        if request.status == RequestStatus.MOVING_TO_SLOT:
+            return 1.0
+        return 0.0
+
+    def _mock_alignment_error(
+        self, request: ParkingRequest, robot_index: int
+    ) -> float | None:
+        if len(request.robot_ids) != 2:
+            return None
+        robot = self.store.find_robot(request.robot_ids[robot_index])
+        route = self._paired_route(request)
+        if request.status == RequestStatus.APPROACHING and robot and route:
+            target = route[-1][robot_index]
+            if robot.x is None or robot.y is None:
+                return None
+            # 목표까지의 이동 거리 자체를 mm 정렬 오차로 표시하면 접근 초기에
+            # 10~20m가 차축 오차처럼 보인다. Mock에서는 남은 거리에 따라
+            # 40mm 안팎에서 최종 8/11mm로 수렴하는 정렬 잔차를 만든다.
+            distance_m = math.hypot(
+                target[0] - robot.x, target[1] - robot.y
+            )
+            settled_error = 8.0 if robot_index == 0 else 11.0
+            return round(
+                settled_error + min(32.0, distance_m * 1.8), 1
+            )
+        if request.status in {
+            RequestStatus.LIFTING,
+            RequestStatus.MOVING_TO_SLOT,
+        }:
+            return 8.0 if robot_index == 0 else 11.0
+        return None
+
+    def get_cooperative_load_states(self) -> list[CooperativeLoadState]:
+        now = _now()
+        states: list[CooperativeLoadState] = []
+        with self.store.lock:
+            for request in self.store.requests:
+                if request.status in TERMINAL_STATUSES or len(request.robot_ids) != 2:
+                    continue
+                lift = self._mock_lift_progress(request)
+                actual = round(lift * 100.0, 1)
+                supported = lift >= 0.9
+                support_points = [
+                    SupportPointState(
+                        id=point_id,
+                        label=label,
+                        robot_id=request.robot_ids[robot_index],
+                        joint_names=joint_names,
+                        command_percent=100.0 if lift > 0 else 0.0,
+                        actual_percent=actual,
+                        supported=supported,
+                    )
+                    for point_id, label, robot_index, joint_names in (
+                        ("front_left", "앞축 좌", 0, [
+                            "arm_left_front_joint", "arm_left_rear_joint"
+                        ]),
+                        ("front_right", "앞축 우", 0, [
+                            "arm_right_front_joint", "arm_right_rear_joint"
+                        ]),
+                        ("rear_left", "뒤축 좌", 1, [
+                            "arm_left_front_joint", "arm_left_rear_joint"
+                        ]),
+                        ("rear_right", "뒤축 우", 1, [
+                            "arm_right_front_joint", "arm_right_rear_joint"
+                        ]),
+                    )
+                ]
+                front_error = self._mock_alignment_error(request, 0)
+                rear_error = self._mock_alignment_error(request, 1)
+                aligned = (
+                    front_error <= 30.0 and rear_error <= 30.0
+                    if front_error is not None and rear_error is not None
+                    else None
+                )
+                tire_count = sum(point.supported is True for point in support_points)
+                synchronized = (
+                    aligned and tire_count in {0, 4}
+                    if aligned is not None
+                    else None
+                )
+                stable = (
+                    synchronized and tire_count == 4
+                    if lift > 0 and synchronized is not None
+                    else None
+                )
+                states.append(
+                    CooperativeLoadState(
+                        request_id=request.id,
+                        vehicle_number=request.vehicle_number,
+                        lead_robot_id=request.robot_ids[0],
+                        follow_robot_id=request.robot_ids[1],
+                        front_alignment_error_mm=front_error,
+                        rear_alignment_error_mm=rear_error,
+                        support_points=support_points,
+                        lift_command_percent=100.0 if lift > 0 else 0.0,
+                        vehicle_rise_mm=round(30.0 * lift, 1),
+                        pitch_deg=round(0.4 * (1.0 - lift), 2) if lift > 0 else 0.0,
+                        roll_deg=round(0.2 * (1.0 - lift), 2) if lift > 0 else 0.0,
+                        tire_support_count=tire_count,
+                        synchronized=synchronized,
+                        stable=stable,
+                        slip_suspected=False,
+                        load_anomaly_suspected=False,
+                        source="MOCK",
+                        telemetry_age_sec=0.0,
+                        telemetry_rate_hz=10.0,
+                        updated_at=now,
+                    )
+                )
+        return states
+
+    def get_vision_alignment_states(self) -> list[VisionAlignmentState]:
+        now = _now()
+        with self.store.lock:
+            active = next(
+                (
+                    request
+                    for request in reversed(self.store.requests)
+                    if request.status not in TERMINAL_STATUSES and request.robot_ids
+                ),
+                None,
+            )
+            if active is None:
+                return []
+            robot_id = active.robot_ids[0]
+            has_detection = active.status in {
+                RequestStatus.APPROACHING,
+                RequestStatus.LIFTING,
+            }
+            if not has_detection:
+                return [
+                    VisionAlignmentState(
+                        robot_id=robot_id,
+                        connected=True,
+                        marker_detected=False,
+                        alignment_state="SEARCHING",
+                        source="MOCK",
+                        updated_at=now,
+                    )
+                ]
+            alignment_error = self._mock_alignment_error(active, 0)
+            lateral = 14.0 if alignment_error is None else min(85.0, alignment_error * 0.12)
+            aligned = active.status == RequestStatus.LIFTING and lateral <= 20.0
+            center_x = max(0.25, min(0.75, 0.5 + lateral / 1000.0))
+            return [
+                VisionAlignmentState(
+                    robot_id=robot_id,
+                    connected=True,
+                    marker_detected=True,
+                    marker_id=32,
+                    distance_m=0.84,
+                    reprojection_error_px=0.72,
+                    lateral_error_mm=round(lateral, 1),
+                    longitudinal_error_mm=-8.0,
+                    yaw_error_deg=0.7,
+                    marker_corners=[
+                        [center_x - 0.11, 0.30],
+                        [center_x + 0.11, 0.30],
+                        [center_x + 0.10, 0.64],
+                        [center_x - 0.10, 0.64],
+                    ],
+                    target_center=[0.5, 0.47],
+                    alignment_state="ALIGNED" if aligned else "ADJUSTING",
+                    source="MOCK",
+                    updated_at=now,
+                )
+            ]
 
     def reset(self) -> None:
         if self._emergency_stop_active:
@@ -357,6 +535,7 @@ class MockDataSource(DataSource):
                 self._apply_parking_result(request)
 
             if request.status == RequestStatus.COMPLETED:
+                request.completed_at = _now()
                 self._complete_request(request)
 
             return request.model_copy(deep=True)
@@ -615,6 +794,7 @@ class MockDataSource(DataSource):
             active_count = len(active_requests)
             for request in active_requests:
                 request.status = RequestStatus.CANCELLED
+                request.completed_at = _now()
                 if request.request_type == RequestType.PARK_IN and request.slot_id:
                     slot = self.store.find_slot(request.slot_id)
                     if slot and slot.status == "RESERVED":

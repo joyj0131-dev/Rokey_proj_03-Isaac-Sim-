@@ -13,7 +13,7 @@ const statusLabels = {
   ROBOT_ASSIGNED: "로봇 할당",
   APPROACHING: "차량 접근",
   LIFTING: "차량 리프트",
-  MOVING_TO_SLOT: "주차 위치 이동",
+  MOVING_TO_SLOT: "주차 이동",
   RETURNING: "대기 구역 복귀",
   COMPLETED: "완료",
   CANCELLED: "취소",
@@ -46,6 +46,9 @@ let recentWorkflowEvents = [];
 let selectedTaskEventRequestId = null;
 let selectedEventScope = "all";
 let selectedEventCategory = "all";
+let activeInspectorTab = new URLSearchParams(window.location.search).get(
+  "inspector"
+) || "task";
 const lastRequestStates = new Map();
 const robotSpeechBubbles = new Map();
 const seenSpeechAlertIds = new Set();
@@ -616,7 +619,8 @@ function renderLotMap(
   sensorStatus = [],
   requests = [],
   alerts = [],
-  safetyIncidents = []
+  safetyIncidents = [],
+  cooperativeLoads = []
 ) {
   const svg = document.getElementById("lotMap");
   const emptyMessage = document.getElementById("lotMapEmpty");
@@ -970,9 +974,6 @@ function renderLotMap(
       slotRequest?.request_type === "PARK_IN"
       && ["MOVING_TO_SLOT", "RETURNING"].includes(slotRequest.status)
     );
-    const movementLabel = slotRequest
-      ? slotRequest.request_type === "PARK_IN" ? "IN" : "OUT"
-      : null;
     parts.push(`
       <g class="lot-selectable" role="button" tabindex="0"
         data-entity-type="slot" data-entity-id="${slot.id}" aria-label="${slot.id} ${statusLabels[slot.status]}">
@@ -989,13 +990,6 @@ function renderLotMap(
       ` : ""}
       ${hasVehicle ? `
         <text class="lot-slot-vehicle" x="${cx}" y="${cy - 35}" aria-hidden="true">🚗</text>
-      ` : ""}
-      ${movementLabel ? `
-        <rect class="lot-slot-movement ${slotRequest.request_type}"
-          x="${cx + 18}" y="${cy - 70}" width="30" height="17" rx="8.5"></rect>
-        <text class="lot-slot-movement-label" x="${cx + 33}" y="${cy - 58}">
-          ${movementLabel}
-        </text>
       ` : ""}
       <text class="lot-slot-label" x="${cx}" y="${hasVehicle ? cy + 5 : cy - 5}">
         ${slot.id}${slot.is_accessible ? " ♿" : ""}
@@ -1072,14 +1066,31 @@ function renderLotMap(
     const obstacleActive = alerts.some(
       (alert) => members.some((robot) => obstacleAffectsRobot(alert, robot))
     );
-    const formationTone = obstacleActive ? "danger" : gap > 3 ? "warning" : "normal";
+    const load = cooperativeLoads.find((item) => item.request_id === request.id);
+    const loadDanger = Boolean(
+      load?.slip_suspected || load?.load_anomaly_suspected
+    );
+    const syncWarning = load?.synchronized === false;
+    const formationTone = obstacleActive || loadDanger
+      ? "danger"
+      : gap > 3 || syncWarning ? "warning" : "normal";
     const teamLabel = request.request_type === "PARK_IN" ? "입차팀" : "출차팀";
     const formationLabel = obstacleActive
       ? `${request.request_type === "PARK_IN" ? "입차" : "출차"}팀 대기`
+      : load?.slip_suspected
+        ? `${teamLabel} · 미끄러짐 의심`
+        : load?.load_anomaly_suspected
+          ? `${teamLabel} · 하중 이상 의심`
+          : load?.stable === true
+            ? "적재 안정"
+            : load?.synchronized === true
+              ? "동기화 정상"
+              : load?.synchronized === false
+                ? `${teamLabel} · 동기화 조정`
       : gap > 3
-        ? `${teamLabel} · 간격 조정`
-        : `${teamLabel} · ${requestMapStageLabel(request)}`;
-    const labelWidth = Math.max(88, Math.min(132, formationLabel.length * 8 + 18));
+        ? "간격 조정"
+        : requestMapStageLabel(request);
+    const labelWidth = Math.max(76, Math.min(122, formationLabel.length * 8 + 16));
     parts.push(`
       <g class="lot-formation ${formationTone}" aria-label="${formationLabel}">
         <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
@@ -1136,10 +1147,10 @@ function renderLotMap(
           role="button" tabindex="0" data-entity-type="robot" data-entity-id="${robot.id}"
           aria-label="${shortRobotName(robot.id)} ${statusText}">
           <circle class="lot-robot-compact-bg ${visualStatus} ${isSelected ? "selected" : ""}"
-            cx="${cx}" cy="${cy}" r="27"></circle>
+            cx="${cx}" cy="${cy}" r="23"></circle>
           <text class="lot-robot-compact-icon" x="${cx}" y="${cy + 2}" aria-hidden="true">🤖</text>
-          <circle class="lot-robot-compact-role-bg" cx="${cx + 20}" cy="${cy - 20}" r="8"></circle>
-          <text class="lot-robot-compact-role" x="${cx + 20}" y="${cy - 17}">${roleLetter}</text>
+          <circle class="lot-robot-compact-role-bg" cx="${cx + 17}" cy="${cy - 17}" r="7"></circle>
+          <text class="lot-robot-compact-role" x="${cx + 17}" y="${cy - 14.5}">${roleLetter}</text>
         </g>
       `);
       continue;
@@ -1247,7 +1258,8 @@ function renderLatestLotMap() {
     latestDashboard.sensors || [],
     latestDashboard.requests || [],
     latestDashboard.alerts || [],
-    latestDashboard.safety_incidents || []
+    latestDashboard.safety_incidents || [],
+    latestDashboard.cooperative_loads || []
   );
 }
 
@@ -1413,6 +1425,703 @@ function incidentEventStageOrder(stage) {
   ].indexOf(stage);
 }
 
+function inspectorRequest(dashboard) {
+  const requests = dashboard?.requests || [];
+  if (selectedMapItem?.type === "task") {
+    const selected = requests.find(
+      (request) => String(request.id) === String(selectedMapItem.id)
+    );
+    if (selected) return selected;
+  }
+  if (selectedMapItem?.type === "robot") {
+    const robot = (dashboard?.robots || []).find(
+      (item) => item.id === selectedMapItem.id
+    );
+    const selected = requests.find(
+      (request) => request.id === robot?.current_task_id
+    );
+    if (selected) return selected;
+  }
+  if (selectedMapItem?.type === "slot") {
+    const selected = requests.find(
+      (request) => request.slot_id === selectedMapItem.id
+        && !["COMPLETED", "CANCELLED"].includes(request.status)
+    );
+    if (selected) return selected;
+  }
+  return requests.find(
+    (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
+  ) || null;
+}
+
+function metricText(value, unit = "") {
+  if (value == null || Number.isNaN(Number(value))) return "미수신";
+  return `${Number(value).toFixed(1)}${unit}`;
+}
+
+function loadMetricText(value, unit = "", digits = 1) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(digits)}${unit}`;
+}
+
+function alignmentTone(value) {
+  if (value == null) return "unknown";
+  if (Math.abs(value) <= 20) return "normal";
+  if (Math.abs(value) <= 50) return "warning";
+  return "danger";
+}
+
+function cooperativeLoadPhase(status) {
+  if (["WAITING", "ROBOT_ASSIGNED"].includes(status)) {
+    return {
+      key: "preparing",
+      title: "협동 적재 준비",
+      description: "로봇 배정과 차량 접근을 준비하고 있습니다.",
+    };
+  }
+  if (status === "APPROACHING") {
+    return {
+      key: "approaching",
+      title: "협동 적재 준비",
+      description: "차축 중심을 확인하며 적재 위치를 조정하고 있습니다.",
+    };
+  }
+  if (status === "LIFTING") {
+    return {
+      key: "lifting",
+      title: "협동 적재 진행",
+      description: "네 지지점의 암 전개와 동기화를 확인합니다.",
+    };
+  }
+  if (status === "MOVING_TO_SLOT") {
+    return {
+      key: "transporting",
+      title: "적재 운반 상태",
+      description: "차량 기울기와 지지 안정성을 감시하고 있습니다.",
+    };
+  }
+  if (status === "RETURNING") {
+    return {
+      key: "returning",
+      title: "적재 작업 마무리",
+      description: "차량 배치를 마치고 로봇이 대기 구역으로 복귀 중입니다.",
+    };
+  }
+  if (status === "COMPLETED") {
+    return {
+      key: "completed",
+      title: "적재 작업 완료",
+      description: "차량 배치와 로봇 작업이 모두 종료되었습니다.",
+    };
+  }
+  return {
+    key: "cancelled",
+    title: "적재 작업 취소",
+    description: "작업이 취소되어 적재 상태 감시를 종료했습니다.",
+  };
+}
+
+function assignedTeamState(request, dashboard) {
+  const assignedIds = assignedRobotIds(request);
+  const expectedIds = assignedIds.length
+    ? assignedIds
+    : request.request_type === "PARK_IN"
+      ? ["entry_lead", "entry_follow"]
+      : ["exit_lead", "exit_follow"];
+  const robots = (dashboard?.robots || []).filter(
+    (robot) => expectedIds.includes(robot.id)
+  );
+  if (!robots.length) return "상태 미확인";
+  if (robots.every((robot) => robot.status === "IDLE")) return "대기";
+  if (robots.some((robot) => ["ERROR", "OFFLINE"].includes(robot.status))) {
+    return "확인 필요";
+  }
+  if (robots.some((robot) => robot.status === "BUSY")) return "작업 중";
+  if (robots.every((robot) => robot.status === "CHARGING")) return "충전 중";
+  return "상태 확인";
+}
+
+function terminalLoadSummary(phase, request, dashboard) {
+  const teamState = assignedTeamState(request, dashboard);
+  const duration = formatTaskDuration(request);
+  const robotLabel = assignedRobotTableLabel(request);
+  if (phase.key === "cancelled") {
+    return `
+      <div><span>작업 결과</span><strong>취소</strong></div>
+      <div><span>작업 시간</span><strong>${duration}</strong></div>
+      <div><span>대상 주차면</span><strong>${request.slot_id || "미배정"}</strong></div>
+      <div><span>사용 로봇</span><strong>${robotLabel}</strong></div>
+      <div><span>로봇 상태</span><strong>${teamState}</strong></div>
+      <div><span>적재 감시</span><strong>종료</strong></div>
+    `;
+  }
+  return `
+    <div><span>작업 결과</span><strong>완료</strong></div>
+    <div><span>작업 시간</span><strong>${duration}</strong></div>
+    <div><span>최종 주차면</span><strong>${request.slot_id || "—"}</strong></div>
+    <div><span>사용 로봇</span><strong>${robotLabel}</strong></div>
+    <div><span>로봇 상태</span><strong>${teamState}</strong></div>
+    <div><span>운반 감시</span><strong>종료</strong></div>
+  `;
+}
+
+function returningLoadSummary(request, dashboard) {
+  return `
+    <div><span>차량 배치</span><strong>완료</strong></div>
+    <div><span>운반 감시</span><strong>종료</strong></div>
+    <div><span>현재 단계</span><strong>복귀</strong></div>
+    <div><span>로봇 상태</span><strong>${assignedTeamState(request, dashboard)}</strong></div>
+  `;
+}
+
+function loadTelemetryFresh(load) {
+  if (!load) return false;
+  if (load.source === "MOCK") return true;
+  return load.telemetry_age_sec != null && load.telemetry_age_sec <= 2;
+}
+
+function phaseHasExpectedData(phase, load) {
+  if (!load) return false;
+  if (phase.key === "approaching") {
+    return load.front_alignment_error_mm != null
+      || load.rear_alignment_error_mm != null;
+  }
+  if (phase.key === "lifting") {
+    return (load.support_points || []).some(
+      (point) => point.actual_percent != null
+    );
+  }
+  if (phase.key === "transporting") {
+    return [
+      load.pitch_deg,
+      load.roll_deg,
+      load.stable,
+      load.synchronized,
+      load.tire_support_count,
+      load.vehicle_rise_mm,
+    ].some((value) => value != null);
+  }
+  return true;
+}
+
+function loadOverallState(phase, load) {
+  const fresh = loadTelemetryFresh(load);
+  const hasExpectedData = phaseHasExpectedData(phase, load);
+  if (phase.key === "preparing") {
+    return { tone: "neutral", label: "측정 전", detail: "차량 접근 대기" };
+  }
+  if (phase.key === "returning") {
+    return { tone: "normal", label: "적재 완료", detail: "로봇 복귀 중" };
+  }
+  if (phase.key === "completed") {
+    return { tone: "normal", label: "작업 완료", detail: "로봇 작업 종료" };
+  }
+  if (phase.key === "cancelled") {
+    return { tone: "warning", label: "작업 취소", detail: "적재 감시 종료" };
+  }
+  if (!fresh || !hasExpectedData) {
+    return {
+      tone: "warning",
+      label: phase.key === "approaching" ? "수신 대기" : "적재 확인 불가",
+      detail: "제한 정보 표시 중",
+    };
+  }
+  if (load.slip_suspected === true || load.load_anomaly_suspected === true) {
+    return { tone: "danger", label: "적재 상태 위험", detail: "즉시 확인 필요" };
+  }
+  if (
+    load.synchronized === false
+    || (phase.key === "transporting" && load.stable === false)
+  ) {
+    return { tone: "warning", label: "적재 상태 주의", detail: "편차 조정 필요" };
+  }
+  if (phase.key === "approaching") {
+    const values = [
+      load.front_alignment_error_mm,
+      load.rear_alignment_error_mm,
+    ].filter((value) => value != null);
+    const aligned = values.length === 2
+      && values.every((value) => Math.abs(value) <= 20);
+    return aligned
+      ? { tone: "normal", label: "정렬 정상", detail: "허용 범위 이내" }
+      : { tone: "active", label: "정렬 조정 중", detail: "차축 위치 보정" };
+  }
+  if (phase.key === "lifting") {
+    return load.tire_support_count === 4 && load.synchronized === true
+      ? { tone: "normal", label: "지지 정상", detail: "4개 지지점 확인" }
+      : { tone: "active", label: "적재 진행 중", detail: "암 전개·지지 확인" };
+  }
+  return load.stable === true
+    ? { tone: "normal", label: "적재 안정 추정", detail: "운반 상태 정상" }
+    : { tone: "active", label: "운반 감시 중", detail: "안정 상태 추정" };
+}
+
+function renderAlignmentMetric(label, value) {
+  const tone = alignmentTone(value);
+  const width = value == null
+    ? 0
+    : Math.min(100, Math.abs(Number(value)) / 50 * 100);
+  return `
+    <div class="load-alignment-card ${tone}">
+      <div class="load-alignment-heading">
+        <span>${label}</span>
+        <strong>${loadMetricText(value, "mm")}</strong>
+      </div>
+      <div class="load-limit-line">
+        <span>허용 ≤ 20mm</span>
+        <i>${value == null ? "미측정" : tone === "normal" ? "정상" : tone === "warning" ? "주의" : "위험"}</i>
+      </div>
+      <div class="load-limit-bar" aria-hidden="true"><i style="width:${width}%"></i></div>
+    </div>
+  `;
+}
+
+function loadBooleanLabel(value, positive, negative) {
+  if (value == null) return { label: "—", tone: "unknown" };
+  return value
+    ? { label: positive, tone: "normal" }
+    : { label: negative, tone: "warning" };
+}
+
+function renderLoadEmptyNotice(phase, load) {
+  const fresh = loadTelemetryFresh(load);
+  const hasExpectedData = phaseHasExpectedData(phase, load);
+  if (phase.key === "preparing") {
+    return `
+      <div class="load-stage-notice neutral">
+        <strong>적재 데이터 대기 중</strong>
+        <span>현재 로봇 배정 단계입니다. 정렬 데이터는 차량 접근부터 표시됩니다.</span>
+      </div>
+    `;
+  }
+  if (phase.key === "approaching" && (!fresh || !hasExpectedData)) {
+    return `
+      <div class="load-stage-notice neutral">
+        <strong>정렬 데이터 수신 대기</strong>
+        <span>현재 차량 접근 단계입니다. 암·지지·기울기 데이터는 리프트 단계부터 표시됩니다.</span>
+      </div>
+    `;
+  }
+  if (
+    ["lifting", "transporting"].includes(phase.key)
+    && (!fresh || !hasExpectedData)
+  ) {
+    const dataStateLabel = load?.telemetry_age_sec == null
+      ? "센서 데이터 미수신"
+      : "센서 데이터 수신 지연";
+    return `
+      <div class="load-stage-notice warning">
+        <strong>${dataStateLabel}</strong>
+        <span>현재는 위치·단계 기반 제한 정보만 표시합니다. 수신 시 상세 지표가 자동으로 나타납니다.</span>
+      </div>
+    `;
+  }
+  return "";
+}
+
+function renderLoadSummary(phase, load, request, dashboard) {
+  const points = load?.support_points || [];
+  const actualCount = points.filter(
+    (point) => point.actual_percent != null
+  ).length;
+  if (phase.key === "preparing") {
+    return `
+      <div><span>정렬</span><strong>미측정</strong></div>
+      <div><span>암 전개</span><strong>미측정</strong></div>
+      <div><span>타이어 지지</span><strong>미측정</strong></div>
+      <div><span>동기화</span><strong>대기</strong></div>
+    `;
+  }
+  if (phase.key === "approaching") {
+    const alignmentValues = [
+      load?.front_alignment_error_mm,
+      load?.rear_alignment_error_mm,
+    ].filter((value) => value != null);
+    const aligned = alignmentValues.length === 2
+      && alignmentValues.every((value) => Math.abs(value) <= 20);
+    return `
+      <div><span>정렬 측정</span><strong>${alignmentValues.length} / 2</strong></div>
+      <div><span>접근 상태</span><strong>${aligned ? "정상" : alignmentValues.length ? "조정 중" : "수신 대기"}</strong></div>
+      <div><span>암 전개</span><strong>측정 전</strong></div>
+      <div><span>동기화</span><strong>대기</strong></div>
+    `;
+  }
+  if (phase.key === "lifting") {
+    return `
+      <div><span>암 실제값</span><strong>${actualCount} / 4</strong></div>
+      <div><span>타이어 지지 추정</span><strong>${load?.tire_support_count == null ? "—" : `${load.tire_support_count} / 4`}</strong></div>
+      <div><span>차량 상승량</span><strong>${loadMetricText(load?.vehicle_rise_mm, "mm")}</strong></div>
+      <div><span>동기화</span><strong>${load?.synchronized == null ? "—" : load.synchronized ? "정상" : "조정 필요"}</strong></div>
+    `;
+  }
+  if (phase.key === "transporting") {
+    return `
+      <div><span>Pitch</span><strong>${loadMetricText(load?.pitch_deg, "°")}</strong></div>
+      <div><span>Roll</span><strong>${loadMetricText(load?.roll_deg, "°")}</strong></div>
+      <div><span>적재 안정 추정</span><strong>${load?.stable == null ? "—" : load.stable ? "정상" : "주의"}</strong></div>
+      <div><span>동기화</span><strong>${load?.synchronized == null ? "—" : load.synchronized ? "정상" : "조정 필요"}</strong></div>
+    `;
+  }
+  if (phase.key === "returning") {
+    return returningLoadSummary(request, dashboard);
+  }
+  return terminalLoadSummary(phase, request, dashboard);
+}
+
+function renderSupportPoint(point) {
+  const pointClass = String(point.id || "").replaceAll("_", "-");
+  const stateClass = point.supported === true
+    ? "supported"
+    : point.supported === false ? "pending" : "unknown";
+  const supportLabel = point.supported == null
+    ? "수신 대기"
+    : point.supported ? "지지 추정" : "전개 중";
+  return `
+    <button type="button"
+      class="support-point ${pointClass} ${stateClass}"
+      data-load-robot-id="${point.robot_id}"
+      title="${point.label} 담당 로봇을 지도에서 강조">
+      <i class="support-state-dot" aria-hidden="true"></i>
+      <span>${point.label.replace("축 ", " ")}</span>
+      <strong>${loadMetricText(point.actual_percent, "%")}</strong>
+      <small>명령 ${loadMetricText(point.command_percent, "%")}</small>
+      <em>${supportLabel}</em>
+    </button>
+  `;
+}
+
+function renderSupportDiagram(request, load) {
+  const pointById = new Map(
+    (load?.support_points || []).map((point) => [point.id, point])
+  );
+  const points = [
+    ["front_left", "앞축 좌", load?.lead_robot_id],
+    ["front_right", "앞축 우", load?.lead_robot_id],
+    ["rear_left", "뒤축 좌", load?.follow_robot_id],
+    ["rear_right", "뒤축 우", load?.follow_robot_id],
+  ].map(([id, label, robotId]) => pointById.get(id) || {
+    id,
+    label,
+    robot_id: robotId || "",
+    command_percent: null,
+    actual_percent: null,
+    supported: null,
+  });
+  return `
+    <div class="vehicle-load-diagram" aria-label="차량 주변 네 지지점 상태">
+      <div class="support-point-grid">
+        ${points.map(renderSupportPoint).join("")}
+        <div class="vehicle-load-body">
+          <span>차량 ${request.vehicle_number}</span>
+          <small>상승 ${loadMetricText(load?.vehicle_rise_mm, "mm")}</small>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLoadPhaseDetail(request, load, phase) {
+  if (phase.key === "preparing") return "";
+  if (phase.key === "approaching") {
+    return `
+      <div class="load-phase-section">
+        ${renderAlignmentMetric("앞축 정렬 오차", load?.front_alignment_error_mm)}
+        ${renderAlignmentMetric("뒤축 정렬 오차", load?.rear_alignment_error_mm)}
+        <div class="load-measurement-note">
+          <span>리프트 데이터</span><strong>측정 전</strong>
+        </div>
+      </div>
+    `;
+  }
+  if (phase.key === "lifting") {
+    return `
+      <div class="load-phase-section">
+        ${renderSupportDiagram(request, load)}
+        <div class="load-command-legend">
+          <span><i class="actual"></i>실제 관절값</span>
+          <span><i class="estimated"></i>타이어 지지 추정</span>
+        </div>
+      </div>
+    `;
+  }
+  if (phase.key === "transporting") {
+    const stable = loadBooleanLabel(
+      load?.stable, "안정 추정", "불안정 추정"
+    );
+    const slip = loadBooleanLabel(
+      load?.slip_suspected === null || load?.slip_suspected === undefined
+        ? null : !load.slip_suspected,
+      "의심 없음",
+      "미끄러짐 의심"
+    );
+    const sync = loadBooleanLabel(
+      load?.synchronized, "동기화 정상", "동기화 조정 필요"
+    );
+    return `
+      <div class="load-phase-section">
+        <dl class="load-metric-grid transport">
+          <div><dt>차량 Pitch <small>제한 2.0°</small></dt><dd>${loadMetricText(load?.pitch_deg, "°")}</dd></div>
+          <div><dt>차량 Roll <small>제한 2.0°</small></dt><dd>${loadMetricText(load?.roll_deg, "°")}</dd></div>
+          <div><dt>차량 상승량</dt><dd>${loadMetricText(load?.vehicle_rise_mm, "mm")}</dd></div>
+          <div><dt>타이어 지지 추정</dt><dd>${load?.tire_support_count == null ? "—" : `${load.tire_support_count} / 4`}</dd></div>
+        </dl>
+        <div class="load-health-list">
+          <span class="${stable.tone}"><i></i>${stable.label}</span>
+          <span class="${slip.tone}"><i></i>${slip.label}</span>
+          <span class="${sync.tone}"><i></i>${sync.label}</span>
+          <span class="${load?.load_anomaly_suspected === true ? "danger" : load?.load_anomaly_suspected === false ? "normal" : "unknown"}">
+            <i></i>${load?.load_anomaly_suspected == null ? "하중 —" : load.load_anomaly_suspected ? "하중 이상 의심" : "하중 편차 없음"}
+          </span>
+        </div>
+      </div>
+    `;
+  }
+  if (phase.key === "completed") {
+    return `
+      <div class="load-stage-notice normal">
+        <strong>협동 적재 작업을 완료했습니다</strong>
+        <span>차량 배치와 로봇 작업이 종료되어 적재 상태 감시를 마쳤습니다.</span>
+      </div>
+    `;
+  }
+  if (phase.key === "cancelled") {
+    return `
+      <div class="load-stage-notice warning">
+        <strong>협동 적재 작업이 취소되었습니다</strong>
+        <span>작업·이벤트 탭에서 취소 원인과 마지막 진행 단계를 확인해주세요.</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="load-stage-notice normal">
+      <strong>차량 배치를 완료했습니다</strong>
+      <span>담당 로봇 팀이 대기 위치로 복귀하고 있습니다.</span>
+    </div>
+  `;
+}
+
+function renderLoadFreshness(load) {
+  if (load?.source === "MOCK") {
+    return "최근 적재 데이터 · 방금 · 10Hz (Mock)";
+  }
+  if (load?.telemetry_age_sec == null) return "";
+  const age = Number(load.telemetry_age_sec);
+  const ageLabel = age < 0.1 ? "방금" : `${age.toFixed(1)}초 전`;
+  const rateLabel = load.telemetry_rate_hz == null
+    ? ""
+    : ` · ${Number(load.telemetry_rate_hz).toFixed(1)}Hz`;
+  return `최근 적재 데이터 · ${ageLabel}${rateLabel}`;
+}
+
+function renderCooperativeLoadDetail(dashboard) {
+  const container = document.getElementById("cooperativeLoadDetail");
+  const request = inspectorRequest(dashboard);
+  const load = request
+    ? (dashboard?.cooperative_loads || []).find(
+        (item) => item.request_id === request.id
+      )
+    : null;
+  if (!request) {
+    container.innerHTML = `
+      <div class="detail-empty-icon" aria-hidden="true">↔</div>
+      <span class="detail-kicker">협동 적재 상태</span>
+      <h3>진행 작업이 없습니다</h3>
+      <p>입·출차 작업이 시작되면 차축 정렬과 네 타이어 지지 상태를 표시합니다.</p>
+    `;
+    return;
+  }
+
+  const phase = cooperativeLoadPhase(request.status);
+  const overall = loadOverallState(phase, load);
+  const showPhaseMeasurements = (
+    loadTelemetryFresh(load) && phaseHasExpectedData(phase, load)
+  );
+  const terminalPhase = ["completed", "cancelled"].includes(phase.key);
+  const showSummary = (
+    phase.key === "returning" || terminalPhase || showPhaseMeasurements
+  );
+  const showPhaseDetail = (
+    phase.key === "returning" || terminalPhase || showPhaseMeasurements
+  );
+  const telemetryFresh = loadTelemetryFresh(load);
+  const sourceLabel = load?.source === "MOCK"
+    ? "Mock 시뮬레이션"
+    : load?.source === "MEASURED_ESTIMATED"
+      ? telemetryFresh ? "관절 측정 · 접촉 추정" : "적재 데이터 수신 지연"
+      : phase.key === "preparing" ? "측정 전" : "수신 대기";
+  const sourceClass = load?.source === "MEASURED_ESTIMATED" && !telemetryFresh
+    ? "stale"
+    : String(load?.source || "unavailable").toLowerCase();
+  const freshnessText = terminalPhase ? "" : renderLoadFreshness(load);
+  container.innerHTML = `
+    <div class="inspector-title-line">
+      <div>
+        <span class="detail-kicker">적재 상태</span>
+        <h3>차량 ${request.vehicle_number}</h3>
+        <p class="load-current-stage">현재 단계 · ${requestStatusLabel(request)}</p>
+      </div>
+      ${terminalPhase
+        ? ""
+        : `<span class="data-source-badge ${sourceClass}">${sourceLabel}</span>`}
+    </div>
+    <div class="load-overall-state ${overall.tone}">
+      <i aria-hidden="true"></i>
+      <div>
+        <span class="load-overall-caption">적재 종합 상태</span>
+        <strong>${overall.label}</strong>
+        <span>${overall.detail}</span>
+      </div>
+    </div>
+    <p class="load-phase-description">${phase.description}</p>
+    ${showSummary ? `
+      <div class="load-summary-grid">
+        ${renderLoadSummary(phase, load, request, dashboard)}
+      </div>
+    ` : ""}
+    ${renderLoadEmptyNotice(phase, load)}
+    ${showPhaseDetail
+      ? renderLoadPhaseDetail(request, load, phase)
+      : ""}
+    ${freshnessText ? `<p class="load-freshness">${freshnessText}</p>` : ""}
+    ${showPhaseMeasurements
+      ? `<p class="data-honesty-note">관절 피드백은 실제값, 접촉·하중·안정 상태는 추정값으로 구분합니다.</p>`
+      : ""}
+  `;
+  container.querySelectorAll("[data-load-robot-id]").forEach((button) => {
+    if (!button.dataset.loadRobotId) {
+      button.disabled = true;
+      return;
+    }
+    button.addEventListener("click", () => {
+      selectMapItem("robot", button.dataset.loadRobotId);
+    });
+  });
+}
+
+function visionForRequest(dashboard, request) {
+  const assignedIds = request ? assignedRobotIds(request) : [];
+  const states = dashboard?.vision_alignments || [];
+  return states.find((state) => assignedIds.includes(state.robot_id))
+    || states[0]
+    || null;
+}
+
+function renderVisionAlignmentDetail(dashboard) {
+  const container = document.getElementById("visionAlignmentDetail");
+  const request = inspectorRequest(dashboard);
+  const vision = visionForRequest(dashboard, request);
+  if (!vision) {
+    container.innerHTML = `
+      <div class="detail-empty-icon vision" aria-hidden="true">⌗</div>
+      <span class="detail-kicker">ArUco · Depth 비전</span>
+      <h3>인식 결과 미수신</h3>
+      <p>진행 작업의 전방 카메라와 marker_localizer 진단 토픽을 기다리고 있습니다.</p>
+    `;
+    return;
+  }
+
+  const width = 280;
+  const height = 158;
+  const points = (vision.marker_corners || [])
+    .map((point) => `${Number(point[0]) * width},${Number(point[1]) * height}`)
+    .join(" ");
+  const markerCenter = (vision.marker_corners || []).length
+    ? (vision.marker_corners || []).reduce(
+        (acc, point) => [acc[0] + Number(point[0]), acc[1] + Number(point[1])],
+        [0, 0]
+      ).map((value) => value / vision.marker_corners.length)
+    : null;
+  const target = vision.target_center || [0.5, 0.5];
+  const statusLabels = {
+    NO_DATA: "데이터 미수신",
+    SEARCHING: "마커 탐색 중",
+    ADJUSTING: "정렬 조정 중",
+    ALIGNED: "정렬 완료",
+  };
+  const stateTone = vision.alignment_state === "ALIGNED"
+    ? "normal"
+    : vision.marker_detected ? "warning" : "unknown";
+  const age = vision.updated_at
+    ? Math.max(0, (Date.now() - new Date(vision.updated_at).getTime()) / 1000)
+    : null;
+  container.innerHTML = `
+    <div class="inspector-title-line">
+      <div>
+        <span class="detail-kicker">ArUco · Depth 비전</span>
+        <h3>${shortRobotName(vision.robot_id)} 전방 카메라</h3>
+      </div>
+      <span class="data-source-badge ${vision.source.toLowerCase()}">${
+        vision.source === "MOCK" ? "Mock 인식" : "ArUco 융합"
+      }</span>
+    </div>
+    <div class="vision-mini-screen ${vision.connected ? "" : "offline"}">
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="ArUco 검출 오버레이">
+        <defs>
+          <linearGradient id="visionBg" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stop-color="#111827"></stop>
+            <stop offset="1" stop-color="#334155"></stop>
+          </linearGradient>
+        </defs>
+        <rect width="${width}" height="${height}" fill="url(#visionBg)"></rect>
+        <path d="M0 130 L80 82 L205 82 L280 130" class="vision-lane"></path>
+        <line x1="${target[0] * width - 10}" y1="${target[1] * height}" x2="${target[0] * width + 10}" y2="${target[1] * height}" class="vision-target"></line>
+        <line x1="${target[0] * width}" y1="${target[1] * height - 10}" x2="${target[0] * width}" y2="${target[1] * height + 10}" class="vision-target"></line>
+        ${points ? `<polygon points="${points}" class="vision-marker-box"></polygon>` : ""}
+        ${markerCenter ? `
+          <line x1="${markerCenter[0] * width}" y1="${markerCenter[1] * height}" x2="${target[0] * width}" y2="${target[1] * height}" class="vision-error-line"></line>
+          <circle cx="${markerCenter[0] * width}" cy="${markerCenter[1] * height}" r="4" class="vision-marker-center"></circle>
+        ` : ""}
+        <text x="12" y="21" class="vision-overlay-label">${
+          vision.marker_detected ? `ARUCO ${vision.marker_id}` : "MARKER SEARCH"
+        }</text>
+      </svg>
+      <span class="vision-live-badge ${vision.connected ? "online" : "offline"}">${
+        vision.connected ? "LIVE DATA" : "OFFLINE"
+      }</span>
+    </div>
+    <div class="vision-state-row ${stateTone}">
+      <i></i><strong>${statusLabels[vision.alignment_state] || vision.alignment_state}</strong>
+      <span>${age == null ? "보정 시각 미수신" : `${age.toFixed(1)}초 전 갱신`}</span>
+    </div>
+    <dl class="vision-metrics">
+      <div><dt>마커 ID</dt><dd>${vision.marker_id ?? "미검출"}</dd></div>
+      <div><dt>거리</dt><dd>${metricText(vision.distance_m, "m")}</dd></div>
+      <div><dt>횡 오차</dt><dd>${metricText(vision.lateral_error_mm, "mm")}</dd></div>
+      <div><dt>전후 오차</dt><dd>${metricText(vision.longitudinal_error_mm, "mm")}</dd></div>
+      <div><dt>Yaw 오차</dt><dd>${metricText(vision.yaw_error_deg, "°")}</dd></div>
+      <div><dt>재투영 오차</dt><dd>${metricText(vision.reprojection_error_px, "px")}</dd></div>
+    </dl>
+    <div class="vision-pipeline">
+      <span>카메라</span><i>→</i><span>ArUco</span><i>→</i><span>Odom 융합</span><i>→</i><span>정렬</span>
+    </div>
+  `;
+}
+
+function activateInspectorTab(tabName) {
+  activeInspectorTab = ["task", "load", "vision"].includes(tabName)
+    ? tabName
+    : "task";
+  document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
+    const active = button.dataset.inspectorTab === activeInspectorTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("[data-inspector-panel]").forEach((panel) => {
+    const active = panel.dataset.inspectorPanel === activeInspectorTab;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+}
+
+function setupInspectorTabs() {
+  document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activateInspectorTab(button.dataset.inspectorTab);
+    });
+  });
+  activateInspectorTab(activeInspectorTab);
+}
+
 function renderSelectionDetail(dashboard) {
   const detail = document.getElementById("selectionDetail");
   const slots = dashboard?.slots || [];
@@ -1462,27 +2171,47 @@ function renderSelectionDetail(dashboard) {
       : unavailableSensors.length
         ? `${unavailableSensors.map((sensor) => sensor.id).join(" · ")} 미수신 · 안전 감지 제한 운용`
         : "정상";
-    const cooperationLabel = assignedRobots.length < 2
-      ? "로봇 배정 중"
-      : formationGap != null && formationGap > 3
-        ? `간격 조정 필요 · ${formationGap.toFixed(1)} m`
-        : "정상";
+    const isCompleted = request.status === "COMPLETED";
+    const isCancelled = request.status === "CANCELLED";
+    const isTerminal = isCompleted || isCancelled;
+    const cooperationWarning = (
+      !isTerminal && formationGap != null && formationGap > 3
+    );
+    const cooperationLabel = isCompleted
+      ? "정상 종료"
+      : isCancelled
+        ? "작업 종료"
+        : assignedRobots.length < 2
+          ? "로봇 배정 중"
+          : cooperationWarning
+            ? `간격 조정 필요 · ${formationGap.toFixed(1)} m`
+            : "정상";
     const stageSummary = requestStepSummary(request);
+    const detailKicker = isCompleted
+      ? "최근 완료 작업"
+      : isCancelled ? "취소 작업 상세" : "현재 작업 상세";
+    const statusSummaryClass = requestObstacle
+      ? "PAUSED"
+      : isCompleted ? "ONLINE" : isCancelled ? "ERROR" : "BUSY";
     detail.innerHTML = `
-      <span class="detail-kicker">현재 작업 상세</span>
+      <span class="detail-kicker">${detailKicker}</span>
       <div class="detail-title-row">
         <h3>${requestTypeLabels[request.request_type]} #${request.id}</h3>
       </div>
-      <div class="detail-status-summary ${requestObstacle ? "PAUSED" : "BUSY"}">
-        <span>현재 단계</span>
+      <div class="detail-status-summary ${statusSummaryClass}">
+        <span>${isTerminal ? "작업 결과" : "현재 단계"}</span>
         <strong>${
           requestObstacle
             ? "장애물 대기"
-            : `${stageSummary.number}. ${stageSummary.current}`
+            : isCancelled ? "취소" : `${stageSummary.number}. ${stageSummary.current}`
         }</strong>
         <small>${
           requestObstacle
             ? `${stageSummary.number}. ${stageSummary.current}에서 정지 · 해소 후 자동 재개`
+            : isCompleted
+              ? `최종 주차면 ${request.slot_id || "—"} · 작업 시간 ${formatTaskDuration(request)}`
+              : isCancelled
+                ? "작업·이벤트 탭에서 취소 원인 확인"
             : stageSummary.next
               ? `다음 단계 · ${stageSummary.next}`
               : "마지막 단계"
@@ -1492,11 +2221,13 @@ function renderSelectionDetail(dashboard) {
         <div><dt>차량 번호</dt><dd>${request.vehicle_number}</dd></div>
         <div><dt>목표 주차면</dt><dd>${request.slot_id || "배정 중"}</dd></div>
         <div><dt>담당 로봇</dt><dd>${assignedIds.length ? assignedRobotTableLabel(request) : "배정 중"}</dd></div>
-        <div><dt>경과 시간</dt><dd>${formatElapsed(request.created_at)}</dd></div>
+        <div><dt>${isTerminal ? "작업 시간" : "경과 시간"}</dt><dd>${
+          isTerminal ? formatTaskDuration(request) : formatElapsed(request.created_at)
+        }</dd></div>
       </dl>
       <dl class="detail-list task-health-list">
         <div><dt>협동 상태</dt><dd><span class="detail-state ${
-          formationGap != null && formationGap > 3 ? "warning" : "normal"
+          cooperationWarning ? "warning" : "normal"
         }">● ${cooperationLabel}</span></dd></div>
         <div><dt>안전 상태</dt><dd><span class="detail-state ${
           requestObstacle ? "danger" : unavailableSensors.length ? "warning" : "normal"
@@ -2028,6 +2759,22 @@ function formatElapsed(createdAt) {
   return `${minutes}:${seconds}`;
 }
 
+function formatTaskDuration(request) {
+  if (!request?.created_at) return "—";
+  const startedAt = new Date(request.created_at).getTime();
+  const endedAt = request.completed_at
+    ? new Date(request.completed_at).getTime()
+    : Date.now();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return "—";
+  const elapsedSec = Math.max(0, Math.floor((endedAt - startedAt) / 1000));
+  const hours = Math.floor(elapsedSec / 3600);
+  const minutes = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, "0");
+  const seconds = String(elapsedSec % 60).padStart(2, "0");
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${minutes}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
+
 function renderTaskActiveFilters(searchValue, statusFilter, typeFilter) {
   const container = document.getElementById("taskActiveFilters");
   const filters = [];
@@ -2117,12 +2864,47 @@ function renderActiveTaskBanner(requests, alerts = [], sensors = [], system = nu
     (item) => !["COMPLETED", "CANCELLED"].includes(item.status)
   );
   if (!request) {
-    banner.classList.add("hidden");
-    banner.innerHTML = "";
-    banner.removeAttribute("role");
-    banner.removeAttribute("tabindex");
-    banner.onclick = null;
-    banner.onkeydown = null;
+    const recentRequest = requests.find(
+      (item) => ["COMPLETED", "CANCELLED"].includes(item.status)
+    );
+    if (!recentRequest) {
+      banner.classList.add("hidden");
+      banner.classList.remove("idle-recent", "danger", "obstacle-wait");
+      banner.innerHTML = "";
+      banner.removeAttribute("role");
+      banner.removeAttribute("tabindex");
+      banner.onclick = null;
+      banner.onkeydown = null;
+      return;
+    }
+    const completed = recentRequest.status === "COMPLETED";
+    banner.classList.remove("hidden", "danger", "obstacle-wait");
+    banner.classList.add("idle-recent");
+    banner.setAttribute("role", "button");
+    banner.setAttribute("tabindex", "0");
+    banner.setAttribute(
+      "aria-label",
+      `최근 ${completed ? "완료" : "취소"} 작업 #${recentRequest.id} 상세 보기`
+    );
+    const selectRecentTask = () =>
+      selectMapItem("task", String(recentRequest.id));
+    banner.onclick = selectRecentTask;
+    banner.onkeydown = (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      selectRecentTask();
+    };
+    banner.innerHTML = `
+      <div class="active-task-idle-icon" aria-hidden="true">${completed ? "✓" : "!"}</div>
+      <div class="active-task-idle-copy">
+        <span>현재 진행 작업 없음</span>
+        <strong>최근 ${completed ? "완료" : "취소"} 작업 · ${requestTypeLabels[recentRequest.request_type]} #${recentRequest.id}</strong>
+        <small>차량 ${recentRequest.vehicle_number} → ${recentRequest.slot_id || "주차면 미배정"} · ${
+          completed ? `소요 ${formatTaskDuration(recentRequest)}` : "원인 확인 필요"
+        }</small>
+      </div>
+      <span class="active-task-idle-action">최근 작업 보기 ›</span>
+    `;
     return;
   }
 
@@ -2134,8 +2916,7 @@ function renderActiveTaskBanner(requests, alerts = [], sensors = [], system = nu
   });
   const sensorLimited = unavailableSensors.length > 0;
   const step = requestProgressIndex(request.status) + 1;
-  banner.classList.remove("hidden");
-  banner.classList.remove("danger");
+  banner.classList.remove("hidden", "idle-recent", "danger");
   banner.classList.toggle("obstacle-wait", obstacleActive);
   banner.setAttribute("role", "button");
   banner.setAttribute("tabindex", "0");
@@ -2809,8 +3590,9 @@ async function refreshDashboard() {
       }
     }
 
-    // 첫 화면에서도 상세 패널이 비어 보이지 않도록 주차된 주차면을
-    // 우선 선택하고, 없으면 첫 번째 주차면을 기본값으로 사용한다.
+    // 첫 화면에서도 상세 패널이 비어 보이지 않도록 진행 작업을 우선한다.
+    // 진행 작업이 없으면 최근 완료/취소 작업을 선택해 "현재 작업 없음"과
+    // 우측의 과거 작업 상세가 서로 모순되어 보이지 않게 한다.
     if (!selectedMapItem) {
       const activeRequest = data.requests.find(
         (request) => !["COMPLETED", "CANCELLED"].includes(request.status)
@@ -2818,8 +3600,17 @@ async function refreshDashboard() {
       if (activeRequest) {
         selectedMapItem = { type: "task", id: String(activeRequest.id) };
       } else {
-        const defaultSlot = data.slots.find((slot) => slot.status === "OCCUPIED") || data.slots[0];
-        if (defaultSlot) selectedMapItem = { type: "slot", id: defaultSlot.id };
+        const recentRequest = data.requests.find(
+          (request) => ["COMPLETED", "CANCELLED"].includes(request.status)
+        );
+        if (recentRequest) {
+          selectedMapItem = { type: "task", id: String(recentRequest.id) };
+        } else {
+          const defaultSlot = data.slots.find(
+            (slot) => slot.status === "OCCUPIED"
+          ) || data.slots[0];
+          if (defaultSlot) selectedMapItem = { type: "slot", id: defaultSlot.id };
+        }
       }
     }
 
@@ -2847,10 +3638,13 @@ async function refreshDashboard() {
       data.sensors || [],
       data.requests,
       data.alerts || [],
-      data.safety_incidents || []
+      data.safety_incidents || [],
+      data.cooperative_loads || []
     );
     ensureRobotAnimationLoop();
     renderSelectionDetail(data);
+    renderCooperativeLoadDetail(data);
+    renderVisionAlignmentDetail(data);
     renderRequests(data.requests, data.system);
     renderAlerts(data.alerts || [], data.sensors || [], data.system);
     renderRecentEvents(data.alerts || []);
@@ -3261,6 +4055,7 @@ window.advanceRequest = advanceRequest;
 window.resolveAlert = resolveAlert;
 
 setupWorkspaceTabs();
+setupInspectorTabs();
 updateRequestFlow();
 
 async function runDashboardRefreshLoop() {

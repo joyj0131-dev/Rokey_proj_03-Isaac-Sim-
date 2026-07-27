@@ -11,10 +11,12 @@ task_dispatcher 인터페이스가 ROS2든 HTTP든, create_request()의 구현�
 from abc import ABC, abstractmethod
 
 from .models import (
+    CooperativeLoadState,
     OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
     SafetyResetRequest,
+    VisionAlignmentState,
 )
 from .safety_incident import recover_obstacle_incident
 from .state_store import StateStore
@@ -136,4 +138,12 @@ class DataSource(ABC):
 
     def get_sensor_status(self) -> list[dict]:
         """웹 도면에 표시할 센서 연결 상태. 구현이 없으면 빈 목록."""
+        return []
+
+    def get_cooperative_load_states(self) -> list[CooperativeLoadState]:
+        """진행 작업별 협동 적재 상태. 데이터 계약이 없으면 빈 목록."""
+        return []
+
+    def get_vision_alignment_states(self) -> list[VisionAlignmentState]:
+        """로봇별 ArUco 검출·정렬 상태. 데이터 계약이 없으면 빈 목록."""
         return []

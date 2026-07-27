@@ -16,6 +16,7 @@ M2(검출, aruco_pose)와 M3(월드 측위, marker_localizer)를 한 노드에�
     ros2 run parkbot_aruco marker_localizer_node --ros-args -p fuse:=true
 """
 
+import json
 import math
 import os
 
@@ -27,6 +28,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
 
 from parkbot_aruco import aruco_pose as AP
 from parkbot_aruco import marker_localizer as ML
@@ -67,6 +69,9 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("odom_topic", "/robot_entry_lead/odom")  # fuse=True 일 때 구독
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
         self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
+        self.declare_parameter("robot_id", "entry_lead")
+        self.declare_parameter("pose_topic", "/robot_pose")
+        self.declare_parameter("diagnostics_topic", "")
 
         image_topic = self.get_parameter("image_topic").value
         info_topic = self.get_parameter("camera_info_topic").value
@@ -75,10 +80,18 @@ class MarkerLocalizerNode(Node):
         self.fuse = bool(self.get_parameter("fuse").value)
         self.log_every = max(1, int(self.get_parameter("log_every").value))
         self.frame = self.get_parameter("frame").value
+        self.robot_id = str(self.get_parameter("robot_id").value)
+        self.pose_topic = str(self.get_parameter("pose_topic").value)
+        diagnostics_topic = str(
+            self.get_parameter("diagnostics_topic").value
+        ).strip()
+        self.diagnostics_topic = (
+            diagnostics_topic
+            or f"/robot_{self.robot_id}/vision/alignment"
+        )
         self.T_base_cam = np.array(
             self.get_parameter("t_base_cam").value, dtype=np.float64).reshape(4, 4)
 
-        import json
         from pathlib import Path
         map_file = (Path(map_param) if map_param
                     else ML.default_marker_map_path())
@@ -95,7 +108,10 @@ class MarkerLocalizerNode(Node):
             CameraInfo, info_topic, self._on_info, qos_profile_sensor_data)
         self.create_subscription(
             Image, image_topic, self._on_image, qos_profile_sensor_data)
-        self.pub_pose = self.create_publisher(PoseStamped, "/robot_pose", 10)
+        self.pub_pose = self.create_publisher(PoseStamped, self.pose_topic, 10)
+        self.pub_diagnostics = self.create_publisher(
+            String, self.diagnostics_topic, 10
+        )
 
         # fuse=True 면 상보 필터를 만들고 오도메트리를 구독해 예측에 쓴다.
         # fuse=False 면 self.filt 가 None 으로 남아 기존 마커 단독 경로를 그대로 탄다.
@@ -109,6 +125,7 @@ class MarkerLocalizerNode(Node):
 
         self.get_logger().info(
             f"marker_localizer_node 시작 | image={image_topic} info={info_topic} "
+            f"| pose={self.pose_topic} diagnostics={self.diagnostics_topic} "
             f"| 지도 {len(self.marker_map.by_id)}개 마커 | 카메라 마운트 파라미터 로드")
 
     def _on_info(self, msg: CameraInfo):
@@ -130,6 +147,7 @@ class MarkerLocalizerNode(Node):
     def _on_image(self, msg: Image):
         if self.K is None:
             self.get_logger().warn("camera_info 대기 중 — 아직 K 없음", once=True)
+            self._publish_diagnostics(msg, None)
             return
         import cv2
         img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
@@ -137,6 +155,7 @@ class MarkerLocalizerNode(Node):
         poses = AP.detect_and_estimate(
             gray, self.detector, self.code_size, self.K, self.dist)
 
+        valid_diagnostics = []
         for p in poses:
             if p.reproj_err_px > self.max_reproj:
                 continue
@@ -147,6 +166,7 @@ class MarkerLocalizerNode(Node):
                 p.marker_id, T_cm, self.T_base_cam, self.marker_map)
             if fix is None:
                 continue
+            valid_diagnostics.append((p.reproj_err_px, p, fix))
 
             n = self._seen_count.get(p.marker_id, 0) + 1
             self._seen_count[p.marker_id] = n
@@ -186,6 +206,44 @@ class MarkerLocalizerNode(Node):
                 ps.pose.position.y = 0.0
                 ps.pose.position.z = pz
             self.pub_pose.publish(ps)
+        best = min(valid_diagnostics, key=lambda item: item[0], default=None)
+        self._publish_diagnostics(msg, best)
+
+    def _publish_diagnostics(self, image_msg, detection) -> None:
+        """웹 관제용 최소 ArUco 결과를 표준 String(JSON)으로 발행한다.
+
+        목표점 오차는 이 노드가 임의로 만들지 않는다. 마커 코너·거리·측위값만
+        제공하고, 목표를 아는 상위 제어/웹 계층이 필요한 오차를 계산한다.
+        """
+        payload = {
+            "robot_id": self.robot_id,
+            "camera": "front",
+            "connected": True,
+            "detected": detection is not None,
+            "frame_width": int(image_msg.width),
+            "frame_height": int(image_msg.height),
+            "source": "ARUCO_FUSED" if self.fuse else "ARUCO",
+        }
+        if detection is not None:
+            _score, pose, fix = detection
+            width = max(1.0, float(image_msg.width))
+            height = max(1.0, float(image_msg.height))
+            payload.update(
+                marker_id=int(pose.marker_id),
+                distance_m=float(pose.distance_m),
+                reprojection_error_px=float(pose.reproj_err_px),
+                ambiguity=float(pose.ambiguity),
+                marker_corners=[
+                    [float(point[0]) / width, float(point[1]) / height]
+                    for point in pose.corners
+                ],
+                fix_x=float(fix.x),
+                fix_z=float(fix.z),
+                fix_yaw_deg=float(fix.yaw_deg),
+            )
+        message = String()
+        message.data = json.dumps(payload, ensure_ascii=False)
+        self.pub_diagnostics.publish(message)
 
 
 def main(args=None):

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>주차로봇 통합 관제센터</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260727-v21-safety-incident" />
+  <link rel="stylesheet" href="/static/style.css?v=20260727-v22-load-vision" />
 </head>
 <body>
   <div class="app-shell">
@@ -138,10 +138,19 @@
                 </p>
               </div>
 
-              <aside id="selectionDetail" class="selection-detail" aria-live="polite">
-                <span class="detail-kicker">선택 정보</span>
-                <h3>도면에서 항목을 선택하세요</h3>
-                <p>주차면이나 로봇을 누르면 상태를 자세히 확인할 수 있습니다.</p>
+              <aside class="live-inspector" aria-label="작업·적재·비전 상세">
+                <div class="inspector-tabs" role="tablist" aria-label="상세 정보 선택">
+                  <button type="button" class="active" data-inspector-tab="task" role="tab" aria-selected="true">작업</button>
+                  <button type="button" data-inspector-tab="load" role="tab" aria-selected="false">적재 상태</button>
+                  <button type="button" data-inspector-tab="vision" role="tab" aria-selected="false">비전</button>
+                </div>
+                <div id="selectionDetail" class="selection-detail inspector-panel active" data-inspector-panel="task" aria-live="polite">
+                  <span class="detail-kicker">선택 정보</span>
+                  <h3>도면에서 항목을 선택하세요</h3>
+                  <p>주차면이나 로봇을 누르면 상태를 자세히 확인할 수 있습니다.</p>
+                </div>
+                <div id="cooperativeLoadDetail" class="selection-detail inspector-panel" data-inspector-panel="load" hidden aria-live="polite"></div>
+                <div id="visionAlignmentDetail" class="selection-detail inspector-panel" data-inspector-panel="vision" hidden aria-live="polite"></div>
               </aside>
             </div>
           </section>
@@ -428,6 +437,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=20260727-v21-safety-incident"></script>
+  <script src="/static/app.js?v=20260727-v22-load-vision"></script>
 </body>
 </html>

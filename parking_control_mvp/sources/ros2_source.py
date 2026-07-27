@@ -17,6 +17,8 @@ SEARCHING/APPROACHING/PICKED_UP/MOVING 상태를 모두 수용한다. NAVIGATING
 LIFTING 또는 PICKED_UP을 이미 관측했는지로 구분한다.
 """
 
+import json
+import math
 import threading
 import time
 from collections import deque
@@ -32,7 +34,9 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import PointStamped, PoseStamped, Twist
+from sensor_msgs.msg import JointState, PointCloud2
+from std_msgs.msg import Float32, String
 
 from parking_robot_interfaces.msg import ObstacleAlert, SafetyState, TaskState
 from parking_robot_interfaces.srv import (
@@ -57,11 +61,14 @@ from core.models import (
     Alert,
     AlertCategory,
     AlertLevel,
+    CooperativeLoadState,
     ParkingRequest,
     ParkingSlot,
     RequestStatus,
     RequestType,
     Robot,
+    SupportPointState,
+    VisionAlignmentState,
 )
 
 _REQUEST_TYPE_TO_ROS = {RequestType.PARK_IN: "ENTRY", RequestType.PARK_OUT: "EXIT"}
@@ -118,6 +125,18 @@ _SLOT_STATUS_FROM_TASK = {
 
 _LIDAR_CONTRACTS = (
     ("L1", "주차장 전체", -7.82, 0.0, "/parking/lidar/points_world"),
+)
+
+_V4_ROBOT_IDS = (
+    "entry_lead",
+    "entry_follow",
+    "exit_lead",
+    "exit_follow",
+)
+_ARM_TARGET_RAD = math.pi / 2.0
+_SUPPORT_POINT_JOINTS = (
+    ("left", ("arm_left_front_joint", "arm_left_rear_joint")),
+    ("right", ("arm_right_front_joint", "arm_right_rear_joint")),
 )
 
 
@@ -241,7 +260,7 @@ class _ParkingDbReader:
         )
         return self._query(
             "SELECT task_id, request_type, state, vehicle_id, robot_id,"
-            f" {follower_column}, slot_id, created_at"
+            f" {follower_column}, slot_id, created_at, updated_at"
             " FROM tasks ORDER BY created_at DESC LIMIT %s",
             (limit,),
         )
@@ -299,6 +318,20 @@ class Ros2DataSource(DataSource):
             sensor_id: deque(maxlen=30)
             for sensor_id, _zone, _x, _y, _topic in _LIDAR_CONTRACTS
         }
+        self._perception_lock = threading.Lock()
+        self._robot_pose_x: dict[str, float] = {}
+        self._robot_motion: dict[str, dict[str, float]] = {}
+        self._robot_command_motion: dict[str, tuple[float, float]] = {}
+        self._robot_slip_since: dict[str, float] = {}
+        self._axle_center_x: dict[str, float] = {}
+        self._arm_actual_percent: dict[str, dict[str, float]] = {}
+        self._lift_command_percent: dict[str, float] = {}
+        self._load_telemetry_received: dict[str, deque] = {
+            robot_id: deque(maxlen=60) for robot_id in _V4_ROBOT_IDS
+        }
+        self._vision_alignment: dict[
+            str, tuple[VisionAlignmentState, float]
+        ] = {}
 
     # ------------------------------------------------------------------
     # 기동/종료
@@ -339,6 +372,43 @@ class Ros2DataSource(DataSource):
                 PointCloud2,
                 topic,
                 lambda _msg, sid=sensor_id: self._on_lidar(sid),
+                qos_profile_sensor_data,
+            )
+        for robot_id in _V4_ROBOT_IDS:
+            self._node.create_subscription(
+                PoseStamped,
+                f"/robot_{robot_id}/pose",
+                lambda msg, rid=robot_id: self._on_robot_pose(rid, msg),
+                qos_profile_sensor_data,
+            )
+            self._node.create_subscription(
+                PointStamped,
+                f"/robot_{robot_id}/axle_center",
+                lambda msg, rid=robot_id: self._on_axle_center(rid, msg),
+                10,
+            )
+            self._node.create_subscription(
+                JointState,
+                f"/robot_{robot_id}/joint_states",
+                lambda msg, rid=robot_id: self._on_joint_state(rid, msg),
+                qos_profile_sensor_data,
+            )
+            self._node.create_subscription(
+                Float32,
+                f"/robot_{robot_id}/lift_cmd",
+                lambda msg, rid=robot_id: self._on_lift_command(rid, msg),
+                10,
+            )
+            self._node.create_subscription(
+                Twist,
+                f"/robot_{robot_id}/cmd_vel",
+                lambda msg, rid=robot_id: self._on_cmd_vel(rid, msg),
+                10,
+            )
+            self._node.create_subscription(
+                String,
+                f"/robot_{robot_id}/vision/alignment",
+                lambda msg, rid=robot_id: self._on_vision_alignment(rid, msg),
                 qos_profile_sensor_data,
             )
 
@@ -440,6 +510,11 @@ class Ros2DataSource(DataSource):
                     status = self._fine_status.get(row["task_id"], status)
 
                 created_at = row["created_at"]
+                completed_at = (
+                    row["updated_at"]
+                    if row["state"] in ("DONE", "FAILED")
+                    else None
+                )
                 requests.append(
                     ParkingRequest(
                         id=internal_id,
@@ -462,6 +537,13 @@ class Ros2DataSource(DataSource):
                             created_at.isoformat(timespec="seconds")
                             if hasattr(created_at, "isoformat")
                             else str(created_at)
+                        ),
+                        completed_at=(
+                            completed_at.isoformat(timespec="seconds")
+                            if hasattr(completed_at, "isoformat")
+                            else str(completed_at)
+                            if completed_at is not None
+                            else None
                         ),
                         external_task_id=row["task_id"],
                     )
@@ -563,6 +645,300 @@ class Ros2DataSource(DataSource):
                     }
                 )
         return statuses
+
+    def get_cooperative_load_states(self) -> list[CooperativeLoadState]:
+        with self.store.lock:
+            requests = [
+                request.model_copy(deep=True)
+                for request in self.store.requests
+                if request.status not in TERMINAL_STATUSES
+                and len(request.robot_ids) >= 2
+            ]
+        with self._perception_lock:
+            pose_x = dict(self._robot_pose_x)
+            axle_x = dict(self._axle_center_x)
+            arm_actual = {
+                robot_id: dict(values)
+                for robot_id, values in self._arm_actual_percent.items()
+            }
+            lift_command = dict(self._lift_command_percent)
+            load_telemetry_received = {
+                robot_id: list(received)
+                for robot_id, received in self._load_telemetry_received.items()
+            }
+            robot_motion = {
+                robot_id: dict(values)
+                for robot_id, values in self._robot_motion.items()
+            }
+            command_motion = dict(self._robot_command_motion)
+
+        states: list[CooperativeLoadState] = []
+        for request in requests:
+            lead, follow = request.robot_ids[:2]
+            load_samples = sorted(
+                received_at
+                for robot_id in (lead, follow)
+                for received_at in load_telemetry_received.get(robot_id, [])
+            )
+            telemetry_age = (
+                round(time.monotonic() - load_samples[-1], 1)
+                if load_samples else None
+            )
+            telemetry_rate = None
+            if len(load_samples) > 1:
+                elapsed = load_samples[-1] - load_samples[0]
+                if elapsed > 0:
+                    telemetry_rate = round(
+                        (len(load_samples) - 1) / elapsed, 1
+                    )
+
+            def alignment_error(robot_id):
+                if robot_id not in pose_x or robot_id not in axle_x:
+                    return None
+                return round(abs(pose_x[robot_id] - axle_x[robot_id]) * 1000.0, 1)
+
+            support_points = []
+            for axle, robot_id, axle_label in (
+                ("front", lead, "앞축"),
+                ("rear", follow, "뒤축"),
+            ):
+                for side, joint_names in _SUPPORT_POINT_JOINTS:
+                    values = [
+                        arm_actual.get(robot_id, {}).get(name)
+                        for name in joint_names
+                    ]
+                    available = [value for value in values if value is not None]
+                    actual = round(min(available), 1) if len(available) == 2 else None
+                    command = lift_command.get(robot_id)
+                    support_points.append(
+                        SupportPointState(
+                            id=f"{axle}_{side}",
+                            label=f"{axle_label} {'좌' if side == 'left' else '우'}",
+                            robot_id=robot_id,
+                            joint_names=list(joint_names),
+                            command_percent=command,
+                            actual_percent=actual,
+                            supported=actual >= 90.0 if actual is not None else None,
+                        )
+                    )
+
+            actual_by_robot = {}
+            for robot_id in (lead, follow):
+                values = list(arm_actual.get(robot_id, {}).values())
+                if values:
+                    actual_by_robot[robot_id] = sum(values) / len(values)
+            synchronized = None
+            if lead in actual_by_robot and follow in actual_by_robot:
+                synchronized = (
+                    abs(actual_by_robot[lead] - actual_by_robot[follow]) <= 5.0
+                )
+            support_values = [point.supported for point in support_points]
+            tire_count = (
+                sum(value is True for value in support_values)
+                if any(value is not None for value in support_values)
+                else None
+            )
+            all_arm_values = [
+                value
+                for robot_id in (lead, follow)
+                for value in arm_actual.get(robot_id, {}).values()
+            ]
+            load_anomaly = (
+                max(all_arm_values) - min(all_arm_values) > 12.0
+                if len(all_arm_values) == 8
+                else None
+            )
+            if load_anomaly:
+                synchronized = False
+
+            now_mono = time.monotonic()
+            slip_samples = []
+            for robot_id in (lead, follow):
+                command = command_motion.get(robot_id)
+                motion = robot_motion.get(robot_id)
+                if (
+                    command is None
+                    or motion is None
+                    or now_mono - command[1] > 1.0
+                    or now_mono - motion.get("received_at", 0.0) > 1.0
+                ):
+                    with self._perception_lock:
+                        self._robot_slip_since.pop(robot_id, None)
+                    continue
+                command_speed = command[0]
+                actual_speed = motion.get("speed_mps", 0.0)
+                if command_speed >= 0.10:
+                    stalled = actual_speed < max(0.03, command_speed * 0.2)
+                    with self._perception_lock:
+                        if stalled:
+                            stalled_since = self._robot_slip_since.setdefault(
+                                robot_id, now_mono
+                            )
+                            slip_samples.append(
+                                now_mono - stalled_since >= 0.8
+                            )
+                        else:
+                            self._robot_slip_since.pop(robot_id, None)
+                            slip_samples.append(False)
+                else:
+                    with self._perception_lock:
+                        self._robot_slip_since.pop(robot_id, None)
+            slip_suspected = (
+                any(slip_samples) if slip_samples else None
+            )
+            stable = (
+                synchronized
+                and tire_count == 4
+                and load_anomaly is not True
+                and slip_suspected is not True
+                if synchronized is not None and tire_count is not None
+                else None
+            )
+            commands = [
+                lift_command[robot_id]
+                for robot_id in (lead, follow)
+                if robot_id in lift_command
+            ]
+            has_team_signal = any(
+                robot_id in arm_actual
+                or robot_id in axle_x
+                or robot_id in lift_command
+                for robot_id in (lead, follow)
+            )
+            states.append(
+                CooperativeLoadState(
+                    request_id=request.id,
+                    vehicle_number=request.vehicle_number,
+                    lead_robot_id=lead,
+                    follow_robot_id=follow,
+                    front_alignment_error_mm=alignment_error(lead),
+                    rear_alignment_error_mm=alignment_error(follow),
+                    support_points=support_points,
+                    lift_command_percent=(
+                        round(sum(commands) / len(commands), 1)
+                        if commands else None
+                    ),
+                    tire_support_count=tire_count,
+                    synchronized=synchronized,
+                    stable=stable,
+                    # 접촉 센서 실측이 아니라 cmd_vel 대비 융합 위치 속도와
+                    # 8개 암 관절 편차로 계산한 "의심" 지표다.
+                    slip_suspected=slip_suspected,
+                    load_anomaly_suspected=load_anomaly,
+                    source=(
+                        "MEASURED_ESTIMATED"
+                        if has_team_signal
+                        else "UNAVAILABLE"
+                    ),
+                    telemetry_age_sec=telemetry_age,
+                    telemetry_rate_hz=telemetry_rate,
+                    updated_at=_now(),
+                )
+            )
+        return states
+
+    def get_vision_alignment_states(self) -> list[VisionAlignmentState]:
+        now = time.monotonic()
+        with self._perception_lock:
+            states = []
+            for state, received_at in self._vision_alignment.values():
+                copy = state.model_copy(deep=True)
+                if now - received_at > 2.0:
+                    copy.connected = False
+                    copy.alignment_state = "NO_DATA"
+                states.append(copy)
+            return states
+
+    def _on_robot_pose(self, robot_id: str, msg: PoseStamped) -> None:
+        now = time.monotonic()
+        x = float(msg.pose.position.x)
+        plane_y = (
+            float(msg.pose.position.y)
+            if msg.header.frame_id == "map"
+            else float(msg.pose.position.z)
+        )
+        with self._perception_lock:
+            self._robot_pose_x[robot_id] = x
+            previous = self._robot_motion.get(robot_id)
+            speed = previous.get("speed_mps", 0.0) if previous else 0.0
+            if previous is not None:
+                dt = now - previous["received_at"]
+                if dt > 1e-3:
+                    instant = math.hypot(
+                        x - previous["x"], plane_y - previous["plane_y"]
+                    ) / dt
+                    speed = 0.4 * instant + 0.6 * speed
+            self._robot_motion[robot_id] = {
+                "x": x,
+                "plane_y": plane_y,
+                "speed_mps": speed,
+                "received_at": now,
+            }
+
+    def _on_axle_center(self, robot_id: str, msg: PointStamped) -> None:
+        with self._perception_lock:
+            self._axle_center_x[robot_id] = float(msg.point.x)
+            self._load_telemetry_received[robot_id].append(time.monotonic())
+
+    def _on_joint_state(self, robot_id: str, msg: JointState) -> None:
+        positions = dict(zip(msg.name, msg.position))
+        arms = {
+            name: round(
+                min(1.0, abs(float(positions[name])) / _ARM_TARGET_RAD) * 100.0,
+                1,
+            )
+            for _side, names in _SUPPORT_POINT_JOINTS
+            for name in names
+            if name in positions
+        }
+        if arms:
+            with self._perception_lock:
+                self._arm_actual_percent[robot_id] = arms
+                self._load_telemetry_received[robot_id].append(time.monotonic())
+
+    def _on_lift_command(self, robot_id: str, msg: Float32) -> None:
+        with self._perception_lock:
+            self._lift_command_percent[robot_id] = round(
+                max(0.0, min(1.0, float(msg.data))) * 100.0, 1
+            )
+            self._load_telemetry_received[robot_id].append(time.monotonic())
+
+    def _on_cmd_vel(self, robot_id: str, msg: Twist) -> None:
+        speed = math.hypot(float(msg.linear.x), float(msg.linear.y))
+        with self._perception_lock:
+            self._robot_command_motion[robot_id] = (
+                speed, time.monotonic()
+            )
+
+    def _on_vision_alignment(self, robot_id: str, msg: String) -> None:
+        try:
+            raw = json.loads(msg.data)
+        except (TypeError, ValueError):
+            if self._node is not None:
+                self._node.get_logger().warn(
+                    f"{robot_id} vision/alignment JSON 파싱 실패"
+                )
+            return
+        detected = bool(raw.get("detected", False))
+        corners = raw.get("marker_corners") or []
+        state = VisionAlignmentState(
+            robot_id=robot_id,
+            camera=str(raw.get("camera", "front")),
+            connected=bool(raw.get("connected", True)),
+            marker_detected=detected,
+            marker_id=raw.get("marker_id") if detected else None,
+            distance_m=raw.get("distance_m") if detected else None,
+            reprojection_error_px=(
+                raw.get("reprojection_error_px") if detected else None
+            ),
+            marker_corners=corners if detected else [],
+            target_center=[0.5, 0.5],
+            alignment_state="ADJUSTING" if detected else "SEARCHING",
+            source="ARUCO_FUSED",
+            updated_at=_now(),
+        )
+        with self._perception_lock:
+            self._vision_alignment[robot_id] = (state, time.monotonic())
 
     # ------------------------------------------------------------------
     # 토픽 콜백 (rclpy 스핀 스레드에서 호출됨)
