@@ -190,6 +190,16 @@ ANGULAR_ACCEL = 0.4    # 슬립 감소 다운스케일(2026-07-27, 0.8→0.4): �
 #    ROTCHK/ROTCHK180/ROTCHK45 로 재보정할 수 있다.
 YAW_ODOM_SCALE = 1.1677
 ROBOT_SPAWN_Y = 0.06
+
+# 복귀(RETURN) 테스트 모드(RETURN_TEST=1): 입차~주차를 건너뛰고 **주차 완료 상태**로
+# 스테이지를 시작한다 — 트럭을 A1 바닥에, 로봇 2대를 그 밑 주차 자세로 teleport.
+# 복귀 로직만 반복 검증하기 위한 하니스(orchestrator 는 skip_to_return 로 복귀만 실행).
+RETURN_TEST = os.environ.get("RETURN_TEST", "0") not in ("0", "", "false", "False")
+RETURN_TRUCK_CENTER = (2.8, 0.0)         # A1 트럭 중심(x,z). yaw0=길이축 z(N-S) 주차.
+RETURN_ROBOT_POSE = {                     # rid -> (x, z, nav_yaw_deg) 주차 종료 자세
+    "entry_lead": (2.8, -1.8, 180.0),    # 남쪽 깊음, 남향(트럭 yaw0 의 반평행)
+    "entry_follow": (2.8, 1.8, 0.0),     # 북쪽 얕음, 북향(트럭 yaw)
+}
 # probe B(휠 오도메트리 드리프트) 측정 직전 정착(settle) 프레임 수.
 # 드리프트는 초기 settle 정도에 매우 민감하다. 이 값을 명시적으로 고정하지
 # 않으면 측정과 무관한 다른 코드 변경(예: 카메라 부착 루프의 app.update()
@@ -383,6 +393,8 @@ def spawn_handoff_vehicle(stage):
     # 앞축이 게이트쪽(-x, 먼 쪽)에 오려면 이 값이 음수여야 한다 — 그래서 두 로컬 Z 의
     # 대소로 회전 부호를 정한다(차종이 바뀌어도 축 좌표만 보면 되므로 하드코딩 아님).
     yaw_deg = -90.0 if front_local_z > rear_local_z else 90.0
+    if RETURN_TEST:
+        yaw_deg = 0.0    # A1 주차: 길이축=z(N-S), 원본 무회전 자세(복귀 테스트)
 
     # 주의: target(Pickup) 자신의 로컬 트랜스폼은 build_fab_vehicles.py 가 이미
     # "FBX 로컬축(X=좌우,Y=전후,Z=위) -> PhysX/Isaac 축(X=좌우,Y=위,Z=전후)" 정렬 회전을
@@ -406,7 +418,7 @@ def spawn_handoff_vehicle(stage):
     target_xf.ClearXformOpOrder()
     target_xf.MakeMatrixXform().Set(target_matrix)
 
-    cx, cz = HANDOFF_BAY_CENTER
+    cx, cz = RETURN_TRUCK_CENTER if RETURN_TEST else HANDOFF_BAY_CENTER
     va_xf = UsdGeom.Xformable(vehicle_asset)
     va_xf.ClearXformOpOrder()
     translate_op = va_xf.AddTranslateOp()
@@ -1234,6 +1246,32 @@ def main():
             odom[_rid] = WheelOdometry(x=_gx, z=_gz, yaw=_gyaw)
             print(f"BRIDGE_DEPTH_TELEPORT robot={_rid} z_center_truck={_z_center_truck:.4f} "
                   f"pose=({_gx:.3f},{_gz:.3f},{math.degrees(_gyaw):.1f})", flush=True)
+
+    if RETURN_TEST:
+        # 복귀 테스트: 로봇 2대를 트럭밑 주차 자세로 teleport. 스폰 orn 에 world-Y 상대
+        # 회전(_quat_mul, --bridge-depth-pose 와 동일 관례)을 곱해 nav yaw 를 목표로 돌린다.
+        # 현재 nav yaw 를 gt 로 재서 목표와의 차이만큼만 돌리므로 스폰 yaw 값을 가정 안 한다.
+        # (회전 부호가 반대로 나오면 _half 부호만 뒤집으면 됨 — Isaac yaw 규약 실측 정합.)
+        for _rid, (_px, _pz, _yaw_deg) in RETURN_ROBOT_POSE.items():
+            if _rid not in arts:
+                continue
+            _art = arts[_rid]
+            _, _spawn_orn3 = _art.get_world_poses()
+            _spawn_orn3 = np.asarray(_spawn_orn3).reshape(-1)[:4].copy()
+            _cur_yaw = math.degrees(gt_pose_xz_yaw(_art)[2])   # 현재(스폰) nav yaw
+            _half = math.radians(_yaw_deg - _cur_yaw) * 0.5
+            _qy = np.array([math.cos(_half), 0.0, math.sin(_half), 0.0])
+            _orn_new = _quat_mul(_spawn_orn3, _qy)
+            _art.set_world_poses(np.array([[_px, ROBOT_SPAWN_Y, _pz]]),
+                                 np.array([_orn_new]))
+        for _ in range(30):
+            app.update()
+        for _rid in RETURN_ROBOT_POSE:
+            if _rid in arts:
+                _gx, _gz, _gyaw = gt_pose_xz_yaw(arts[_rid])
+                odom[_rid] = WheelOdometry(x=_gx, z=_gz, yaw=_gyaw)
+                print(f"RETURN_TELEPORT robot={_rid} target_yaw={RETURN_ROBOT_POSE[_rid][2]:.0f} "
+                      f"pose=({_gx:.3f},{_gz:.3f},{math.degrees(_gyaw):.1f})", flush=True)
 
     # ---- R3c gap2-1: 전방카메라 발행(marker_localizer_node 용) ----
     # attach_camera_graph(700행)는 OmniGraph 로 image_raw+camera_info 를 낸다

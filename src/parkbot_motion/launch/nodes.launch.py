@@ -28,9 +28,20 @@ RAMP_WAIT = 10.0            # lift_action_server 벽시계 대기
 
 # 브리지(sim_bridge.sh)와 반드시 동일해야 하는 DDS env. 각 노드에 직접 주입.
 # 화이트리스트 프로파일을 브리지와 동일하게 건다(위 docstring — SHM 우회, 데이터 흐름).
+# 입차(entry) 액션 이름 — 통합 관제(featureUI)의 중앙 task_dispatcher 컨벤션에 맞춘다.
+# dispatcher 가 request_type=ENTRY 를 '/entry/execute_parking_task' 로 라우팅하므로 그 이름을
+# 그대로 서빙한다(출차는 '/exit/execute_parking_task'). carry 는 입/출차 분리를 위해
+# '/entry/carry_to_slot'(출차 '/exit/carry_to_slot'). dispatch 접수는 dispatcher 가 유일
+# 창구라 이 머신에선 bypass gateway 를 안 띄운다(dispatch_parking_task 2대 서버 충돌 방지).
+ENTRY_PICKUP_ACTION = '/entry/execute_parking_task'
+ENTRY_CARRY_ACTION = '/entry/carry_to_slot'
+
 _WHITELIST = os.path.expanduser('~/.ros/fastdds_whitelist.xml')
 ENV = {
-    'ROS_DOMAIN_ID': '126',
+    # 셸의 ROS_DOMAIN_ID 를 따른다(기본 126). 솔로 테스트 시 ROS_DOMAIN_ID=130 등으로 띄우면
+    # 도메인 126 을 공유하는 다른 PC(관제/출차)와 완전히 격리된다(중복 orchestrator 차단).
+    # sim_bridge.sh 도 ${ROS_DOMAIN_ID:-126} 라 같은 값을 export 하면 Isaac 과 도메인이 맞는다.
+    'ROS_DOMAIN_ID': os.environ.get('ROS_DOMAIN_ID', '126'),
     'ROS_LOCALHOST_ONLY': '0',
     'RMW_IMPLEMENTATION': 'rmw_fastrtps_cpp',
     'FASTRTPS_DEFAULT_PROFILES_FILE': _WHITELIST,
@@ -61,9 +72,14 @@ def _localizer(rid, seed):
 
 
 def generate_launch_description():
+    # 복귀 테스트(RETURN_TEST=1): sim_bridge 가 주차완료 상태로 스폰하므로 localizer
+    # 필터 seed 도 그 주차 자세로 맞춘다(도크 seed 면 첫 측위가 90° 틀어짐).
+    _return = os.environ.get('RETURN_TEST', '0') not in ('0', '', 'false', 'False')
+    lead_seed = [2.8, -1.8, 180.0] if _return else [-3.2, 2.2, 90.0]
+    follow_seed = [2.8, 1.8, 0.0] if _return else [-1.2, 2.2, 90.0]
     nodes = [
-        _localizer('entry_lead', [-3.2, 2.2, 90.0]),
-        _localizer('entry_follow', [-1.2, 2.2, 90.0]),
+        _localizer('entry_lead', lead_seed),
+        _localizer('entry_follow', follow_seed),
     ]
 
     for rid in ('entry_lead', 'entry_follow'):
@@ -125,9 +141,10 @@ def generate_launch_description():
             name=f'lift_{rid}',
             parameters=[{'robot_id': rid, 'ramp_wait_sec': RAMP_WAIT}]))
 
-    # carry ×1 (Phase D 운반: 가상중심 강체 제어)
+    # carry ×1 (Phase D 운반: 가상중심 강체 제어). 액션 이름 입차전용으로 격리.
     nodes.append(_node(
-        package='parkbot_motion', executable='carry_action_server'))
+        package='parkbot_motion', executable='carry_action_server',
+        parameters=[{'carry_action_name': ENTRY_CARRY_ACTION}]))
 
     # orchestrator: auto_start=False (2026-07-27) — launch 는 노드만 띄우고 대기.
     # 목표 주차 자리는 다른 터미널에서 action call 로 지정:
@@ -139,6 +156,11 @@ def generate_launch_description():
         parameters=[{
             'auto_start': False, 'auto_leader': 'entry_lead',
             'auto_follower': 'entry_follow',
+            # 입차전용 액션 이름(출차 복붙 스택과 격리) — carry_action 은 carry 서버와 일치.
+            'action_name': ENTRY_PICKUP_ACTION,
+            'carry_action': ENTRY_CARRY_ACTION,
+            # 복귀 테스트(RETURN_TEST=1): 입차~주차 생략, 복귀만 실행.
+            'skip_to_return': _return,
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
 
@@ -146,6 +168,11 @@ def generate_launch_description():
     # 액션을 띄운다. dispatch_parking_task(RequestParkingTask, UI ros2 모드) + /park_in_slot
     # (ParkInSlot, PRS 모드) 둘 다 서빙, ENTRY 시 슬롯 A1→A2→A3 순환배정. domain/whitelist
     # env(ENV)를 그대로 받아 UI 머신과 같은 DDS 로 붙는다(크로스머신 = UI IP 도 화이트리스트에).
-    nodes.append(_node(
-        package='parkbot_motion', executable='user_request_gateway_node'))
+    # dispatch 접수는 통합 관제(featureUI)의 중앙 task_dispatcher 가 담당한다:
+    #   UI → dispatch_parking_task(단일 서버) → '/entry/execute_parking_task'(위 orchestrator).
+    # 그래서 이 머신에선 bypass user_request_gateway 를 안 띄운다(dispatch_parking_task 가
+    # 2대가 되면 UI 요청이 랜덤 라우팅돼 로봇이 안 움직였던 문제 — 세션 실측).
+    # 솔로 테스트는 orchestrator 액션에 직접 발행:
+    #   ros2 action send_goal /entry/execute_parking_task \
+    #     parking_robot_interfaces/action/ExecuteParkingTask "{slot_id: 'A1'}"
     return LaunchDescription(nodes)

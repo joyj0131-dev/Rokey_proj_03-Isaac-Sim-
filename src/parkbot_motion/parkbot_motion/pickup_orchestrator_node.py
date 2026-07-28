@@ -361,6 +361,9 @@ class PickupOrchestratorNode(Node):
         self.declare_parameter('auto_task_id', 'AUTO')
         self.declare_parameter('auto_slot_id', '')   # ''=park_slot_* 파라미터 기본값(A1). 'A2'/'A3' 로 자율실행 슬롯 선택
         self.declare_parameter('auto_delay_sec', 25.0)
+        # 복귀 테스트(RETURN_TEST): Isaac 이 주차완료 상태로 스폰될 때 입차~주차를 건너뛰고
+        # 복귀만 실행한다. launch 가 RETURN_TEST env 를 읽어 이 값을 주입한다.
+        self.declare_parameter('skip_to_return', False)
         if bool(self.get_parameter('auto_start').value):
             self._auto_leader = self.get_parameter('auto_leader').value
             self._auto_follower = self.get_parameter('auto_follower').value
@@ -720,7 +723,9 @@ class PickupOrchestratorNode(Node):
                 slot_x, self.return_lead_parked_z, 0.0, f'return:lead-rotate[{rid}]')
             if not ok:
                 return False, reason
+            self._depth_enable(rid, True)                   # egress 측면 뎁스 중앙유지 위해 캠 켜기
             ok, reason = self._egress(rid, corr_z)          # 뎁스 egress → (slot_x, ~corr_z)
+            self._depth_enable(rid, False)                  # egress 끝 → 회랑주행은 뎁스 불필요
         else:
             # follow: 얕아서 마커(slot_ref, 양캠)로 북진 이탈.
             ok, reason = self._set_localizer_ref(
@@ -888,6 +893,22 @@ class PickupOrchestratorNode(Node):
 
         idx = 0
         fail_reason = None
+
+        # 복귀 테스트(skip_to_return): Isaac 이 주차완료 상태로 스폰됐다고 보고 입차~주차
+        # (Phase B·진입·리프트·운반·안착)를 전부 건너뛰고 복귀만 실행한다. 뎁스/localizer
+        # 는 _run_return 내부(_return_egress_to_corridor)가 필요할 때 켠다.
+        if bool(self.get_parameter('skip_to_return').value):
+            self.get_logger().info('skip_to_return: 입차~주차 생략 → 복귀만 실행')
+            idx = total - 3
+            ok, reason, idx = self._run_return(goal_handle, leader_id, follower_id, idx, total)
+            if not ok:
+                self._publish_feedback(goal_handle, 'FAILED', idx, total)
+                self.get_logger().warn(f'복귀 실패: {reason}')
+                goal_handle.abort()
+                return ExecuteParkingTask.Result(success=False, message=reason)
+            self._publish_feedback(goal_handle, 'DONE', total, total)
+            self.get_logger().info('skip_to_return: 복귀 완료')
+            return ExecuteParkingTask.Result(success=True, message='복귀 완료(skip_to_return)')
 
         # ---- Phase B(도크→회랑정렬): 두 로봇 **동시** 실행 ----
         # 2026-07-27 재안무: lead/follow 를 스레드로 병렬 실행, join = 배리어(둘 다
