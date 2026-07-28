@@ -779,31 +779,25 @@ class PickupOrchestratorNode(Node):
             dock_x, dock_z, self.return_dock_yaw, f'return:dock-face[{rid}]')
 
     def _run_return(self, goal_handle, leader_id, follower_id, idx, total):
-        """주차 후 복귀: 순차 이탈(follow 북쪽이라 먼저→lead) 후 동시 도크 안착.
-        반환 (ok, reason, idx). 이탈은 같은 x=slot_x 라인이라 순차(충돌 회피),
-        도크 주행은 회랑에서 x 가 갈려(-1.2/-3.2) 동시."""
-        # Stage 1: 순차 이탈 (follow 먼저 — 주차 시 북쪽=출구에 가까움, lead 는 남쪽/깊음)
-        self._publish_feedback(goal_handle, 'RETURN_FOLLOW_OUT', idx, total)
-        ok, reason = self._return_egress_to_corridor(
-            follower_id, False, self.phase_b_follower_dock_x,
-            self.phase_b_follower_corridor_id, leader_id)
-        if not ok:
-            return False, f'복귀 이탈(follow) 실패: {reason}', idx
-        idx += 1
-        self._publish_feedback(goal_handle, 'RETURN_LEAD_OUT', idx, total)
-        ok, reason = self._return_egress_to_corridor(
-            leader_id, True, self.phase_b_leader_dock_x,
-            self.phase_b_leader_corridor_id, leader_id)
-        if not ok:
-            return False, f'복귀 이탈(lead) 실패: {reason}', idx
-        idx += 1
-
-        # Stage 2: 동시 도크 안착 (Phase B 병렬 스레드 패턴 재사용)
-        self._publish_feedback(goal_handle, 'RETURN_DOCK', idx, total)
-        dock = {}
+        """주차 후 복귀: 두 로봇이 **각자 독립적으로 동시** 이탈→회랑→도크까지 달린다.
+        반환 (ok, reason, idx). 순차로 하면 먼저 회랑에 도착한 로봇(follow, -1.2)이
+        서서 대기하다 뒤 로봇(lead, -3.2)의 서진 경로와 겹쳐 부딪힌다(실측). 각자
+        자기 파이프라인을 끝까지 병렬 주행하면 앞 로봇이 계속 도크로 빠져 회랑을
+        비우므로 겹치지 않는다. (Phase B 동시 실행과 같은 스레드 패턴 — 로봇별
+        액션/토픽/localizer 노드가 갈려 상호 간섭 없음.)"""
+        self._publish_feedback(goal_handle, 'RETURN_CONCURRENT', idx, total)
+        results = {}
 
         def _leg(rid, is_leader):
-            dock[rid] = self._return_dock(rid, is_leader, leader_id)
+            dock_x = (self.phase_b_leader_dock_x if is_leader
+                      else self.phase_b_follower_dock_x)
+            corridor_id = (self.phase_b_leader_corridor_id if is_leader
+                           else self.phase_b_follower_corridor_id)
+            ok, reason = self._return_egress_to_corridor(
+                rid, is_leader, dock_x, corridor_id, leader_id)
+            if ok:
+                ok, reason = self._return_dock(rid, is_leader, leader_id)
+            results[rid] = (ok, reason)
 
         threads = [threading.Thread(target=_leg, args=(leader_id, True), daemon=True),
                    threading.Thread(target=_leg, args=(follower_id, False), daemon=True)]
@@ -811,11 +805,11 @@ class PickupOrchestratorNode(Node):
             t.start()
         for t in threads:
             t.join()
-        idx += 1
+        idx = total
         for rid in (leader_id, follower_id):
-            ok, reason = dock.get(rid, (False, f'{rid} 도크 복귀 미완'))
+            ok, reason = results.get(rid, (False, f'{rid} 복귀 미완'))
             if not ok:
-                return False, f'복귀 도크안착 실패: {reason}', idx
+                return False, f'복귀 실패({rid}): {reason}', idx
         return True, None, idx
 
     # ---- feedback ----
