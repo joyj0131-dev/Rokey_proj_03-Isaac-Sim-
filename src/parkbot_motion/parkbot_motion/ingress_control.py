@@ -141,6 +141,7 @@ class IngressController:
     결과에 담아 액션을 종료한다.
     """
 
+    PHASE_EGRESS = 'EGRESS'
     PHASE_SEEK = 'SEEK'
     PHASE_RETURN = 'RETURN'
     PHASE_SETTLING = 'SETTLING'
@@ -152,7 +153,8 @@ class IngressController:
                  pos_tol=DEFAULT_POS_TOL, settle_frames=DEFAULT_SETTLE_FRAMES,
                  drive_sign=1.0, hold_yaw_deg=None, yaw_kp=DEFAULT_YAW_KP,
                  yaw_wz_max=DEFAULT_YAW_WZ_MAX, yaw_deadband_deg=DEFAULT_YAW_DEADBAND_DEG,
-                 yaw_wz_min=DEFAULT_YAW_WZ_MIN):
+                 yaw_wz_min=DEFAULT_YAW_WZ_MIN,
+                 egress=False, egress_target=None, egress_stop_tol=0.15):
         if trough_index < 0:
             raise ValueError(f"trough_index 는 0 이상이어야 합니다: {trough_index!r}")
         self.trough_index = trough_index
@@ -171,8 +173,13 @@ class IngressController:
         self.yaw_wz_max = yaw_wz_max
         self.yaw_deadband_deg = yaw_deadband_deg
         self.yaw_wz_min = yaw_wz_min
+        # EGRESS(차밑 나오기): 축검출 없이 좌우 뎁스 중앙유지하며 egress_target(주행좌표)
+        # 까지 전진, |남은거리|<=egress_stop_tol 이면 정지. drive_sign/trough 무관.
+        self.egress = bool(egress)
+        self.egress_target = None if egress_target is None else float(egress_target)
+        self.egress_stop_tol = float(egress_stop_tol)
 
-        self.phase = self.PHASE_SEEK
+        self.phase = self.PHASE_EGRESS if self.egress else self.PHASE_SEEK
         self.target_x = None
         self.final_stop_x = None
         self._settle_count = 0
@@ -208,6 +215,16 @@ class IngressController:
         wz = yaw_hold_wz(yaw_deg, self.hold_yaw_deg, kp=self.yaw_kp,
                          wz_max=self.yaw_wz_max, deadband_deg=self.yaw_deadband_deg,
                          wz_min=self.yaw_wz_min)
+
+        if self.phase == self.PHASE_EGRESS:
+            remaining = self.egress_target - travel_x
+            if abs(remaining) <= self.egress_stop_tol:
+                self.phase = self.PHASE_SETTLING
+                self._settle_count = 0
+                self.final_stop_x = travel_x
+            else:
+                vx = math.copysign(self.forward_speed, remaining)  # 목표 향해 등속 전진
+                return (vx, vy, 0.0)   # 블라인드 축이동 — 회전 금지(바퀴 밀림, RETURN 동형)
 
         if self.phase == self.PHASE_SEEK:
             target = pick_target_axle(axle_centers, self.trough_index)
@@ -268,4 +285,21 @@ if __name__ == "__main__":
     r = IngressController(0, drive_sign=1.0, hold_yaw_deg=-90.0)
     _vx, _vy, wz = r.step(0.0, -70.0, None, None, [0.5], 0.05)  # 축확정→RETURN, yaw 20°틀림
     assert r.phase == IngressController.PHASE_RETURN and wz == 0.0, (r.phase, wz)
-    print("ingress_control self-check OK (drive_sign + yaw_hold + RETURN wz0)")
+
+    # EGRESS: 축검출 없이 목표 travel 까지 전진(중앙유지 vy 는 유지), wz=0(끼임 회전 금지),
+    # 목표 도달 시 SETTLING→DONE.
+    g = IngressController(0, egress=True, egress_target=7.0, forward_speed=0.4)
+    assert g.phase == IngressController.PHASE_EGRESS, g.phase
+    vx, vy, wz = g.step(0.0, -70.0, None, None, [], 0.05)   # travel 0 < target 7 → 전진
+    assert vx > 0 and wz == 0.0, (vx, wz)                    # yaw 20°틀려도 wz=0
+    vx, vy, wz = g.step(7.0, None, None, None, [], 0.05)     # 도달 → SETTLING(정지)
+    assert g.phase == IngressController.PHASE_SETTLING and vx == 0.0, (g.phase, vx)
+    for _ in range(g.settle_frames):                        # settle 소진 → DONE
+        g.step(7.0, None, None, None, [], 0.05)
+    assert g.done and abs(g.final_stop_x - 7.0) < 1e-9, (g.phase, g.final_stop_x)
+    # EGRESS 중앙유지: 좌우 뎁스 있으면 vy 실린다(SEEK 와 같은 lateral 재사용).
+    g2 = IngressController(0, egress=True, egress_target=7.0)
+    _vx, vy2, _wz = g2.step(0.0, None, 0.30, 0.10, [], 0.05)  # 좌>우 → +vy
+    assert vy2 > 0, vy2
+
+    print("ingress_control self-check OK (drive_sign + yaw_hold + RETURN wz0 + EGRESS)")
