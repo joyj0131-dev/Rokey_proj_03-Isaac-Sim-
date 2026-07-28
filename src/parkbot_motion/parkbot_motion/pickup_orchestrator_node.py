@@ -364,6 +364,9 @@ class PickupOrchestratorNode(Node):
         # 복귀 테스트(RETURN_TEST): Isaac 이 주차완료 상태로 스폰될 때 입차~주차를 건너뛰고
         # 복귀만 실행한다. launch 가 RETURN_TEST env 를 읽어 이 값을 주입한다.
         self.declare_parameter('skip_to_return', False)
+        # 복귀 병렬 주행 시 lead 출발 지연[s](벽시계): follow 를 먼저 회랑으로 빼서 같은
+        # x=slot_x 라인에서 두 로봇이 앞뒤로 부딪히는 걸 막는다(사용자 실측 지시).
+        self.declare_parameter('return_lead_stagger_sec', 20.0)
         if bool(self.get_parameter('auto_start').value):
             self._auto_leader = self.get_parameter('auto_leader').value
             self._auto_follower = self.get_parameter('auto_follower').value
@@ -789,6 +792,9 @@ class PickupOrchestratorNode(Node):
         results = {}
 
         def _leg(rid, is_leader):
+            if is_leader:
+                # follow 를 먼저 회랑으로 빼고 lead 출발 지연 — 앞뒤 충돌 회피(벽시계 sleep).
+                time.sleep(float(self.get_parameter('return_lead_stagger_sec').value))
             dock_x = (self.phase_b_leader_dock_x if is_leader
                       else self.phase_b_follower_dock_x)
             corridor_id = (self.phase_b_leader_corridor_id if is_leader
