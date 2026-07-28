@@ -285,15 +285,17 @@ class IngressNode(Node):
     def _on_odom(self, msg):
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
-        self._handle_pose(p.x, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
+        self._handle_pose(p.x, p.z, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
 
     def _on_pose_stamped(self, msg):
         p = msg.pose.position
         q = msg.pose.orientation
-        self._handle_pose(p.x, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
+        self._handle_pose(p.x, p.z, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
 
-    def _handle_pose(self, x, yaw_deg, stamp):
-        x = float(x)
+    def _handle_pose(self, x, z, yaw_deg, stamp):
+        # 주행좌표(travel): 진입(ingress)은 world x, 나오기(egress)는 world z(북진).
+        egress = self._active is not None and self._active.get('egress', False)
+        x = float(z) if egress else float(x)
         self._last_travel_x = x
         self._last_yaw_deg = float(yaw_deg)
         self._last_pose_wall_time = time.monotonic()
@@ -386,7 +388,7 @@ class IngressNode(Node):
                     'ingress_under_truck: 이미 활성 목표가 있어 새 목표를 거부합니다'
                     '(선점 미지원)')
                 return GoalResponse.REJECT
-        if int(goal_request.trough_index) < 0:
+        if not bool(goal_request.egress) and int(goal_request.trough_index) < 0:
             self.get_logger().warn(
                 f'ingress_under_truck: trough_index<0 거부: {goal_request.trough_index}')
             return GoalResponse.REJECT
@@ -400,18 +402,26 @@ class IngressNode(Node):
         trough_index = int(goal.trough_index)
         forward_speed = float(goal.forward_speed) if goal.forward_speed > 0.0 else self.forward_speed
         return_speed = float(goal.return_speed) if goal.return_speed > 0.0 else self.return_speed
+        egress = bool(goal.egress)
 
-        ctrl = IngressController(
-            trough_index, forward_speed=forward_speed, return_speed=return_speed,
-            lat_kp=self.lat_kp, lat_vy_max=self.lat_vy_max, lat_deadband=self.lat_deadband,
-            pos_tol=self.pos_tol, settle_frames=self.settle_frames,
-            drive_sign=self.drive_sign, hold_yaw_deg=self.hold_yaw_deg,
-            yaw_kp=self.yaw_kp, yaw_wz_max=self.yaw_wz_max,
-            yaw_deadband_deg=self.yaw_deadband_deg, yaw_wz_min=self.yaw_wz_min)
+        if egress:
+            # 나오기: 축검출 무시, 좌우 뎁스 중앙유지하며 egress_target_z(world z)까지 전진.
+            ctrl = IngressController(
+                0, egress=True, egress_target=float(goal.egress_target_z),
+                forward_speed=forward_speed, lat_kp=self.lat_kp, lat_vy_max=self.lat_vy_max,
+                lat_deadband=self.lat_deadband, settle_frames=self.settle_frames)
+        else:
+            ctrl = IngressController(
+                trough_index, forward_speed=forward_speed, return_speed=return_speed,
+                lat_kp=self.lat_kp, lat_vy_max=self.lat_vy_max, lat_deadband=self.lat_deadband,
+                pos_tol=self.pos_tol, settle_frames=self.settle_frames,
+                drive_sign=self.drive_sign, hold_yaw_deg=self.hold_yaw_deg,
+                yaw_kp=self.yaw_kp, yaw_wz_max=self.yaw_wz_max,
+                yaw_deadband_deg=self.yaw_deadband_deg, yaw_wz_min=self.yaw_wz_min)
 
         done_event = threading.Event()
         active = {'ctrl': ctrl, 'goal_handle': goal_handle, 'done_event': done_event,
-                  'outcome': None}
+                  'outcome': None, 'egress': egress}
         with self._state_lock:
             self._active = active
 
