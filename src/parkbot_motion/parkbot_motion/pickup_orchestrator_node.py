@@ -465,6 +465,23 @@ class PickupOrchestratorNode(Node):
             f'target_axle_x={result.target_axle_x:.4f}')
         return True, None
 
+    def _egress(self, robot_id, target_z, forward_speed=0.0):
+        """차밑 나오기: 좌우 뎁스 중앙유지하며 world +z(북)로 target_z 까지 전진(들어간
+        방식과 대칭 → 바퀴 안 긁힘). 축검출·마커 무관, ingress_node egress 모드."""
+        client = self._client(robot_id, 'ingress', IngressUnderTruck, self.ingress_action)
+        goal = IngressUnderTruck.Goal()
+        goal.egress = True
+        goal.egress_target_z = float(target_z)
+        goal.forward_speed = float(forward_speed)
+        result, _status, reason = self._call_action(
+            client, goal, label=f'egress[{robot_id}]', result_timeout=INGRESS_RESULT_TIMEOUT)
+        if result is None:
+            return False, reason
+        if not result.success:
+            return False, f'egress[{robot_id}] 실패(stop_reason={result.stop_reason})'
+        self.get_logger().info(f'egress[{robot_id}] 완료: stop_z={result.stop_x:.4f}')
+        return True, None
+
     def _carry(self, leader_id, follower_id, target_x, target_z, target_yaw_deg, label):
         """가상중심 운반 한 세그먼트: 중심을 (target_x,target_z) 로 직진 후 트럭 yaw 를
         target_yaw_deg 로 회전(carry_action_server 2페이즈). Stage 4 가 lane→회전,
@@ -690,36 +707,44 @@ class PickupOrchestratorNode(Node):
                 or f'/robot_{rid}/marker_localizer_node')
 
     def _return_egress_to_corridor(self, rid, is_leader, dock_x, corridor_id, leader_id):
-        """한 로봇을 슬롯(차 밑)에서 북쪽 회랑(dock_x, 7.075)까지 뺀다.
-        lead 는 남향(yaw180)이라 먼저 제자리 회전(odom)해 북향 후 이탈."""
+        """슬롯(차밑)→회랑(dock_x, 7.075) 정렬. lead=뎁스 egress, follow=마커 북진.
+        회랑 도달 후 서향(yaw −90)으로 90° 회전(다음 서진 준비)."""
         node = self._return_localizer_node(rid, leader_id)
         slot_x = self.park_slot_x
         corr_z = self.phase_b_xn_z
         slot_ref = [self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
         if is_leader:
-            # 남향→북향 제자리 회전. 회전 중 마커 상실이라 odom(Phase B rotate_90 동일).
+            # 남향(yaw180)→북향(yaw0) 제자리 회전(odom). 그 뒤 뎁스 중앙유지로 북진 이탈.
             ok, reason = self._navigate_phase_b(
                 rid, 'nav_odom', self.navigate_odom_action,
                 slot_x, self.return_lead_parked_z, 0.0, f'return:lead-rotate[{rid}]')
             if not ok:
                 return False, reason
-        # 북향 확보 → 전방(하향)캠으로 슬롯마커(66/65/3) 보며 회랑까지 북진(차 밑 이탈).
-        ok, reason = self._set_localizer_ref(
-            node, slot_ref, True, f'return:egress-ref[{rid}]', use_front=True)
-        if ok:
-            ok, reason = self._navigate_phase_b(
-                rid, 'nav_fused', self.navigate_fused_action,
-                slot_x, corr_z, 0.0, f'return:egress[{rid}]')
+            ok, reason = self._egress(rid, corr_z)          # 뎁스 egress → (slot_x, ~corr_z)
+        else:
+            # follow: 얕아서 마커(slot_ref, 양캠)로 북진 이탈.
+            ok, reason = self._set_localizer_ref(
+                node, slot_ref, True, f'return:egress-ref[{rid}]', use_front=True)
+            if ok:
+                ok, reason = self._navigate_phase_b(
+                    rid, 'nav_fused', self.navigate_fused_action,
+                    slot_x, corr_z, 0.0, f'return:egress[{rid}]')
         if not ok:
             return False, reason
-        # 회랑 바닥마커(61~64+목표회랑마커)로 전환 후 도크 x 로 서진.
+        # 서향 90° 회전(제자리, odom) — 위치 유지, yaw 0→−90.
+        ok, reason = self._navigate_phase_b(
+            rid, 'nav_odom', self.navigate_odom_action,
+            slot_x, corr_z, -90.0, f'return:turn-west[{rid}]')
+        if not ok:
+            return False, reason
+        # 회랑 바닥마커(61~64+회랑마커)로 전환 후 서진(양캠, yaw −90 유지).
         ok, reason = self._set_localizer_ref(
             node, self.park_lane_marker_ids + [corridor_id], True,
             f'return:corridor-ref[{rid}]', use_front=True)
         if ok:
             ok, reason = self._navigate_phase_b(
                 rid, 'nav_fused', self.navigate_fused_action,
-                dock_x, corr_z, 0.0, f'return:corridor-west[{rid}]')
+                dock_x, corr_z, -90.0, f'return:corridor-west[{rid}]')
         return ok, reason
 
     def _return_dock(self, rid, is_leader, leader_id):
@@ -963,19 +988,20 @@ class PickupOrchestratorNode(Node):
             goal_handle.abort()
             return ExecuteParkingTask.Result(success=False, message=f'운반(lane) 실패: {reason}')
         idx += 1
-        # 슬롯 마커로 ref 전환(follow 만 — 새 carry 는 follow rear 하나로 트럭 대표,
-        # lead 측위는 안 씀). rear-only 유지(use_front 안 건드림). correct_yaw=True 로
-        # 마커를 보고 yaw 를 정렬한다. force_yaw 는 안 줘야(필터 현 yaw≈90 유지) carry 가
-        # 90→0 회전을 그대로 몬다. ref 3종:
-        #   레인마커(3): 90→0 제자리 회전 중 follow rear 가 **중심(=마커3 위치)**을
-        #     향하므로 회전 내내 yaw 기준. 회전 끝나면 follow 북쪽→rear 남향이라 3 은 벗어남.
-        #   앞/가운데(65@z3.5, 66@z0): 남진(진입) 중 순차로 들어와 yaw·정지 기준.
-        # mdist=-1: 위 셋 중 아무거나 보면 발행 → carry 옆·yaw 보정 신호(회전 중 마커3,
-        #   진입 중 65/66). 정지는 중점이 목표(2.8,0) 도달 + 이 신호 신선 조합으로 판정.
-        slot_ref = [self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
+        # 슬롯 마커로 ref 전환(follow 만). **use_front=True 로 전환(2026-07-28 로그근거)**:
+        # 회전 끝나면 follow 가 북향→rear 는 남쪽(슬롯 65/66)을, front 는 북쪽(레인마커
+        # 3·61~64)을 본다. rear-only 였을 땐 하강 초반(z≈6.5) 남쪽 슬롯마커가 멀어 블라인드
+        # →odom yaw 드리프트→align_gate 오발동→헛회전으로 트럭을 옆으로 밀어버렸다(실측
+        # CARRY_SLOT 로그: mark=0 구간에서 center perp 0.95→1.57). front 를 켜면 하강 내내
+        # 북쪽 레인마커로 pose 를 앵커해 그 블라인드/헛회전을 없앤다. ref 에 레인마커(61~64)
+        # 도 추가해 front 가 무엇을 보든 잡히게. rear 는 그대로 65/66(막판 정지 기준) 담당.
+        # correct_yaw=True. force_yaw 는 안 줌(필터 현 yaw 유지 → carry 가 90→0 회전 몬다).
+        # mdist=-1: ref 아무거나 보면 ref_marker_dist 발행 = carry 의 "측위됨" 신호.
+        slot_ref = self.park_lane_marker_ids + [
+            self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
         self._set_localizer_ref(follow_node, slot_ref, True,
                                 f'carry-slot-marker[{follower_id}]',
-                                mdist_marker_id=-1)
+                                mdist_marker_id=-1, use_front=True)
         # ② 주차: carry 한 세그먼트가 트럭을 90°→0°(N-S) 제자리 회전(회전선행 게이트)
         #    후 슬롯 가운데(park_center_z=0)까지 -z 진입. follow rear 가 가운데마커(66)
         #    를 보고(래치) 중점이 (slot_x,0)·yaw0 도달하면 정지.
