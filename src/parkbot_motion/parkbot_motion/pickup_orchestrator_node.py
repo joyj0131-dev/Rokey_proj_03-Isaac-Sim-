@@ -367,6 +367,10 @@ class PickupOrchestratorNode(Node):
         # 복귀 병렬 주행 시 lead 출발 지연[s](벽시계): follow 를 먼저 회랑으로 빼서 같은
         # x=slot_x 라인에서 두 로봇이 앞뒤로 부딪히는 걸 막는다(사용자 실측 지시).
         self.declare_parameter('return_lead_stagger_sec', 20.0)
+        # lead 후진 egress 속도[m/s]: 기본(0.4)은 follow 이탈(nav_fused ~0.15)보다 빨라
+        # 앞선 follow 를 회랑 근처에서 따라잡아 부딪힌다(실측 dist 0.4m). follow 와 맞춰
+        # 간격을 유지시킨다. 0=egress 노드 기본값.
+        self.declare_parameter('return_lead_egress_speed', 0.15)
         if bool(self.get_parameter('auto_start').value):
             self._auto_leader = self.get_parameter('auto_leader').value
             self._auto_follower = self.get_parameter('auto_follower').value
@@ -726,7 +730,8 @@ class PickupOrchestratorNode(Node):
             # 그대로 후진으로 되짚어 나온다(egress 가 헤딩 보고 후진 부호 자동 결정 —
             # 남향에서 목표 북쪽은 body -x). 서향 정렬은 트럭 밖(자유공간)에 나온 뒤 아래서.
             self._depth_enable(rid, True)                   # egress 측면 뎁스 중앙유지 위해 캠 켜기
-            ok, reason = self._egress(rid, corr_z)          # 후진 egress → (slot_x, ~corr_z, yaw 유지)
+            ok, reason = self._egress(                       # 후진 egress → (slot_x, ~corr_z, yaw 유지)
+                rid, corr_z, forward_speed=self.get_parameter('return_lead_egress_speed').value)
             self._depth_enable(rid, False)                  # egress 끝 → 회랑주행은 뎁스 불필요
         else:
             # follow: 얕아서 마커(slot_ref, 양캠)로 북진 이탈.
