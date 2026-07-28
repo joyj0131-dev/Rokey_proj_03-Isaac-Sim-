@@ -22,6 +22,7 @@ entry_front_id, exit_rear_id/exit_front_id)을 그대로 쓴다. 각 쌍은 서�
 해제한다(각 로봇은 idle로 복귀).
 """
 
+import threading
 import time
 import uuid
 
@@ -70,6 +71,10 @@ class TaskDispatcherNode(Node):
             password=p("db_password").value, database=p("db_name").value)
         self._map = ParkingMap.load(p("map_yaml").value)
         self._stub_held = {}   # robot_id -> set(zone_ids), stub 모드 전용
+        # ReentrantCallbackGroup에서는 서비스 콜백이 동시에 실행될 수 있다.
+        # 로봇 상태 확인과 BUSY 전환 사이의 경쟁으로 같은 요청이 2개 생성되지
+        # 않도록 작업 접수 구간을 한 번에 하나씩 처리한다.
+        self._dispatch_lock = threading.Lock()
         # supervisor 상태를 받기 전에는 fail-safe로 요청을 막는다.
         self._safety_state = "UNKNOWN"
         self._last_safety_state_at = None
@@ -136,6 +141,10 @@ class TaskDispatcherNode(Node):
             self._safety_state = "UNKNOWN"
 
     def _handle_dispatch(self, request, response):
+        with self._dispatch_lock:
+            return self._handle_dispatch_locked(request, response)
+
+    def _handle_dispatch_locked(self, request, response):
         response.accepted = False
         response.task_id = ""
         if self._safety_state != "NORMAL":
@@ -145,6 +154,20 @@ class TaskDispatcherNode(Node):
             return response
         if request.request_type not in ("ENTRY", "EXIT"):
             response.message = f"알 수 없는 request_type: {request.request_type}"
+            return response
+
+        active_task = self._db.active_task_for_vehicle(request.vehicle_id)
+        if active_task is not None:
+            response.message = (
+                f"{request.vehicle_id} 차량은 이미 "
+                f"{active_task['request_type']} 작업 "
+                f"{active_task['task_id'][:8]}이 진행 중입니다."
+            )
+            self.get_logger().warn(
+                "중복 요청 거부: "
+                f"vehicle={request.vehicle_id} "
+                f"active_task={active_task['task_id'][:8]}"
+            )
             return response
 
         # EXIT는 "빈 슬롯 찾기"가 아니라 "이 차가 지금 어느 칸에 있는지" 조회다.

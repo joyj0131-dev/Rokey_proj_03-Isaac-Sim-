@@ -174,6 +174,22 @@ class ParkingDB:
             " VALUES (%s, %s, %s)",
             (task_id, request_type, vehicle_id))
 
+    def active_task_for_vehicle(self, vehicle_id):
+        """같은 차량에 대해 아직 끝나지 않은 가장 최근 작업.
+
+        UI의 중복 클릭 방지만으로는 브라우저 재전송이나 복수 클라이언트의
+        동시 요청을 완전히 막을 수 없다. dispatcher가 새 작업을 만들기 전에
+        DB 원장을 확인해 동일 차량의 Action goal 중복 생성을 차단한다.
+        """
+        rows = self._query(
+            "SELECT task_id, request_type, state FROM tasks"
+            " WHERE vehicle_id = %s"
+            " AND state IN ('WAITING', 'PROCESSING')"
+            " ORDER BY created_at DESC LIMIT 1",
+            (vehicle_id,),
+        )
+        return rows[0] if rows else None
+
     def update_task(self, task_id, state=None, robot_id=None,
                     follower_robot_id=None, slot_id=None):
         sets, params = [], []

@@ -13,8 +13,16 @@ if [[ -z "$dds_profile" && -f "$default_dds_profile" ]]; then
     dds_profile="$default_dds_profile"
 fi
 if [[ -n "$dds_profile" && ! -f "$dds_profile" ]]; then
-    echo "Fast DDS profile을 찾을 수 없습니다: $dds_profile" >&2
-    dds_profile="$default_dds_profile"
+    stale_dds_profile="$dds_profile"
+    if [[ -f "$default_dds_profile" ]]; then
+        dds_profile="$default_dds_profile"
+        echo "Fast DDS profile을 찾을 수 없어 기본 설정을 사용합니다:" >&2
+        echo "  누락: $stale_dds_profile" >&2
+        echo "  사용: $dds_profile" >&2
+    else
+        echo "Fast DDS profile을 찾을 수 없어 프로필 없이 실행합니다: $stale_dds_profile" >&2
+        dds_profile=""
+    fi
 fi
 if [[ -f "$dds_profile" ]]; then
     export FASTRTPS_DEFAULT_PROFILES_FILE="$dds_profile"
