@@ -15,12 +15,9 @@ import config
 from core.datasource import DataSource, DataSourceError
 from core.models import (
     Alert,
-    OperationApprovalRequest,
     ParkingRequest,
     ParkingRequestCreate,
     RequestStatus,
-    RobotRecoveryRequest,
-    SafetyResetRequest,
 )
 from core.state_store import StateStore
 from sources.mock_source import MockDataSource
@@ -34,6 +31,17 @@ store = StateStore()
 def _create_datasource() -> DataSource:
     if config.PARKING_MODE == "mock":
         return MockDataSource(store)
+
+    # prs: 팀원 parking_robot_system(feat/camera) 연동 소스 (/park_in_slot + 토픽).
+    if config.PARKING_MODE == "prs":
+        from sources.ros2_prs_source import Ros2PrsDataSource
+        return Ros2PrsDataSource(store)
+
+    # dual: 입차/출차 요청을 서로 다른 로봇 그룹(=서로 다른 Isaac Sim PC)으로
+    # 분리 라우팅. 라우팅 표는 core/db.py(SQLite) 참고.
+    if config.PARKING_MODE == "dual":
+        from sources.ros2_dual_source import Ros2DualDataSource
+        return Ros2DualDataSource(store)
 
     # 지연 import: rclpy/parking_robot_interfaces는 ROS2 환경이 source된
     # 상태에서만 존재하므로, mock 모드 실행 시에는 아예 건드리지 않는다.
@@ -80,14 +88,6 @@ def _require_mock_controls() -> None:
         )
 
 
-def _require_ros2_mode() -> None:
-    if config.PARKING_MODE != "ros2":
-        raise HTTPException(
-            status_code=403,
-            detail="ros2 모드에서만 사용할 수 있습니다.",
-        )
-
-
 # ----------------------------------------------------------------------
 # 페이지
 # ----------------------------------------------------------------------
@@ -108,15 +108,12 @@ def get_system():
     snapshot = store.snapshot()
     alerts = snapshot["alerts"]
 
-    safety = datasource.safety_state
-    has_error = safety["state"] in {"STOPPED_LATCHED", "UNKNOWN"} or any(
-        alert.level == "ERROR" for alert in alerts
-    )
+    has_error = any(alert.level == "ERROR" for alert in alerts)
     sensors = datasource.get_sensor_status()
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
         and any(sensor["status"] != "ONLINE" for sensor in sensors)
-    ) or datasource.recovery_pending
+    )
 
     health = "ERROR" if has_error else "WARNING" if has_warning else "OK"
 
@@ -124,11 +121,14 @@ def get_system():
         "mode": config.PARKING_MODE,
         "mock_controls": datasource.supports_mock_controls,
         "mock_auto_advance": datasource.mock_auto_advance,
-        "emergency_stop": datasource.emergency_stop_active,
-        "safety": safety,
-        "recovery": datasource.recovery_state,
         "health": health,
     }
+
+
+@app.get("/api/robot-groups")
+def get_robot_groups():
+    """입차/출차 로봇 그룹별 라우팅 대상 및 연결 상태 (dual 모드 전용, 그 외는 빈 목록)."""
+    return datasource.get_robot_group_status()
 
 
 @app.get("/api/dashboard")
@@ -139,25 +139,20 @@ def get_dashboard():
     alerts = snapshot["alerts"]
     sensors = datasource.get_sensor_status()
 
-    safety = datasource.safety_state
-    has_error = safety["state"] in {"STOPPED_LATCHED", "UNKNOWN"} or any(
-        alert.level == "ERROR" for alert in alerts
-    )
+    has_error = any(alert.level == "ERROR" for alert in alerts)
     has_warning = any(alert.level == "WARNING" for alert in alerts) or (
         config.PARKING_MODE == "ros2"
         and any(sensor["status"] != "ONLINE" for sensor in sensors)
-    ) or datasource.recovery_pending
+    )
 
     return {
         "robots": snapshot["robots"],
         "slots": slots,
         "requests": list(reversed(requests)),
         "alerts": list(reversed(alerts)),
-        "safety_incidents": list(reversed(snapshot["safety_incidents"])),
-        "cooperative_loads": datasource.get_cooperative_load_states(),
-        "vision_alignments": datasource.get_vision_alignment_states(),
         "map": datasource.get_map_info(),
         "sensors": sensors,
+        "robot_groups": datasource.get_robot_group_status(),
         "summary": {
             "total_slots": len(slots),
             "empty_slots": sum(slot.status == "EMPTY" for slot in slots),
@@ -172,20 +167,11 @@ def get_dashboard():
             "mode": config.PARKING_MODE,
             "mock_controls": datasource.supports_mock_controls,
             "mock_auto_advance": datasource.mock_auto_advance,
-            "emergency_stop": datasource.emergency_stop_active,
-            "safety": safety,
-            "recovery": datasource.recovery_state,
             "health": (
                 "ERROR" if has_error else "WARNING" if has_warning else "OK"
             ),
         },
     }
-
-
-@app.get("/api/lidar/visualization")
-def get_lidar_visualization():
-    """센서 상세 모달용 축소 포인트클라우드와 슬롯 점유 판정."""
-    return datasource.get_lidar_visualization()
 
 
 # ----------------------------------------------------------------------
@@ -211,54 +197,6 @@ def resolve_alert(alert_id: int):
     return {"message": "알림이 해제되었습니다."}
 
 
-@app.post("/api/emergency-stop")
-def emergency_stop():
-    affected_tasks = _handle(datasource.emergency_stop)
-    return {
-        "message": (
-            "비상정지가 작동했습니다. 현장 점검 후 관제 안전 복구 절차를 진행해주세요."
-        ),
-        "affected_tasks": affected_tasks,
-    }
-
-
-@app.post("/api/safety/reset-request")
-def request_safety_reset(payload: SafetyResetRequest):
-    result = _handle(datasource.request_safety_reset, payload)
-    return {
-        "message": result.get(
-            "message",
-            "점검 결과가 승인되었습니다. 대상 로봇의 안전 복귀를 먼저 진행해주세요.",
-        ),
-        "safety": datasource.safety_state,
-    }
-
-
-@app.post("/api/safety/approve-operation")
-def approve_operation(payload: OperationApprovalRequest):
-    result = _handle(datasource.approve_operation, payload)
-    return {
-        "message": result.get(
-            "message",
-            "정상 운영 복귀가 승인되었습니다. 새 작업을 접수할 수 있습니다.",
-        ),
-        "safety": datasource.safety_state,
-        "recovery": datasource.recovery_state,
-    }
-
-
-@app.post("/api/safety/start-recovery")
-def start_safe_recovery(payload: RobotRecoveryRequest):
-    result = _handle(datasource.start_safe_recovery, payload)
-    return {
-        "message": result.get(
-            "message",
-            "안전 복귀를 시작했습니다. 도크 위치 확인 후 대기 상태로 전환됩니다.",
-        ),
-        "recovery": datasource.recovery_state,
-    }
-
-
 # ----------------------------------------------------------------------
 # Mock 제어 (mock 모드 전용)
 # ----------------------------------------------------------------------
@@ -279,13 +217,3 @@ def trigger_obstacle():
 def trigger_robot_error():
     _require_mock_controls()
     return _handle(datasource.trigger_robot_error)
-
-
-# ----------------------------------------------------------------------
-# DB 초기화 (ros2 모드 전용, 테스트/개발 환경)
-# ----------------------------------------------------------------------
-@app.post("/api/ros2/db-reset")
-def reset_ros2_test_environment():
-    _require_ros2_mode()
-    _handle(datasource.reset_test_environment)
-    return {"message": "테스트 DB가 초기화되었습니다."}

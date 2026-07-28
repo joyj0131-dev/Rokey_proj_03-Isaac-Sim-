@@ -18,7 +18,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 MARKER_MAP = os.path.join(
     get_package_share_directory('parkbot_aruco'), 'data', 'marker_map_v4.json')
@@ -67,13 +70,83 @@ def _localizer(rid, seed):
 
 
 def generate_launch_description():
+    # auto_start: 기본 False — 2026-07-28 관제 UI(EXIT_DB 브랜치 user_request_gateway_node
+    # + parking_control_mvp dual 모드) 연동을 위해 orchestrator 를 "요청 대기" 모드가
+    # 기본이 되게 뒤집었다(이전엔 launch 만으로 25s 뒤 자율 미션이 항상 돌았다 — 그건
+    # 개발 중 반복검증용이었지, UI 트리거 배관과는 상충한다). 지금까지처럼 launch 만으로
+    # 자율 검증하려면 `auto_start:=true` 로 오버라이드.
+    auto_start_arg = DeclareLaunchArgument(
+        'auto_start', default_value='false',
+        description='true 면 launch 후 25s 뒤 자율 미션(검증용). false(기본)면 '
+                     'user_request_gateway_node 의 액션 호출을 기다린다.')
+    auto_start_param = ParameterValue(LaunchConfiguration('auto_start'), value_type=bool)
+
+    # ---- 입차(entry_lead/entry_follow) — 2026-07-27 출차 설계로 전환하며 주석처리.
+    # 되돌릴 때는 아래 블록 주석을 풀고 EXIT_IDS 루프들을 다시 주석처리하면 된다.
+    # nodes = [
+    #     _localizer('entry_lead', [-3.2, 2.2, 90.0]),
+    #     _localizer('entry_follow', [-1.2, 2.2, 90.0]),
+    # ]
+    #
+    # for rid in ('entry_lead', 'entry_follow'):
+    #     # pose_controller ×2/로봇: odom용(approach 회전) + 융합용(정밀).
+    #     nodes.append(_node(
+    #         package='parkbot_motion', executable='pose_controller_node',
+    #         name=f'pose_controller_odom_{rid}',
+    #         parameters=[{'robot_id': rid, 'goal_timeout_sec': GOAL_TIMEOUT}]))
+    #     nodes.append(_node(
+    #         package='parkbot_motion', executable='pose_controller_node',
+    #         name=f'pose_controller_fused_{rid}',
+    #         parameters=[{
+    #             'robot_id': rid, 'pose_topic': f'/robot_{rid}/pose',
+    #             'pose_msg_type': 'posestamped',
+    #             'action_name': f'/robot_{rid}/navigate_to_pose_fused',
+    #             'pos_tol': 0.06, 'yaw_tol': 1.0, 'pose_stale_timeout_sec': 15.0,
+    #             'goal_timeout_sec': GOAL_TIMEOUT}]))
+    #
+    # for rid in ('entry_lead', 'entry_follow'):
+    #     nodes.append(_node(
+    #         package='parkbot_motion', executable='axle_detector_node',
+    #         name=f'axle_detector_{rid}',
+    #         parameters=[{'robot_id': rid, 'pose_topic': f'/robot_{rid}/pose',
+    #                      'pose_msg_type': 'posestamped'}]))
+    # for rid in ('entry_lead', 'entry_follow'):
+    #     drive_sign = -1.0 if rid == 'entry_follow' else 1.0
+    #     nodes.append(_node(
+    #         package='parkbot_motion', executable='ingress_node',
+    #         name=f'ingress_{rid}',
+    #         parameters=[{'robot_id': rid, 'goal_timeout_sec': INGRESS_TIMEOUT,
+    #                      'pose_topic': f'/robot_{rid}/pose',
+    #                      'pose_msg_type': 'posestamped',
+    #                      'drive_sign': drive_sign}]))
+    #
+    # for rid in ('entry_lead', 'entry_follow'):
+    #     nodes.append(_node(
+    #         package='parkbot_motion', executable='lift_action_server',
+    #         name=f'lift_{rid}',
+    #         parameters=[{'robot_id': rid, 'ramp_wait_sec': RAMP_WAIT}]))
+    #
+    # nodes.append(_node(
+    #     package='parkbot_motion', executable='pickup_orchestrator_node',
+    #     parameters=[{
+    #         'auto_start': True, 'auto_leader': 'entry_lead',
+    #         'auto_follower': 'entry_follow',
+    #         'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
+    #         'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
+
+    # ---- 출차(exit_lead/exit_follow) — 2026-07-27 신규 설계, 입차 블록을 그대로
+    # 미러링(로봇 id/도크/회랑만 남측으로 교체). orchestrator 쪽 Phase X 안무는
+    # pickup_orchestrator_node.py/_run_phase_x 참고 — 아직 Isaac 실측 미검증.
+    EXIT_IDS = ('exit_lead', 'exit_follow')
     nodes = [
-        _localizer('entry_lead', [-3.2, 2.2, 90.0]),
-        _localizer('entry_follow', [-1.2, 2.2, 90.0]),
+        # D_IN_1(x=-3.2,z=-2.2)/D_IN_2(x=-1.2,z=-2.2) 도크 스폰 — 입차 도크와 같은
+        # yaw=90°(동향) 스폰(V4_STAGE_READY GT 실측 확인), x 만 다르고 z 부호 반전.
+        _localizer('exit_lead', [-3.2, -2.2, 90.0]),
+        _localizer('exit_follow', [-1.2, -2.2, 90.0]),
     ]
 
-    for rid in ('entry_lead', 'entry_follow'):
-        # pose_controller ×2/로봇: odom용(approach 회전) + 융합용(정밀).
+    for rid in EXIT_IDS:
+        # pose_controller ×2/로봇: odom용(제자리회전) + 융합용(마커 정밀주행).
         nodes.append(_node(
             package='parkbot_motion', executable='pose_controller_node',
             name=f'pose_controller_odom_{rid}',
@@ -85,48 +158,70 @@ def generate_launch_description():
                 'robot_id': rid, 'pose_topic': f'/robot_{rid}/pose',
                 'pose_msg_type': 'posestamped',
                 'action_name': f'/robot_{rid}/navigate_to_pose_fused',
-                # yaw_tol 0.5->1.0: 메카넘 드라이브 데드밴드(잔여 yaw wz≈0.012rad/s
-                # 가 못 돌아감)로 approach 가 0.6°에서 스톨→실패하던 것 방지. 트럭
-                # 진입 정밀정렬은 뎁스 축검출이 맡으므로 1° yaw 는 무관(라이브 실측).
+                # yaw_tol/pos_tol 값은 입차 인스턴스와 동일 근거(메카넘 데드밴드) —
+                # 출차에서 아직 재검증되지 않았다.
                 'pos_tol': 0.06, 'yaw_tol': 1.0, 'pose_stale_timeout_sec': 15.0,
                 'goal_timeout_sec': GOAL_TIMEOUT}]))
 
-    # axle_detector ×2, ingress ×2: 픽업 자세원을 융합 /pose 로(드리프트 상쇄).
-    for rid in ('entry_lead', 'entry_follow'):
+    # axle_detector ×2, ingress ×2: A3 트럭(길이축 z) 아래 진입용. 진입 방향이
+    # 입차(world -x)와 달리 world +z(남→북)라 drive_sign 은 둘 다 +1(로컬 forward
+    # 가 곧 world +z, Phase X 가 로봇을 북향으로 정렬해준 뒤 호출). 두 노드 모두
+    # 원래 "주행좌표=world x" 하드코딩이었다(entry 전용 배치, 각 노드 docstring
+    # "주행좌표" 절) — 2026-07-27 최초 라이브 실측(GT 오도로 접근은 정밀했는데도
+    # 1번 로봇이 트럭 하부 엉뚱한 지점에서 정지)으로 발견: travel_axis='x' 그대로면
+    # 실제 전진축(z)이 아니라 거의 안 변하는 횡축(x)을 "주행좌표"로 오인해 트로프
+    # 판정 자체가 무의미해진다. travel_axis='-z'로 전진축을 z로 바꾸고(부호는
+    # ingress_control 의 "SEEK가 주행좌표를 감소시킨다" 내장 가정에 맞춘 것 —
+    # 북향 전진은 z가 증가하므로 -z가 감소한다), drive_sign=1.0(변경 없음, 이미
+    # 그 가정과 일치)은 그대로 둔다. pose_controller_node.travel_axis_value 참고.
+    for rid in EXIT_IDS:
         nodes.append(_node(
             package='parkbot_motion', executable='axle_detector_node',
             name=f'axle_detector_{rid}',
             parameters=[{'robot_id': rid, 'pose_topic': f'/robot_{rid}/pose',
-                         'pose_msg_type': 'posestamped'}]))
-    for rid in ('entry_lead', 'entry_follow'):
-        # 2026-07-27 재안무: lead 서향(-90°)→전진진입(drive_sign +1),
-        # follow 동향(+90°)→후진진입(drive_sign -1). 둘 다 world -x 로 트럭 밑에.
-        drive_sign = -1.0 if rid == 'entry_follow' else 1.0
+                         'pose_msg_type': 'posestamped', 'travel_axis': '-z'}]))
+    for rid in EXIT_IDS:
         nodes.append(_node(
             package='parkbot_motion', executable='ingress_node',
             name=f'ingress_{rid}',
             parameters=[{'robot_id': rid, 'goal_timeout_sec': INGRESS_TIMEOUT,
                          'pose_topic': f'/robot_{rid}/pose',
                          'pose_msg_type': 'posestamped',
-                         'drive_sign': drive_sign}]))
+                         'travel_axis': '-z',
+                         'drive_sign': 1.0}]))
 
     # lift ×2
-    for rid in ('entry_lead', 'entry_follow'):
+    for rid in EXIT_IDS:
         nodes.append(_node(
             package='parkbot_motion', executable='lift_action_server',
             name=f'lift_{rid}',
             parameters=[{'robot_id': rid, 'ramp_wait_sec': RAMP_WAIT}]))
 
-    # carry ×1 (Phase D 운반: 가상중심 강체 제어)
+    # carry ×1 (Phase D 운반: 가상중심 강체 제어, 로봇쌍 공용이라 입/출차 겸용)
     nodes.append(_node(
         package='parkbot_motion', executable='carry_action_server'))
 
-    # orchestrator: auto_start 로 자율 미션(도크→XN Phase B + 픽업 회랑).
+    # orchestrator: auto_start(기본 false, § 위 DeclareLaunchArgument)면 launch 만으로도
+    # 자율 미션(도크→남측 회랑 Phase X + 출차 안무), 아니면 아래 게이트웨이의 액션
+    # 호출을 대기.
     nodes.append(_node(
         package='parkbot_motion', executable='pickup_orchestrator_node',
         parameters=[{
-            'auto_start': True, 'auto_leader': 'entry_lead',
-            'auto_follower': 'entry_follow',
-            'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
-            'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
-    return LaunchDescription(nodes)
+            'auto_start': auto_start_param, 'auto_leader': 'exit_lead',
+            'auto_follower': 'exit_follow',
+            'phase_x_leader_localizer_node': '/robot_exit_lead/marker_localizer_node',
+            'phase_x_follower_localizer_node': '/robot_exit_follow/marker_localizer_node'}]))
+
+    # user_request_gateway: 관제 UI(parking_control_mvp, dual 모드)의 출차 요청을
+    # 위 orchestrator 액션으로 잇는다. DB(parking_control_mvp/core/db.py) robot_groups
+    # 의 exit 그룹 기본값과 이름을 맞췄다(dispatch_service='dispatch_parking_task_exit')
+    # — 관제 쪽 코드/DB 변경 없이 이 launch 만으로 그대로 연결된다. 입차팀
+    # (entry_lead/entry_follow) 게이트웨이는 이 컴퓨터 범위 밖(별도 PC, § user_request_
+    # gateway_node.py 클래스 docstring "한 인스턴스는 한 팀만 담당").
+    nodes.append(_node(
+        package='parkbot_motion', executable='user_request_gateway_node',
+        parameters=[{
+            'leader_robot_id': 'exit_lead', 'follower_robot_id': 'exit_follow',
+            'dispatch_service': 'dispatch_parking_task_exit',
+            'park_in_slot_service': '/park_in_slot_exit'}]))
+    return LaunchDescription([auto_start_arg, *nodes])

@@ -31,6 +31,12 @@ from parking_robot_interfaces.action import CarryToSlot
 from parkbot_motion import formation
 from parkbot_motion.pose_controller_node import odom_quat_to_yaw_deg
 
+# 2026-07-28 라이브 실측 정지마찰 교착 방지용 최소 명령 크기(§ _execute 사용처
+# 주석) — pose_controller.py 의 _MIN_LIN_CMD/_MIN_ANG_CMD 와 같은 근거, 이
+# 파일은 독립된 제어루프(PoseController 미사용)라 별도로 정의한다.
+_MIN_LIN_WORLD = 0.03   # m/s
+_MIN_ANG_ROTATE = 0.05  # rad/s
+
 
 class CarryActionServer(Node):
     def __init__(self):
@@ -171,11 +177,57 @@ class CarryActionServer(Node):
             vmag = math.hypot(vwx, vwz)
             if vmag > max_lin:
                 vwx, vwz = vwx * max_lin / vmag, vwz * max_lin / vmag
+                vmag = max_lin
+            # 2026-07-28 라이브 실측: pose_controller.py 에서 발견한 것과 같은 종류의
+            # 정지마찰 교착 — dist 가 pos_tol 바로 위로 좁혀지면 P 출력(vmag)이 실제
+            # 휠 정지마찰보다 작아져 두 로봇이 사실상 안 움직인 채 무한정 남는다("리프트
+            # 하고 뒤로 갔다가 멈췄다"). 아직 도달 전(dist>pos_tol)에만 최소 크기를
+            # 강제한다 — 도달 후(다음 틱 vwx/vwz=0 목표)는 영향 없음.
+            if dist > pos_tol and 0.0 < vmag < _MIN_LIN_WORLD:
+                vwx, vwz = vwx * (_MIN_LIN_WORLD / vmag), vwz * (_MIN_LIN_WORLD / vmag)
 
             dtheta = ((target_yaw - theta + math.pi) % (2 * math.pi)) - math.pi
             if phase == 'TRANSLATE':
-                omega = 0.0
-                reached = reached + 1 if dist <= pos_tol else 0
+                # 2026-07-28 라이브 실측(두 번째 교착): 위 along 판정 덕에 조기종료는
+                # 막았지만, 장거리(예 회랑 서진 18m) 동안 실제 메카넘 슬립으로 로봇
+                # yaw 가 서서히 틀어지며(수십 초에 수십 도) heading 축과 수직인 잔여
+                # 오차가 누적된다 — along 은 여전히 "아직 미도달"로 정확히 판정하지만,
+                # 남은 오차 대부분이 heading 과 거의 직각이 돼 클램프된 세계속도의
+                # 투영값(along 성분)이 다시 정지마찰 이하로 잦아든다(실측:
+                # dist=1.78 에서 cmd≈0.02 로 고착 — 위 _MIN_LIN_WORLD 플로어는 클램프
+                # *전* 세계속도 크기만 보므로 이 경우엔 못 걸린다). 근본 원인은 heading
+                # 자체가 틀어진 것이므로, target_yaw 로 향하는 아주 약한 회전 보정을
+                # 직진 중에도 계속 걸어 슬립이 쌓이기 전에 막는다.
+                #
+                # 예전에 강한 omega/strafe 보정이 로봇을 180도 뒤집어 폭주시킨 전례
+                # (§ 아래 tl/tf 주석)는 **반평행**(lead 서향/follow 동향) 편성 얘기다 —
+                # 지금 이 미션은 두 로봇이 항상 **평행**(같은 방향)이고, omega 는
+                # 강체로 공유돼 개별 로봇이 따로 안 돈다(§ formation.robot_twist_world
+                # — 반환하는 wz 가 그대로 omega). 그 위험이 구조적으로 없다.
+                #
+                # **2026-07-28 두 번째 실측(라이브 스크린샷 — 트럭이 대각선으로 틀어진
+                # 채 정지)**: 최초 시도(상한 0.15*max_ang, 게인 0.4*yaw_gain)는 너무
+                # 약했다 — 18m 를 계속 전진하며 쌓이는 슬립 속도를 이 보정이 못
+                # 따라잡았다. ROTATE 전용 상한(omega_cap≈0.6*max_lin/r_max, 실측
+                # 0.06~0.08rad/s)이 -37°/-76° 같은 큰 오차도 몇십 초 안에 확실히
+                # 되돌리는 걸 이미 봤으므로, TRANSLATE 보정도 그와 비슷한 크기까지
+                # 올린다(순수 회전이 아니라 전진과 동시라 오히려 더 강해야 슬립을
+                # 따라잡는다) — 게인도 거의 낮추지 않는다.
+                trans_ang_cap = 0.6 * max_ang
+                omega = max(-trans_ang_cap, min(trans_ang_cap, 0.9 * yaw_gain * dtheta))
+                # 2026-07-28 라이브 실측 교착: TRANSLATE 는 각 로봇이 **자기 heading
+                # 축으로만** 밀 수 있다(vy 강제 0, § 아래 tl/tf 처리) — 그 축과 수직인
+                # 잔여오차는 원리적으로 못 줄인다. dist(전체 오차)로 도달을 판정하면
+                # 축-수직 잔여오차가 남아있는 한 영원히 도달 못 하고 멈춘다(실측:
+                # dist=0.20 에서 40초+ 고정, cmd≈0 — 세계속도 자체는 0.16m/s 로 충분히
+                # 컸지만 로봇 heading 이 오차방향과 거의 직각이라 투영값만 0 근처였다).
+                # lead 의 yaw 를 기준 축으로 오차를 투영해, 그 축 성분만으로 판정한다
+                # (반평행 편성이어도 follow 축은 같은 직선의 반대부호일 뿐이라 lead
+                # 하나만 써도 안전 — abs() 를 쓰므로 부호 무관). 축과 수직인 잔여오차는
+                # vy 를 허용하는 ROTATE 로 넘겨 거기서 마저 잡는다(§ 아래 else 분기 —
+                # ROTATE 는 TRANSLATE 와 달리 tl/tf 를 그대로 내보내 vy 가 살아있다).
+                along = ex * math.sin(lp[2]) + ez * math.cos(lp[2])
+                reached = reached + 1 if abs(along) <= pos_tol else 0
                 if reached >= settle_need:
                     phase = 'ROTATE'
                     reached = 0
@@ -186,8 +238,15 @@ class CarryActionServer(Node):
                 r_max = max(math.hypot(lp[0] - center[0], lp[1] - center[1]),
                             math.hypot(fp[0] - center[0], fp[1] - center[1]), 0.1)
                 omega_cap = 0.6 * max_lin / r_max     # 레버암 strafe 가 속도예산 안 넘게
-                omega = max(-min(max_ang, omega_cap),
-                            min(min(max_ang, omega_cap), yaw_gain * dtheta))
+                eff_ang_cap = min(max_ang, omega_cap)
+                omega = max(-eff_ang_cap, min(eff_ang_cap, yaw_gain * dtheta))
+                # § 위 TRANSLATE 최소속도와 동일 근거 — dtheta 가 남아 있는데 omega_cap
+                # 자체가 이미 작아(레버암이 길수록 더 작아짐) 실질적으로 못 도는 교착을
+                # 막는다. 안전상한(omega_cap/max_ang)은 절대 넘지 않는다(min 으로 이중 보호).
+                if abs(dtheta) > yaw_tol_rad:
+                    min_omega = min(_MIN_ANG_ROTATE, eff_ang_cap)
+                    if 0.0 < abs(omega) < min_omega:
+                        omega = math.copysign(min_omega, omega)
                 ok_pose = dist <= pos_tol and abs(dtheta) <= yaw_tol_rad
                 reached = reached + 1 if ok_pose else 0
                 if reached >= settle_need:
@@ -195,15 +254,28 @@ class CarryActionServer(Node):
 
             tl = formation.robot_twist_world((vwx, vwz), omega, lp, center, lp[2])
             tf = formation.robot_twist_world((vwx, vwz), omega, fp, center, fp[2])
+            if phase == 'TRANSLATE' and dist > pos_tol:
+                # 2026-07-28 라이브 실측(재발 방지 백스톱): 위 세계속도 플로어
+                # (_MIN_LIN_WORLD)는 클램프 *전* 세계속도 크기만 본다 — 로봇 heading
+                # 이 오차방향과 거의 직각이면 세계속도는 충분히 커도 **투영 후**
+                # 로봇별 실제 전진명령(tl[0]/tf[0])만 정지마찰 이하로 작아질 수
+                # 있다(실측: 세계속도 0.20m/s 인데도 투영 후 0.02 로 고착). 위
+                # omega 보정이 이런 헤딩 틀어짐 자체를 앞으로는 막아야 하지만,
+                # 혹시 남는 경우를 대비해 투영 *후* 값에도 같은 최소치를 건다.
+                if 0.0 < abs(tl[0]) < _MIN_LIN_WORLD:
+                    tl = (math.copysign(_MIN_LIN_WORLD, tl[0]), tl[1], tl[2])
+                if 0.0 < abs(tf[0]) < _MIN_LIN_WORLD:
+                    tf = (math.copysign(_MIN_LIN_WORLD, tf[0]), tf[1], tf[2])
             if phase == 'TRANSLATE':
-                # 순수 전진만 — strafe(vy)·omega 제거. 롤러 그립은 힘(전진)만 전달하고
-                # 로봇 yaw 는 자유회전이라: strafe 는 yaw 드리프트를 유발(실측 follow 30°
-                # 흘러 대각선·0.03m/s 정체), omega 는 로봇을 트럭밑에서 헛돌림(실측 180°
-                # 뒤집혀 후진). 각 로봇이 자기 heading 축으로만 밀면 트럭이 그 합력 방향으로
-                # 병진한다. vx_body 는 이미 원하는 월드속도를 heading 에 투영한 값. z 미세오차는
-                # 슬롯 진입(CARRY_SLOT)에서 흡수.
-                tl = (tl[0], 0.0, 0.0)
-                tf = (tf[0], 0.0, 0.0)
+                # strafe(vy)는 계속 제거 — 반평행 편성에서 yaw 드리프트를 유발한
+                # 전례(실측 follow 30° 흘러 대각선·0.03m/s 정체) 그대로 유지한다.
+                # omega 는 더 이상 0 으로 죽이지 않는다(§ 위 계산부 주석 — 강체공유
+                # 회전이라 반평행때의 "로봇이 트럭밑에서 헛돌림·180도 뒤집힘" 위험이
+                # 구조적으로 없고, 낮은 상한의 약한 보정만 흐른다). 각 로봇이 자기
+                # heading 축으로 미는 힘이 여전히 추력의 대부분이고, omega 는 그
+                # heading 자체가 슬립으로 틀어지지 않게 붙잡는 역할만 한다.
+                tl = (tl[0], 0.0, tl[2])
+                tf = (tf[0], 0.0, tf[2])
             self._pub(lead, tl)
             self._pub(follow, tf)
 

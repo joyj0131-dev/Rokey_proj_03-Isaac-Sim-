@@ -102,7 +102,7 @@ from parkbot_motion.depth_stop_detector import roi_min_depth
 from parkbot_motion.ingress_control import (
     DEFAULT_FORWARD_SPEED, DEFAULT_LAT_DEADBAND, DEFAULT_LAT_KP, DEFAULT_LAT_VY_MAX,
     DEFAULT_POS_TOL, DEFAULT_RETURN_SPEED, DEFAULT_SETTLE_FRAMES, IngressController)
-from parkbot_motion.pose_controller_node import resolve_pose_msg_type
+from parkbot_motion.pose_controller_node import resolve_pose_msg_type, travel_axis_value
 
 
 class IngressNode(Node):
@@ -121,6 +121,10 @@ class IngressNode(Node):
         self.declare_parameter('axle_index_topic', f'/robot_{robot_id}/axle_index')
         self.declare_parameter('cmd_vel_topic', f'/robot_{robot_id}/cmd_vel')
         self.declare_parameter('action_name', f'/robot_{robot_id}/ingress_under_truck')
+        # 'x'|'-x'|'z'|'-z' — axle_detector_node 와 반드시 동일 값(같은 travel
+        # 좌표를 공유해야 axle_centers 비교가 맞는다). § pose_controller_node.
+        # travel_axis_value 및 axle_detector_node "주행좌표" 절.
+        self.declare_parameter('travel_axis', 'x')
 
         self.declare_parameter('roi_frac', list(DEPTH_ROI_FRAC))
         self.declare_parameter('forward_speed', DEFAULT_FORWARD_SPEED)
@@ -157,6 +161,7 @@ class IngressNode(Node):
         self.axle_index_topic = gp('axle_index_topic').value
         self.cmd_vel_topic = gp('cmd_vel_topic').value
         self.action_name = gp('action_name').value
+        self.travel_axis = str(gp('travel_axis').value)
 
         self.roi_frac = tuple(float(v) for v in gp('roi_frac').value)
         self.forward_speed = float(gp('forward_speed').value)
@@ -225,6 +230,7 @@ class IngressNode(Node):
             f'pose_topic={self.pose_topic} pose_msg_type={self.pose_msg_type}'
             f'({pose_msg_type_how}) axle_center={self.axle_center_topic} '
             f'cmd_vel={self.cmd_vel_topic} action={self.action_name} '
+            f'travel_axis={self.travel_axis} '
             f'forward_speed={self.forward_speed} return_speed={self.return_speed} '
             f'roi_frac={self.roi_frac}')
 
@@ -268,14 +274,14 @@ class IngressNode(Node):
 
     def _on_odom(self, msg):
         p = msg.pose.pose.position
-        self._handle_pose(p.x, msg.header.stamp)
+        self._handle_pose(p.x, p.z, msg.header.stamp)
 
     def _on_pose_stamped(self, msg):
         p = msg.pose.position
-        self._handle_pose(p.x, msg.header.stamp)
+        self._handle_pose(p.x, p.z, msg.header.stamp)
 
-    def _handle_pose(self, x, stamp):
-        x = float(x)
+    def _handle_pose(self, x, z, stamp):
+        x = travel_axis_value(x, z, self.travel_axis)
         self._last_travel_x = x
         self._last_pose_wall_time = time.monotonic()
 

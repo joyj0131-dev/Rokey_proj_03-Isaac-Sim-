@@ -31,6 +31,10 @@ SERVES_ROLE = {
     # 출차(남쪽) 대칭 슬롯 앞 마커(유일 ID 71~73, z≈-3.5). lane 은 기존 id 0/1/2(A1/A2/A3)
     # 를 z=-7.075 로 옮겨 대칭, 가운데(z=0)는 입차와 공유.
     "A1_FX": EXIT, "A2_FX": EXIT, "A3_FX": EXIT,
+    # 진입 회랑 드리프트 보정 마커의 출차측 대칭(2026-07-27, 유일 ID 74~77, z=-7.075).
+    # LANE_1~4(z=+7.075)는 입차 통로에만 있고 출차 통로엔 대응 마커가 없어 비대칭이었다
+    # — LANE_1~4 와 같은 x, z만 반전해 대칭 추가.
+    "LANE_1X": EXIT, "LANE_2X": EXIT, "LANE_3X": EXIT, "LANE_4X": EXIT,
     # 인계 베이 입구(Mission Phase C, Task C4 — parking_v4_runner.spawn_bay_marker
     # 가 런타임 스폰. z=+7.075 로 이미 ENTRY 부호 규약을 따른다).
     "BAY_OUT_ENTRY": ENTRY,

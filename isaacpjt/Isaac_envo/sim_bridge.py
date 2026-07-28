@@ -42,7 +42,17 @@ HANDOFF_VEHICLE_ROOT = f"/World/VehicleAsset/Vehicles/{HANDOFF_VEHICLE_NAME}"
 # 에셋 라벨은 "출차"지만 site_map_v4.py 의 z 부호반전 규약상 우리 프로세스에서는
 # ENTRY 팀 베이다(W_OUT 마커, id 51, 같은 좌표) — spawn_handoff_vehicle() 은 좌표만
 # 쓰고 라벨/역할은 다루지 않는다.
-HANDOFF_BAY_CENTER = (-8.5, 7.075)  # (x, z)
+HANDOFF_BAY_CENTER = (-8.5, 7.075)  # (x, z) — BAY_MARKER_Z(아래)가 참조하니 그대로 둔다.
+# Pickup 스폰 목표 좌표 — 현재는 A3 슬롯 중심(parking_environment_v4.usd 의
+# /World/.../A3 Xform: parking:center=(9.6, 0, 0), width=3.4, length=6.6 실측).
+# HANDOFF_BAY_CENTER 와 분리한 이유: 그건 인계 베이 입구 마커(BAY_MARKER_Z)가 계속
+# 참조하므로, 차량 목표만 바꾸려면 별도 상수가 필요하다.
+HANDOFF_VEHICLE_TARGET = (9.6, 0.0)  # (x, z) — A3 슬롯 중심
+# A3 슬롯의 긴 축(parking:length=6.6 이 z 방향, parking:width=3.4 가 x 방향 — v4
+# usd 의 parking:center/length/width 실측). 인계장 베이는 반대로 긴 축이 x 였다
+# (HANDOFF_LENGTH, marker_layout.py 주석) — 그래서 spawn_handoff_vehicle() 의
+# yaw 계산이 타깃마다 달라야 한다(아래 HANDOFF_VEHICLE_TARGET_AXIS 참고).
+HANDOFF_VEHICLE_TARGET_AXIS = "z"
 HANDOFF_VEHICLE_WHEELS = ("FrontLeftWheel", "FrontRightWheel", "RearLeftWheel", "RearRightWheel")
 
 # ---- Mission Phase C, Task C5: 앞축·뒤축 리프트 ----
@@ -270,7 +280,8 @@ def robot_prim_path(robot_id):
 
 
 def spawn_handoff_vehicle(stage):
-    """인계장 베이 블루패드에 Pickup 을 참조 스폰한다 (Mission Phase C, Task C1).
+    """HANDOFF_VEHICLE_TARGET(현재 A3 슬롯 중심)에 Pickup 을 참조 스폰한다
+    (Mission Phase C, Task C1).
 
     참조·배치·물리완화 방식은 p4_depth 의 depth_stop_lift_test_dual.py 를 그대로
     따른다(git show origin/p4_depth:isaacpjt/Isaac_envo/depth_stop_lift_test_dual.py):
@@ -324,12 +335,24 @@ def spawn_handoff_vehicle(stage):
 
     # 참조 원본(무회전)은 로컬 Z 가 세계 Z 와 그대로 겹친다(depth_stop_lift_test_dual.py
     # 는 이 차량을 회전 없이 translate 만으로 배치했고 그때 차 길이가 world Z 를 따랐다
-    # — 로봇 에셋과 달리 이 차량 에셋은 Z-up->Y-up 축변환이 필요 없다). 길이축을 X로
+    # — 로봇 에셋과 달리 이 차량 에셋은 Z-up->Y-up 축변환이 필요 없다).
+    #
+    # HANDOFF_VEHICLE_TARGET_AXIS == "x" (인계장 베이, 긴 축 x): 길이축을 X로
     # 돌리려면 Y축 ±90°: world_x = local_x*cosθ + local_z*sinθ 이므로(축 중심의
     # local_x≈0 가정) front_world_x - rear_world_x ≈ (front_local_z-rear_local_z)*sinθ.
     # 앞축이 게이트쪽(-x, 먼 쪽)에 오려면 이 값이 음수여야 한다 — 그래서 두 로컬 Z 의
     # 대소로 회전 부호를 정한다(차종이 바뀌어도 축 좌표만 보면 되므로 하드코딩 아님).
-    yaw_deg = -90.0 if front_local_z > rear_local_z else 90.0
+    #
+    # HANDOFF_VEHICLE_TARGET_AXIS == "z" (주차 슬롯, 긴 축 z, 예: A3): 무회전(0°)
+    # 이 이미 길이=world Z 라 그대로 두면 되고, 180° 만 "앞축이 어느 쪽 끝에 오는지"를
+    # 뒤집는다. 슬롯 안쪽(아세일에서 먼 -z, A3_C 최종정지=z=0 방향)에 앞축이 오도록
+    # front_local_z 가 더 작은 쪽이 이미 -z 면 0°, 아니면 180°.
+    if HANDOFF_VEHICLE_TARGET_AXIS == "x":
+        yaw_deg = -90.0 if front_local_z > rear_local_z else 90.0
+    elif HANDOFF_VEHICLE_TARGET_AXIS == "z":
+        yaw_deg = 0.0 if front_local_z < rear_local_z else 180.0
+    else:
+        raise ValueError(f"알 수 없는 HANDOFF_VEHICLE_TARGET_AXIS={HANDOFF_VEHICLE_TARGET_AXIS!r}")
 
     # 주의: target(Pickup) 자신의 로컬 트랜스폼은 build_fab_vehicles.py 가 이미
     # "FBX 로컬축(X=좌우,Y=전후,Z=위) -> PhysX/Isaac 축(X=좌우,Y=위,Z=전후)" 정렬 회전을
@@ -353,7 +376,7 @@ def spawn_handoff_vehicle(stage):
     target_xf.ClearXformOpOrder()
     target_xf.MakeMatrixXform().Set(target_matrix)
 
-    cx, cz = HANDOFF_BAY_CENTER
+    cx, cz = HANDOFF_VEHICLE_TARGET
     va_xf = UsdGeom.Xformable(vehicle_asset)
     va_xf.ClearXformOpOrder()
     translate_op = va_xf.AddTranslateOp()
@@ -892,7 +915,16 @@ def deploy_arms(art, idx, scale):
     따른다(_ingress_axle 의 vel_buf 와 동일 패턴)."""
     pos = np.array(art.get_joint_positions(), dtype=np.float32).reshape(-1)
     for name, deg in ARM_TARGETS.items():
-        pos[idx[name]] = math.radians(deg * scale)
+        j = idx[name]
+        if j >= pos.shape[0]:
+            # 2026-07-28 라이브 실측: 장시간 실행(운반 단계) 중 특정 프레임에
+            # art.get_joint_positions() 가 일시적으로 실제보다 짧은 배열을 반환해
+            # IndexError -> 미처리 예외로 프로세스 전체가 죽는 사고가 났다(원인은
+            # GPU PhysX 쪽 순간적 이상으로 추정, 재현 조건 미상). 이 팔 프레임만
+            # 건너뛰고 다음 프레임에 정상 크기로 돌아오면 계속 진행한다 — 한 프레임
+            # 팔 명령 유실이 전체 시뮬레이션 크래시보다 훨씬 안전하다.
+            continue
+        pos[j] = math.radians(deg * scale)
     art.set_joint_position_targets(pos)
 
 
@@ -1071,6 +1103,15 @@ def main():
         경로(브리지 vs 인프로세스 미션)라 같은 스텝에서 동시에 돌지 않는다 —
         브리지 모드(``--bridge``)는 미션 코드를 전혀 거치지 않는다(§ "if
         bridge:" 블록은 미션 진입점 이후에 도달).
+
+        **2026-07-27 메모**: 커네매틱 베이스 구동(직접 world pose 적분)을
+        시도했으나 라이브 Isaac 구동에서 articulation 이 여전히 완전
+        동역학이라(관절/접촉 솔버가 매 프레임 텔레포트와 계속 충돌) 회전이
+        통제 불능으로 폭주하는 현상이 실측 확인돼 되돌렸다 — 원래 휠 물리
+        기반 구동으로 복귀. 진짜 커네매틱 구동을 하려면 articulation 링크
+        수준에서 PhysX kinematic 지원이 필요한데, 이 로봇(휠+스윙암이 전부
+        같은 articulation)에서 base_link 만 kinematic 으로 분리하는 방법은
+        이번 세션에서 검증하지 못했다 — 향후 과제로 남긴다.
         """
         for r in _active_robots():
             vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])

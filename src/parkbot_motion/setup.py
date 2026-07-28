@@ -39,6 +39,7 @@ setup(
             'ingress_node = parkbot_motion.ingress_node:main',
             'pickup_orchestrator_node = parkbot_motion.pickup_orchestrator_node:main',
             'carry_action_server = parkbot_motion.carry_action_server:main',
+            'user_request_gateway_node = parkbot_motion.user_request_gateway_node:main',
         ],
     },
 )

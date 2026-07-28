@@ -62,24 +62,15 @@ class ParkingRequest(BaseModel):
     robot_ids: list[str] = Field(default_factory=list)
     status: RequestStatus
     created_at: str
-    #: 완료·취소 시각. 진행 작업은 None이며 완료 결과의 실제 소요시간 계산에 쓴다.
-    completed_at: str | None = None
     #: task_dispatcher가 발급한 task_id (UUID). mock 모드에서는 None.
     external_task_id: str | None = None
+    #: dual 모드에서 이 요청을 실제로 처리한 로봇 그룹('entry'/'exit'). 그 외 모드는 None.
+    robot_group: str | None = None
 
 
 class Robot(BaseModel):
     id: str
-    status: Literal[
-        "IDLE",
-        "BUSY",
-        "CHARGING",
-        "ERROR",
-        "OFFLINE",
-        "SAFETY_STOPPED",
-        "RECOVERY_REQUIRED",
-        "RECOVERING",
-    ]
+    status: Literal["IDLE", "BUSY", "CHARGING", "ERROR", "OFFLINE"]
     battery: int
     current_task_id: int | None = None
     error_message: str | None = None
@@ -105,40 +96,7 @@ class AlertLevel(str, Enum):
 class AlertCategory(str, Enum):
     OBSTACLE = "OBSTACLE"        # 장애물 감지
     ROBOT_ERROR = "ROBOT_ERROR"  # 로봇 오류
-    EMERGENCY_STOP = "EMERGENCY_STOP"  # 운영자 비상정지
     SYSTEM = "SYSTEM"            # 기타 시스템 이벤트
-
-
-class SafetyStatus(str, Enum):
-    NORMAL = "NORMAL"
-    STOPPED_LATCHED = "STOPPED_LATCHED"
-    READY_FOR_OPERATION = "READY_FOR_OPERATION"
-    UNKNOWN = "UNKNOWN"
-
-
-class SafetyResetRequest(BaseModel):
-    operator_id: str = Field(min_length=1, max_length=64)
-    inspection_note: str = Field(min_length=5, max_length=1000)
-    area_clear: bool
-    robots_stopped: bool
-    load_secured: bool
-    sensors_checked: bool
-
-
-class OperationApprovalRequest(BaseModel):
-    operator_id: str = Field(min_length=1, max_length=64)
-    approval_note: str = Field(min_length=5, max_length=1000)
-
-
-class RobotRecoveryRequest(BaseModel):
-    """취소된 원 작업과 분리해 로봇만 안전 도크로 복귀시키는 승인."""
-
-    operator_id: str = Field(min_length=1, max_length=64)
-    recovery_note: str = Field(min_length=5, max_length=1000)
-    path_clear: bool
-    load_cleared: bool
-    arms_retracted: bool
-    sensors_ready: bool
 
 
 class Alert(BaseModel):
@@ -147,103 +105,23 @@ class Alert(BaseModel):
     category: AlertCategory
     message: str
     robot_id: str | None = None
-    #: 감지 이벤트를 발행한 센서/영역과 ROS map 기준 위치.
-    #: 기존 알림 생산자는 값을 생략할 수 있도록 모두 선택 필드로 둔다.
-    sensor_id: str | None = None
-    zone_id: str | None = None
-    location_x: float | None = None
-    location_y: float | None = None
     created_at: str
     active: bool = True
 
 
-class SafetyIncidentEvent(BaseModel):
-    """하나의 안전 사건 안에서 발생한 순차 조치."""
+class RobotGroupStatus(BaseModel):
+    """dual 모드에서 입차/출차 로봇 그룹(=각각의 Isaac Sim PC)의 연결 상태.
 
-    stage: Literal[
-        "DETECTED",
-        "ROBOTS_STOPPED",
-        "TASK_PAUSED",
-        "OBSTACLE_CLEARED",
-        "OPERATION_RESUMED",
-    ]
-    message: str
-    created_at: str
+    ``connected``는 해당 그룹의 dispatch 서비스가 지금 이 순간 응답 가능한지
+    (service_is_ready) 여부이며, DB(robot_groups)에 등록만 되어 있고 아직
+    로봇 스택이 안 떠 있으면 False가 된다(예: exit는 안무 미구현이라 상시 False).
+    """
 
-
-class SafetyIncident(BaseModel):
-    """장애물 감지부터 자동 재개까지 추적하는 관제 안전 사건."""
-
-    id: int
-    alert_id: int
-    status: Literal["MONITORING", "SAFETY_STOPPED", "RECOVERED"]
-    sensor_id: str | None = None
-    zone_id: str | None = None
-    location_x: float | None = None
-    location_y: float | None = None
-    affected_robot_ids: list[str] = Field(default_factory=list)
-    affected_request_ids: list[int] = Field(default_factory=list)
-    detected_at: str
-    resolved_at: str | None = None
-    events: list[SafetyIncidentEvent] = Field(default_factory=list)
-
-
-class SupportPointState(BaseModel):
-    """차량 타이어 한 곳을 받치는 두 암 관절의 요약 상태."""
-
-    id: str
-    label: str
-    robot_id: str
-    joint_names: list[str] = Field(default_factory=list)
-    command_percent: float | None = None
-    actual_percent: float | None = None
-    supported: bool | None = None
-
-
-class CooperativeLoadState(BaseModel):
-    """두 로봇의 차축 정렬·리프트 상태를 관제 화면용으로 정규화한 값."""
-
-    request_id: int
-    vehicle_number: str
-    lead_robot_id: str | None = None
-    follow_robot_id: str | None = None
-    front_alignment_error_mm: float | None = None
-    rear_alignment_error_mm: float | None = None
-    support_points: list[SupportPointState] = Field(default_factory=list)
-    lift_command_percent: float | None = None
-    vehicle_rise_mm: float | None = None
-    pitch_deg: float | None = None
-    roll_deg: float | None = None
-    tire_support_count: int | None = None
-    synchronized: bool | None = None
-    stable: bool | None = None
-    slip_suspected: bool | None = None
-    load_anomaly_suspected: bool | None = None
-    source: Literal["MOCK", "MEASURED_ESTIMATED", "UNAVAILABLE"] = "UNAVAILABLE"
-    #: 협동 적재 관련 ROS 토픽 중 가장 최근 표본의 경과 시간과 합산 수신률.
-    #: updated_at은 상태를 만든 시각이고, 아래 두 값이 실제 통신 신선도를 뜻한다.
-    telemetry_age_sec: float | None = None
-    telemetry_rate_hz: float | None = None
-    updated_at: str | None = None
-
-
-class VisionAlignmentState(BaseModel):
-    """ArUco 검출 결과와 위치 보정 상태의 웹 표시용 계약."""
-
-    robot_id: str
-    camera: str = "front"
-    connected: bool = False
-    marker_detected: bool = False
-    marker_id: int | None = None
-    distance_m: float | None = None
-    reprojection_error_px: float | None = None
-    lateral_error_mm: float | None = None
-    longitudinal_error_mm: float | None = None
-    yaw_error_deg: float | None = None
-    marker_corners: list[list[float]] = Field(default_factory=list)
-    target_center: list[float] | None = None
-    alignment_state: Literal[
-        "NO_DATA", "SEARCHING", "ADJUSTING", "ALIGNED"
-    ] = "NO_DATA"
-    source: Literal["MOCK", "ARUCO_FUSED", "UNAVAILABLE"] = "UNAVAILABLE"
-    updated_at: str | None = None
+    group_id: str
+    display_name: str
+    request_type: RequestType
+    dispatch_service: str
+    connected: bool
+    leader_robot_id: str | None = None
+    follower_robot_id: str | None = None
+    last_dispatch_at: str | None = None

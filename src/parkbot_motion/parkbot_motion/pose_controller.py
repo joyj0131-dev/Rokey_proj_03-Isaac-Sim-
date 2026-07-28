@@ -29,6 +29,18 @@ _DEFAULT_LINEAR_DECEL = 0.8
 _DEFAULT_ANGULAR_ACCEL = 0.8
 _DEFAULT_SETTLE_FRAMES = 30
 
+# 2026-07-28 라이브 실측 버그: 잔차가 tol 바로 위(yaw 0.5~0.56°, tol=0.5°)로
+# settle 될 때 body_twist_toward 의 P 제어 출력이 너무 작아(yaw_gain=1.2 ×
+# 0.0087rad ≈ 0.01rad/s) 휠 정지마찰(stiction)을 못 이겨 로봇이 실제로는
+# 전혀 안 움직였다(GT 로 58초 동안 yaw 0.500°에 고정 확인). 그 결과 done 이
+# 다시는 True 가 안 돼 settle 재제어(§ pose_controller_node.py)가 소진될
+# 때까지 무한 대기 — 목표 도달과 무관하게 "명령 자체가 물리적으로 무의미"한
+# 경우다. 아직 done 이 아닌 스텝에서만(=계속 몰아야 하는 상황에서만) 최소
+# 명령 크기를 강제해 이 교착을 막는다 — done 이면 목표가 그대로 0 이라
+# 이 바닥값의 영향을 받지 않는다.
+_MIN_ANG_CMD = 0.05    # rad/s
+_MIN_LIN_CMD = 0.03    # m/s
+
 
 def _median_settle_pose(poses):
     """settle 창에서 모은 (x,z,yaw_deg) 표본들의 중앙값(x,z)+원형평균(yaw).
@@ -119,6 +131,14 @@ class PoseController:
                 self._stopping = True
                 target_tw = (0.0, 0.0, 0.0)
             else:
+                # § 위 _MIN_ANG_CMD/_MIN_LIN_CMD: 아직 도달 전인데 P 출력이
+                # 정지마찰 문턱보다 작으면 부호를 보존한 채 문턱까지 올린다.
+                if 0.0 < abs(twz) < _MIN_ANG_CMD:
+                    twz = math.copysign(_MIN_ANG_CMD, twz)
+                if 0.0 < abs(tvx) < _MIN_LIN_CMD:
+                    tvx = math.copysign(_MIN_LIN_CMD, tvx)
+                if 0.0 < abs(tvy) < _MIN_LIN_CMD:
+                    tvy = math.copysign(_MIN_LIN_CMD, tvy)
                 target_tw = (tvx, tvy, twz)
         else:
             target_tw = (0.0, 0.0, 0.0)
