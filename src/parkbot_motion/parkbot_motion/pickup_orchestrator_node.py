@@ -748,18 +748,31 @@ class PickupOrchestratorNode(Node):
         return ok, reason
 
     def _return_dock(self, rid, is_leader, leader_id):
-        """회랑(dock_x, 7.075)에서 도크(dock_x, dock_z)로 남진 안착."""
+        """회랑(dock_x, 7.075, −90)→북향 회전→후진(−z)으로 도크 진입→동향90 복원."""
         node = self._return_localizer_node(rid, leader_id)
         dock_id = self.phase_b_leader_dock_id if is_leader else self.phase_b_follower_dock_id
         dock_x = self.phase_b_leader_dock_x if is_leader else self.phase_b_follower_dock_x
         dock_z = self.phase_b_leader_dock_z if is_leader else self.phase_b_follower_dock_z
+        corr_z = self.phase_b_xn_z
+        # 북향 90° 회전(제자리, odom): yaw −90→0. 이후 북향에서 후진하면 world −z(남진).
+        ok, reason = self._navigate_phase_b(
+            rid, 'nav_odom', self.navigate_odom_action,
+            dock_x, corr_z, 0.0, f'return:turn-north[{rid}]')
+        if not ok:
+            return False, reason
+        # 도크마커로 ref 전환 후 후진 도크진입(양캠, yaw 0 유지). pose_controller 가 −z 로 몬다.
         ok, reason = self._set_localizer_ref(
             node, [dock_id], True, f'return:dock-ref[{rid}]', use_front=True)
         if ok:
             ok, reason = self._navigate_phase_b(
                 rid, 'nav_fused', self.navigate_fused_action,
-                dock_x, dock_z, self.return_dock_yaw, f'return:dock[{rid}]')
-        return ok, reason
+                dock_x, dock_z, 0.0, f'return:dock[{rid}]')
+        if not ok:
+            return False, reason
+        # 동향(yaw 90) 복원(제자리, odom) — 다음 입차 seed(yaw90)와 자세 일치.
+        return self._navigate_phase_b(
+            rid, 'nav_odom', self.navigate_odom_action,
+            dock_x, dock_z, self.return_dock_yaw, f'return:dock-face[{rid}]')
 
     def _run_return(self, goal_handle, leader_id, follower_id, idx, total):
         """주차 후 복귀: 순차 이탈(follow 북쪽이라 먼저→lead) 후 동시 도크 안착.
