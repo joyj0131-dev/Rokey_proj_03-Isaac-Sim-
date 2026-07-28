@@ -24,5 +24,13 @@ parkbot_motion/pickup_choreography.py
 parkbot_motion/pickup_orchestrator_node.py
 parkbot_motion/pose_controller.py
 parkbot_motion/pose_controller_node.py
+parkbot_motion/user_request_gateway_node.py
 parkbot_motion/wheel_odometry.py
+parkbot_motion.egg-info/PKG-INFO
+parkbot_motion.egg-info/SOURCES.txt
+parkbot_motion.egg-info/dependency_links.txt
+parkbot_motion.egg-info/entry_points.txt
+parkbot_motion.egg-info/requires.txt
+parkbot_motion.egg-info/top_level.txt
+parkbot_motion.egg-info/zip-safe
 resource/parkbot_motion

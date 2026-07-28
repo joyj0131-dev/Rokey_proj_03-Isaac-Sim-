@@ -219,6 +219,11 @@ class PickupOrchestratorNode(Node):
         self.declare_parameter('park_lane_marker_ids', [61, 62, 63, 64])
         self.declare_parameter('park_lane_z', 7.075)        # 슬롯 앞 lane z(운반 도달선)
         self.declare_parameter('park_center_z', 0.0)        # 슬롯 가운데 z(최종 정지)
+        # 복귀(RETURN): 주차 후 두 로봇을 원래 도크로 되돌린다(Phase B 역순, 독립주행).
+        # lead 는 주차 완료 시 남향(yaw180)에 슬롯보다 남쪽(z≈center-½L)에 있어, 이탈 전
+        # 제자리 회전(odom)의 목표 z. L≈3.57 → half≈1.78, park_center_z(0) 기준 -1.8.
+        self.declare_parameter('return_lead_parked_z', -1.8)
+        self.declare_parameter('return_dock_yaw', 90.0)     # 도크 최종 yaw(스폰 seed=90=동향)
         # 슬롯 진입 회전량[도, **상대**]. 위치기반 truck_yaw 가 그립 삐뚤어짐에 취약해
         # 절대각(-180) 대신 "직진 종료 시점 방향에서 이만큼 돈다"로 준다(CCW 90°=-90).
         self.declare_parameter('park_turn_deg', -90.0)
@@ -289,6 +294,8 @@ class PickupOrchestratorNode(Node):
         self.park_lane_marker_ids = [int(i) for i in gp('park_lane_marker_ids').value]
         self.park_lane_z = float(gp('park_lane_z').value)
         self.park_center_z = float(gp('park_center_z').value)
+        self.return_lead_parked_z = float(gp('return_lead_parked_z').value)
+        self.return_dock_yaw = float(gp('return_dock_yaw').value)
         self.park_turn_deg = float(gp('park_turn_deg').value)
         self.lift_action = gp('lift_action').value
 
@@ -675,6 +682,100 @@ class PickupOrchestratorNode(Node):
                 return False, f'{label} 실패: {reason}'
         return True, None
 
+    # ---- 복귀(RETURN): 주차 후 두 로봇을 원래 도크로 (Phase B 역순, 독립주행) ----
+
+    def _return_localizer_node(self, rid, leader_id):
+        return ((self.phase_b_leader_localizer_node if rid == leader_id
+                 else self.phase_b_follower_localizer_node)
+                or f'/robot_{rid}/marker_localizer_node')
+
+    def _return_egress_to_corridor(self, rid, is_leader, dock_x, corridor_id, leader_id):
+        """한 로봇을 슬롯(차 밑)에서 북쪽 회랑(dock_x, 7.075)까지 뺀다.
+        lead 는 남향(yaw180)이라 먼저 제자리 회전(odom)해 북향 후 이탈."""
+        node = self._return_localizer_node(rid, leader_id)
+        slot_x = self.park_slot_x
+        corr_z = self.phase_b_xn_z
+        slot_ref = [self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
+        if is_leader:
+            # 남향→북향 제자리 회전. 회전 중 마커 상실이라 odom(Phase B rotate_90 동일).
+            ok, reason = self._navigate_phase_b(
+                rid, 'nav_odom', self.navigate_odom_action,
+                slot_x, self.return_lead_parked_z, 0.0, f'return:lead-rotate[{rid}]')
+            if not ok:
+                return False, reason
+        # 북향 확보 → 전방(하향)캠으로 슬롯마커(66/65/3) 보며 회랑까지 북진(차 밑 이탈).
+        ok, reason = self._set_localizer_ref(
+            node, slot_ref, True, f'return:egress-ref[{rid}]', use_front=True)
+        if ok:
+            ok, reason = self._navigate_phase_b(
+                rid, 'nav_fused', self.navigate_fused_action,
+                slot_x, corr_z, 0.0, f'return:egress[{rid}]')
+        if not ok:
+            return False, reason
+        # 회랑 바닥마커(61~64+목표회랑마커)로 전환 후 도크 x 로 서진.
+        ok, reason = self._set_localizer_ref(
+            node, self.park_lane_marker_ids + [corridor_id], True,
+            f'return:corridor-ref[{rid}]', use_front=True)
+        if ok:
+            ok, reason = self._navigate_phase_b(
+                rid, 'nav_fused', self.navigate_fused_action,
+                dock_x, corr_z, 0.0, f'return:corridor-west[{rid}]')
+        return ok, reason
+
+    def _return_dock(self, rid, is_leader, leader_id):
+        """회랑(dock_x, 7.075)에서 도크(dock_x, dock_z)로 남진 안착."""
+        node = self._return_localizer_node(rid, leader_id)
+        dock_id = self.phase_b_leader_dock_id if is_leader else self.phase_b_follower_dock_id
+        dock_x = self.phase_b_leader_dock_x if is_leader else self.phase_b_follower_dock_x
+        dock_z = self.phase_b_leader_dock_z if is_leader else self.phase_b_follower_dock_z
+        ok, reason = self._set_localizer_ref(
+            node, [dock_id], True, f'return:dock-ref[{rid}]', use_front=True)
+        if ok:
+            ok, reason = self._navigate_phase_b(
+                rid, 'nav_fused', self.navigate_fused_action,
+                dock_x, dock_z, self.return_dock_yaw, f'return:dock[{rid}]')
+        return ok, reason
+
+    def _run_return(self, goal_handle, leader_id, follower_id, idx, total):
+        """주차 후 복귀: 순차 이탈(follow 북쪽이라 먼저→lead) 후 동시 도크 안착.
+        반환 (ok, reason, idx). 이탈은 같은 x=slot_x 라인이라 순차(충돌 회피),
+        도크 주행은 회랑에서 x 가 갈려(-1.2/-3.2) 동시."""
+        # Stage 1: 순차 이탈 (follow 먼저 — 주차 시 북쪽=출구에 가까움, lead 는 남쪽/깊음)
+        self._publish_feedback(goal_handle, 'RETURN_FOLLOW_OUT', idx, total)
+        ok, reason = self._return_egress_to_corridor(
+            follower_id, False, self.phase_b_follower_dock_x,
+            self.phase_b_follower_corridor_id, leader_id)
+        if not ok:
+            return False, f'복귀 이탈(follow) 실패: {reason}', idx
+        idx += 1
+        self._publish_feedback(goal_handle, 'RETURN_LEAD_OUT', idx, total)
+        ok, reason = self._return_egress_to_corridor(
+            leader_id, True, self.phase_b_leader_dock_x,
+            self.phase_b_leader_corridor_id, leader_id)
+        if not ok:
+            return False, f'복귀 이탈(lead) 실패: {reason}', idx
+        idx += 1
+
+        # Stage 2: 동시 도크 안착 (Phase B 병렬 스레드 패턴 재사용)
+        self._publish_feedback(goal_handle, 'RETURN_DOCK', idx, total)
+        dock = {}
+
+        def _leg(rid, is_leader):
+            dock[rid] = self._return_dock(rid, is_leader, leader_id)
+
+        threads = [threading.Thread(target=_leg, args=(leader_id, True), daemon=True),
+                   threading.Thread(target=_leg, args=(follower_id, False), daemon=True)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        idx += 1
+        for rid in (leader_id, follower_id):
+            ok, reason = dock.get(rid, (False, f'{rid} 도크 복귀 미완'))
+            if not ok:
+                return False, f'복귀 도크안착 실패: {reason}', idx
+        return True, None, idx
+
     # ---- feedback ----
 
     def _publish_feedback(self, goal_handle, step, idx, total):
@@ -745,7 +846,7 @@ class PickupOrchestratorNode(Node):
 
         # 진행률 분모: Phase B 스텝 + 진입 2 + 리프트UP + 운반 + 안착(DOWN).
         pb_steps = phase_b_plan(leader_id, follower_id) if self.run_phase_b_first else []
-        total = len(pb_steps) + 2 + 4   # 진입2 +리프트UP +운반(lane+slot 2) +안착DOWN
+        total = len(pb_steps) + 2 + 4 + 3   # +진입2 +리프트UP +운반2 +안착DOWN +복귀3
 
         idx = 0
         fail_reason = None
@@ -896,14 +997,23 @@ class PickupOrchestratorNode(Node):
             goal_handle.abort()
             return ExecuteParkingTask.Result(success=False, message=f'안착(lift DOWN) 실패: {reason}')
 
+        # ---- 복귀: 두 로봇을 원래 도크로 (Phase B 역순, 순차이탈→동시안착) ----
+        idx = total - 3   # 남은 3틱 = 복귀(follow이탈/lead이탈/도크안착)
+        ok, reason, idx = self._run_return(goal_handle, leader_id, follower_id, idx, total)
+        if not ok:
+            self._publish_feedback(goal_handle, 'FAILED', idx, total)
+            self.get_logger().warn(f'execute_pickup_choreography 실패(복귀): {reason}')
+            goal_handle.abort()
+            return ExecuteParkingTask.Result(success=False, message=reason)
+
         idx = total
         self._publish_feedback(goal_handle, 'DONE', idx, total)
         self.get_logger().info(
-            f'execute_pickup_choreography 완료: task_id={goal.task_id} '
+            f'execute_pickup_choreography 완료(복귀 포함): task_id={goal.task_id} '
             f'leader={leader_id} follower={follower_id}')
         goal_handle.succeed()
         return ExecuteParkingTask.Result(
-            success=True, message='입차 완료(픽업+리프트+운반+안착)')
+            success=True, message='입차+복귀 완료(픽업+리프트+운반+안착+도크복귀)')
 
 
 def main(args=None):
