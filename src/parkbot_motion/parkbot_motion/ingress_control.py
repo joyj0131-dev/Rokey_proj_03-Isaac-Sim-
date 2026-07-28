@@ -223,7 +223,13 @@ class IngressController:
                 self._settle_count = 0
                 self.final_stop_x = travel_x
             else:
-                vx = math.copysign(self.forward_speed, remaining)  # 목표 향해 등속 전진
+                # 헤딩이 목표(travel=world z, +방향=북)와 반대면 후진. 남향(yaw≈180) lead 는
+                # 트럭밑 180° 회전이 막혀(실측) 회전 없이 후진으로 북진한다(들어온 경로 되짚기).
+                # travel(z) 증가에 로봇 forward 가 기여하는 부호 = cos(yaw)(nav yaw: fwd_z=cos).
+                face = math.cos(math.radians(yaw_deg)) if yaw_deg is not None else 1.0
+                if face == 0.0:
+                    face = 1.0                                    # 수직(횡향)이면 전진 기본
+                vx = math.copysign(self.forward_speed, remaining * face)
                 return (vx, vy, 0.0)   # 블라인드 축이동 — 회전 금지(바퀴 밀림, RETURN 동형)
 
         if self.phase == self.PHASE_SEEK:
@@ -301,5 +307,11 @@ if __name__ == "__main__":
     g2 = IngressController(0, egress=True, egress_target=7.0)
     _vx, vy2, _wz = g2.step(0.0, None, 0.30, 0.10, [], 0.05)  # 좌>우 → +vy
     assert vy2 > 0, vy2
+    # 남향(yaw≈180) 로봇은 목표 북(+z=travel↑)이 헤딩 반대라 **후진**(vx<0)으로 북진
+    # (트럭밑 180° 회전 회피 — lead 복귀 이탈). 북향(yaw≈0)은 전진(vx>0).
+    gb = IngressController(0, egress=True, egress_target=7.0, forward_speed=0.4)
+    assert gb.step(0.0, 180.0, None, None, [], 0.05)[0] < 0
+    gf = IngressController(0, egress=True, egress_target=7.0, forward_speed=0.4)
+    assert gf.step(0.0, 0.0, None, None, [], 0.05)[0] > 0
 
     print("ingress_control self-check OK (drive_sign + yaw_hold + RETURN wz0 + EGRESS)")

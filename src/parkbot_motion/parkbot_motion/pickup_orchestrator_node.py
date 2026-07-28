@@ -717,18 +717,13 @@ class PickupOrchestratorNode(Node):
         corr_z = self.phase_b_xn_z
         slot_ref = [self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
         if is_leader:
-            # 남향(yaw180)→북향(yaw0) 제자리 회전(odom). 180° 를 한 번에(목표 0) 주면
-            # ±180 특이점이라 회전 방향이 불확정해 제자리 진동만 하다 timeout(실측). 그래서
-            # 중간 −90 을 거쳐 90°씩 2단계로 나눈다 — 각 스텝 목표가 시작의 정반대가 아니라
-            # 오차 부호가 확정돼 한 방향으로 돈다. 그 뒤 뎁스 중앙유지로 북진 이탈.
-            for _yaw in (-90.0, 0.0):
-                ok, reason = self._navigate_phase_b(
-                    rid, 'nav_odom', self.navigate_odom_action,
-                    slot_x, self.return_lead_parked_z, _yaw, f'return:lead-rotate[{rid}]')
-                if not ok:
-                    return False, reason
+            # 남향(yaw180) 그대로 **후진 egress**로 트럭밑을 직선 통과해 북진(회랑)한다.
+            # 트럭 바퀴 사이에서 180° 제자리 회전은 물리적으로 막힌다(실측: 300s 동안 15°만
+            # 돌다 timeout). 그래서 회전 없이, ingress 로 들어온 경로를 뎁스 중앙유지하며
+            # 그대로 후진으로 되짚어 나온다(egress 가 헤딩 보고 후진 부호 자동 결정 —
+            # 남향에서 목표 북쪽은 body -x). 서향 정렬은 트럭 밖(자유공간)에 나온 뒤 아래서.
             self._depth_enable(rid, True)                   # egress 측면 뎁스 중앙유지 위해 캠 켜기
-            ok, reason = self._egress(rid, corr_z)          # 뎁스 egress → (slot_x, ~corr_z)
+            ok, reason = self._egress(rid, corr_z)          # 후진 egress → (slot_x, ~corr_z, yaw 유지)
             self._depth_enable(rid, False)                  # egress 끝 → 회랑주행은 뎁스 불필요
         else:
             # follow: 얕아서 마커(slot_ref, 양캠)로 북진 이탈.
