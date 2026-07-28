@@ -10,10 +10,15 @@
 """
 
 import os
+from pathlib import Path
 
 PARKING_MODE = os.getenv("PARKING_MODE", "mock").lower()
 
-VALID_MODES = {"mock", "ros2"}
+# prs  = parking_robot_system(feat/camera) 연동 (로봇 그룹 구분 없음, 단일 팀)
+# dual = prs와 같은 로봇 스택에 붙되, 입차/출차 요청을 서로 다른 로봇 그룹
+#        (= 서로 다른 Isaac Sim PC에 뜬 user_request_gateway_node 서비스)으로
+#        분리 라우팅한다. 라우팅 표는 core/db.py(SQLite)에서 관리.
+VALID_MODES = {"mock", "ros2", "prs", "dual"}
 
 if PARKING_MODE not in VALID_MODES:
     raise ValueError(
@@ -39,3 +44,14 @@ DB_USER = os.getenv("PARKING_DB_USER", "parking")
 DB_PASSWORD = os.getenv("PARKING_DB_PASSWORD", "parking1234")
 DB_NAME = os.getenv("PARKING_DB_NAME", "parking")
 DB_POLL_INTERVAL_SEC = float(os.getenv("PARKING_DB_POLL_INTERVAL_SEC", "0.25"))
+
+# ---------------------------------------------------------------------
+# dual 모드 전용 설정. MySQL(위 DB_*)과는 무관한 별개의 경량 SQLite로,
+# task_dispatcher DB가 아니라 "입차/출차 요청을 어느 로봇 그룹으로 보낼지"
+# 라우팅 표 + 전달 이력만 담는다 (core/db.py).
+# ---------------------------------------------------------------------
+DB_SQLITE_PATH = os.getenv(
+    "PARKING_SQLITE_PATH", str(Path(__file__).resolve().parent / "parking_control.db")
+)
+#: dispatch_parking_task 서비스 응답 대기 시간 (그룹별 공통 기본값).
+DUAL_DISPATCH_TIMEOUT_SEC = float(os.getenv("PARKING_DUAL_DISPATCH_TIMEOUT_SEC", "5.0"))

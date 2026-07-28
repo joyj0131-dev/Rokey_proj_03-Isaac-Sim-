@@ -25,6 +25,7 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32
 from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -136,6 +137,10 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("fuse", False)              # 오도메트리 융합(구독 필요)
         self.declare_parameter("odom_topic", "/robot_entry_lead/odom")  # fuse=True 일 때 구독
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
+        # 진단(rear 카메라 가시성 검증용): True 면 ref 필터 **전** 검출된 모든 마커
+        # ID 를 카메라(front/rear)별로 로그한다. follow rear 가 각 위치(XN/마커3/
+        # 마커66)에서 어떤 마커를 실제로 보는지 확인용. 검증 끝나면 다시 끈다.
+        self.declare_parameter("log_all_detections", False)
         self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
         self.declare_parameter("robot_id", "entry_lead")
         # R3c: 다중 로봇이 각자 노드 인스턴스를 띄울 때 서로 다른 /robot_pose 를
@@ -163,6 +168,19 @@ class MarkerLocalizerNode(Node):
         # 러너 drive_to_pose `_apply_fix` correct_yaw=False(위치전용 보정)의
         # ROS2 이식. 기본 True=기존 filt.update(fix) 그대로(하위호환).
         self.declare_parameter("correct_yaw", True)
+        # 차 든 후 운반(사용자 지시 2026-07-27): follow 는 rear cam 만 쓴다. False 면
+        # front 이미지 콜백을 스킵해 rear 관측만 /pose 보정에 반영한다. 오케가 carry
+        # 진입 시 런타임 전환. 기본 True(하위호환, 전방+후방 양캠).
+        self.declare_parameter("use_front", True)
+        # 차 든 직후 yaw 시딩(사용자 지시 2026-07-27): set_parameters 로 이 값을 주면
+        # 융합필터 yaw 를 즉시 이 각도로 리셋한다(위치 x,z 유지). carry 시작 시 오케가
+        # 90 으로 리셋 → 이후 rear 레인마커로 보정. 기본 NaN(리셋 안 함).
+        self.declare_parameter("force_yaw_deg", float('nan'))
+        # carry 정지·회전 트리거용: ref_marker_dist 를 **이 마커에만** 발행한다.
+        # -1(기본)=검출한 아무 ref 마커까지 거리(하위호환). 오케스트레이터가 carry
+        # 진입 전 선택 슬롯의 레인마커(A1'=3/A2'=4/A3'=5)로 런타임 설정 → 두 로봇이
+        # 그 마커를 등거리로 볼 때만 carry 가 정지·회전한다(엉뚱한 레인마커 오발 방지).
+        self.declare_parameter("mdist_marker_id", -1)
         # Task 3b: 이중카메라(전방+후방)-단일필터. rear_image_topic 이 빈
         # 문자열(기본)이면 후방 구독을 아예 만들지 않는다 — 기존 단일카메라
         # 동작이 완전히 그대로 유지된다(하위호환). 채워지면 인프로세스 러너
@@ -178,6 +196,7 @@ class MarkerLocalizerNode(Node):
         self.max_reproj = float(self.get_parameter("max_reproj_px").value)
         self.fuse = bool(self.get_parameter("fuse").value)
         self.log_every = max(1, int(self.get_parameter("log_every").value))
+        self.log_all_detections = bool(self.get_parameter("log_all_detections").value)
         self.frame = self.get_parameter("frame").value
         self.robot_id = str(self.get_parameter("robot_id").value)
         self.pose_topic = str(self.get_parameter("pose_topic").value)
@@ -192,6 +211,8 @@ class MarkerLocalizerNode(Node):
             self.get_parameter("t_base_cam").value, dtype=np.float64).reshape(4, 4)
         self.ref_ids = list(self.get_parameter("ref_ids").value)
         self.correct_yaw = bool(self.get_parameter("correct_yaw").value)
+        self.use_front = bool(self.get_parameter("use_front").value)
+        self.mdist_marker_id = int(self.get_parameter("mdist_marker_id").value)
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
         from pathlib import Path
@@ -214,6 +235,10 @@ class MarkerLocalizerNode(Node):
         self.pub_diagnostics = self.create_publisher(
             String, self.diagnostics_topic, 10
         )
+        # 검출한 ref 마커까지의 거리[m] — carry 가 "양 로봇 같은 거리면 정지·회전" 판정에 씀.
+        # 토픽: <robot ns>/ref_marker_dist (pose_topic 에서 유도).
+        _ns = self.pose_topic.rsplit('/', 1)[0]
+        self.pub_mdist = self.create_publisher(Float32, f'{_ns}/ref_marker_dist', 10)
 
         # Task 3b: rear_image_topic 이 비어있으면(기본) 후방 구독을 아예 만들지
         # 않는다 — self.rear_enabled=False 로 남고, 아래 K_rear/dist_rear/T_rear
@@ -297,6 +322,25 @@ class MarkerLocalizerNode(Node):
                     return SetParametersResult(
                         successful=False, reason="correct_yaw must be a bool")
                 self.correct_yaw = bool(p.value)
+            elif p.name == "use_front":
+                if p.type_ != Parameter.Type.BOOL:
+                    return SetParametersResult(
+                        successful=False, reason="use_front must be a bool")
+                self.use_front = bool(p.value)
+            elif p.name == "force_yaw_deg":
+                if p.type_ not in (Parameter.Type.DOUBLE, Parameter.Type.INTEGER):
+                    return SetParametersResult(
+                        successful=False, reason="force_yaw_deg must be a number")
+                val = float(p.value)
+                if (self.filt is not None and self.filt.x is not None
+                        and not math.isnan(val)):
+                    self.filt.yaw = val   # 위치 유지, yaw 만 즉시 리셋
+                    self.get_logger().info(f"force_yaw_deg: 필터 yaw → {val:.1f}° 리셋")
+            elif p.name == "mdist_marker_id":
+                if p.type_ != Parameter.Type.INTEGER:
+                    return SetParametersResult(
+                        successful=False, reason="mdist_marker_id must be an integer")
+                self.mdist_marker_id = int(p.value)
         return SetParametersResult(successful=True)
 
     def _on_odom(self, msg):
@@ -320,11 +364,13 @@ class MarkerLocalizerNode(Node):
             self._publish_pose(px, pz, pyaw, msg.header)
 
     def _on_image(self, msg: Image):
+        if not self.use_front:
+            return   # rear-only 모드(운반): front 관측 무시
         if self.K is None:
             self.get_logger().warn("camera_info 대기 중 — 아직 K 없음", once=True)
             self._publish_diagnostics(msg, None, "front")
             return
-        self._process_frame(msg, self.K, self.dist, self.T_base_cam, "front")
+        self._process_frame(msg, self.K, self.dist, self.T_base_cam, cam='front')
 
     def _on_image_rear(self, msg: Image):
         if self.K_rear is None:
@@ -332,10 +378,11 @@ class MarkerLocalizerNode(Node):
                 "후방 camera_info 대기 중 — 아직 K_rear 없음", once=True)
             self._publish_diagnostics(msg, None, "rear")
             return
-        self._process_frame(msg, self.K_rear, self.dist_rear, self.T_rear, "rear")
+        self._process_frame(msg, self.K_rear, self.dist_rear, self.T_rear, cam='rear')
 
-    def _process_frame(self, msg: Image, K, dist, t_base_cam, camera):
+    def _process_frame(self, msg: Image, K, dist, t_base_cam, cam='front'):
         """전방/후방 공용 파이프라인: 검출→ref 필터→마커별 fix→filt 공유 보정→발행.
+        ``cam``('front'/'rear')은 어느 카메라가 이 프레임을 냈는지 로그 표시용.
 
         Task 3b: 인프로세스 러너 `_run_entry_lead_b` 가 하나의 `filt` 을
         `rear_ctx`/`front_ctx` 로 번갈아 먹이는 것의 ROS2 이식 — `_on_image`/
@@ -349,6 +396,11 @@ class MarkerLocalizerNode(Node):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         poses = AP.detect_and_estimate(
             gray, self.detector, self.code_size, K, dist)
+        if self.log_all_detections and poses:
+            # ref 필터 전 검출 전체 — rear 가 실제로 무슨 마커를 보는지 검증용.
+            self.get_logger().info(
+                f"[검출][{cam}캠] 마커 {sorted(set(int(p.marker_id) for p in poses))} "
+                f"(현재 ref={self.ref_ids})")
         poses = filter_detections_by_ref(poses, self.ref_ids)
 
         valid_diagnostics = []
@@ -364,6 +416,11 @@ class MarkerLocalizerNode(Node):
                 continue
             valid_diagnostics.append((p.reproj_err_px, p, fix))
 
+            # 카메라→마커 거리(tvec 노름). carry 의 "양 로봇 같은 거리" 정지판정용.
+            # mdist_marker_id 가 지정되면 그 타깃 마커에만 발행(엉뚱한 레인마커 오발 방지).
+            if self.mdist_marker_id < 0 or int(p.marker_id) == self.mdist_marker_id:
+                self.pub_mdist.publish(Float32(data=float(np.linalg.norm(p.tvec))))
+
             n = self._seen_count.get(p.marker_id, 0) + 1
             self._seen_count[p.marker_id] = n
             if n % self.log_every == 0:
@@ -371,10 +428,10 @@ class MarkerLocalizerNode(Node):
                 # v4 지도는 "label" 대신 role/serves 스키마라 키가 없다 — 기존
                 # MarkerMap.label() 폴백(없으면 id 문자열)을 그대로 재사용한다.
                 self.get_logger().info(
-                    f"[측위] 마커 ID {p.marker_id} ({self.marker_map.label(p.marker_id)})  "
+                    f"[측위][{cam}캠] 마커 ID {p.marker_id} ({self.marker_map.label(p.marker_id)})  "
                     f"월드좌표=({m['x']:+.2f}, {m['z']:+.2f})  →  "
                     f"로봇 위치 x={fix.x:+.3f} z={fix.z:+.3f} yaw={fix.yaw_deg:+.1f}°  "
-                    f"(재투영 {p.reproj_err_px:.2f}px)")
+                    f"거리 {float(np.linalg.norm(p.tvec)):.2f}m (재투영 {p.reproj_err_px:.2f}px)")
 
             if self.fuse and self.filt is not None:
                 # 융합: 이 프레임의 마커로 공유 필터를 보정한다(발행은 루프 밖에서
@@ -396,7 +453,7 @@ class MarkerLocalizerNode(Node):
             px, pz, pyaw = self.filt.pose()
             self._publish_pose(px, pz, pyaw, msg.header)
         best = min(valid_diagnostics, key=lambda item: item[0], default=None)
-        self._publish_diagnostics(msg, best, camera)
+        self._publish_diagnostics(msg, best, cam)
 
     def _publish_pose(self, px, pz, pyaw, header):
         """(x, z, yaw_deg) 를 frame 규약대로 PoseStamped 로 발행(전방/후방/융합 공용)."""

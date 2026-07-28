@@ -66,6 +66,8 @@ class ParkingRequest(BaseModel):
     completed_at: str | None = None
     #: task_dispatcher가 발급한 task_id (UUID). mock 모드에서는 None.
     external_task_id: str | None = None
+    #: dual 모드에서 이 요청을 실제로 처리한 로봇 그룹('entry'/'exit'). 그 외 모드는 None.
+    robot_group: str | None = None
 
 
 class Robot(BaseModel):
@@ -247,3 +249,21 @@ class VisionAlignmentState(BaseModel):
     ] = "NO_DATA"
     source: Literal["MOCK", "ARUCO_FUSED", "UNAVAILABLE"] = "UNAVAILABLE"
     updated_at: str | None = None
+
+
+class RobotGroupStatus(BaseModel):
+    """dual 모드에서 입차/출차 로봇 그룹(=각각의 Isaac Sim PC)의 연결 상태.
+
+    ``connected``는 해당 그룹의 dispatch 서비스가 지금 이 순간 응답 가능한지
+    (service_is_ready) 여부이며, DB(robot_groups)에 등록만 되어 있고 아직
+    로봇 스택이 안 떠 있으면 False가 된다(예: exit는 안무 미구현이라 상시 False).
+    """
+
+    group_id: str
+    display_name: str
+    request_type: RequestType
+    dispatch_service: str
+    connected: bool
+    leader_robot_id: str | None = None
+    follower_robot_id: str | None = None
+    last_dispatch_at: str | None = None

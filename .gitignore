@@ -27,6 +27,7 @@ Kit/
 *.bag
 *.db3
 *.mcap
+parking_control_mvp/parking_control.db
 
 # Editor / IDE
 .vscode/

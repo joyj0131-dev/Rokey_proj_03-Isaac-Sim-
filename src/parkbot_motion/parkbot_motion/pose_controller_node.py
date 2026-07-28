@@ -181,6 +181,10 @@ class PoseControllerNode(Node):
         self.declare_parameter('max_ang', 0.6)
         self.declare_parameter('pos_tol', 0.03)
         self.declare_parameter('yaw_tol', 0.5)
+        # 메카넘 회전 데드밴드 보정[rad/s]. 요 오차가 tol 밖인데 비례 wz 가 이 값보다
+        # 작으면(데드밴드~0.012 아래) 이 최소 속도로 깔아 마지막 <1° 를 인칭한다.
+        # 0=끔(하위호환). 진입 정렬처럼 tight yaw_tol 을 실제로 달성해야 할 때 켠다.
+        self.declare_parameter('yaw_min_cmd', 0.0)
         self.declare_parameter('linear_accel', 0.5)
         self.declare_parameter('linear_decel', 0.8)
         self.declare_parameter('angular_accel', 0.8)
@@ -223,6 +227,7 @@ class PoseControllerNode(Node):
         self.max_ang = float(gp('max_ang').value)
         self.pos_tol = float(gp('pos_tol').value)
         self.yaw_tol = float(gp('yaw_tol').value)
+        self.yaw_min_cmd = float(gp('yaw_min_cmd').value)
         self.linear_accel = float(gp('linear_accel').value)
         self.linear_decel = float(gp('linear_decel').value)
         self.angular_accel = float(gp('angular_accel').value)
@@ -398,7 +403,7 @@ class PoseControllerNode(Node):
         ctrl = PoseController(
             target, pos_gain=self.pos_gain, yaw_gain=self.yaw_gain,
             max_lin=self.max_lin, max_ang=self.max_ang,
-            pos_tol=self.pos_tol, yaw_tol=yaw_tol,
+            pos_tol=self.pos_tol, yaw_tol=yaw_tol, yaw_min_cmd=self.yaw_min_cmd,
             linear_accel=self.linear_accel, linear_decel=self.linear_decel,
             angular_accel=self.angular_accel, settle_frames=self.settle_frames)
 

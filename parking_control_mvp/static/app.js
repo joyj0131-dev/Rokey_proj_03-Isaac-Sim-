@@ -3540,6 +3540,12 @@ function renderActiveTaskBanner(requests, alerts = [], sensors = [], system = nu
   `;
 }
 
+function robotGroupTag(request) {
+  if (!request.robot_group) return "";
+  const label = request.robot_group === "entry" ? "입차 그룹" : request.robot_group === "exit" ? "출차 그룹" : request.robot_group;
+  return ` <span class="robot-group-tag">${label}</span>`;
+}
+
 function renderRequests(requests, system) {
   const container = document.getElementById("requestTable");
   const showManualAdvance = (!system || system.mock_controls) && !system?.mock_auto_advance;
@@ -3722,7 +3728,7 @@ function renderRequests(requests, system) {
                     <span
                       class="robot-pair-label"
                       title="L: 리더 로봇 · F: 팔로워 로봇"
-                    >${assignedRobotTableLabel(request)}</span>
+                    >${assignedRobotTableLabel(request)}</span>${robotGroupTag(request)}
                   </td>
                   <td>
                     <span class="badge ${request.status}">
@@ -4226,6 +4232,47 @@ function openSafetyRecoveryDialog() {
   renderSafetyRecoveryDialog(latestDashboard?.system);
 }
 
+function renderRobotGroups(groups) {
+  const panel = document.getElementById("robotGroupPanel");
+  const list = document.getElementById("robotGroupList");
+
+  if (!groups || groups.length === 0) {
+    panel.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+  panel.classList.remove("hidden");
+
+  list.innerHTML = groups
+    .map((group) => {
+      const label = requestTypeLabels[group.request_type] || group.request_type;
+      const team = [group.leader_robot_id, group.follower_robot_id]
+        .filter(Boolean)
+        .join(" + ");
+      const lastDispatch = group.last_dispatch_at
+        ? `마지막 전달 ${group.last_dispatch_at}`
+        : "전달 이력 없음";
+      return `
+        <div class="robot-group-card ${group.connected ? "connected" : "disconnected"}">
+          <div class="robot-group-card-header">
+            <strong>${group.display_name}</strong>
+            <span class="robot-group-badge">${label} 담당</span>
+          </div>
+          <div class="robot-group-status-line">
+            <i class="robot-group-dot"></i>
+            <span>${group.connected ? "연결됨" : "연결 안 됨"}</span>
+          </div>
+          <dl class="robot-group-meta">
+            <div><dt>로봇 팀</dt><dd>${team || "미설정"}</dd></div>
+            <div><dt>서비스</dt><dd>${group.dispatch_service}</dd></div>
+            <div><dt>이력</dt><dd>${lastDispatch}</dd></div>
+          </dl>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 function showMessage(message, isError = false) {
   const messageBox = document.getElementById("messageBox");
 
@@ -4423,6 +4470,7 @@ async function refreshDashboard() {
     renderRecentEvents(data.alerts || []);
     renderSystem(data.system);
     updateRequestAvailability();
+    renderRobotGroups(data.robot_groups || []);
     updateLiveStatus(true, data.system);
   } catch (error) {
     updateLiveStatus(false);

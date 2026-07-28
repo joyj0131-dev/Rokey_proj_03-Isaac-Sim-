@@ -218,4 +218,7 @@ class DataSource(ABC):
 
     def get_vision_alignment_states(self) -> list[VisionAlignmentState]:
         """로봇별 ArUco 검출·정렬 상태. 데이터 계약이 없으면 빈 목록."""
+
+    def get_robot_group_status(self) -> list[dict]:
+        """입차/출차 로봇 그룹별 연결 상태 (dual 모드 전용). 구현이 없으면 빈 목록."""
         return []

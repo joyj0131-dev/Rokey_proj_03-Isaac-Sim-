@@ -77,6 +77,7 @@ class PoseController:
 
     def __init__(self, target_xzyaw, *, pos_gain=0.8, yaw_gain=1.2,
                  max_lin=0.25, max_ang=0.6, pos_tol=0.03, yaw_tol=0.5,
+                 yaw_min_cmd=0.0,
                  linear_accel=_DEFAULT_LINEAR_ACCEL,
                  linear_decel=_DEFAULT_LINEAR_DECEL,
                  angular_accel=_DEFAULT_ANGULAR_ACCEL,
@@ -88,6 +89,7 @@ class PoseController:
         self.max_ang = max_ang
         self.pos_tol = pos_tol
         self.yaw_tol = yaw_tol
+        self.yaw_min_cmd = yaw_min_cmd
         self.linear_accel = linear_accel
         self.linear_decel = linear_decel
         self.angular_accel = angular_accel
@@ -114,7 +116,7 @@ class PoseController:
             tvx, tvy, twz, done = body_twist_toward(
                 fused_pose, self.target, pos_gain=self.pos_gain, yaw_gain=self.yaw_gain,
                 max_lin=self.max_lin, max_ang=self.max_ang,
-                pos_tol=self.pos_tol, yaw_tol=self.yaw_tol)
+                pos_tol=self.pos_tol, yaw_tol=self.yaw_tol, yaw_min_cmd=self.yaw_min_cmd)
             if done:
                 self._stopping = True
                 target_tw = (0.0, 0.0, 0.0)

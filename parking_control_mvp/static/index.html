@@ -93,6 +93,23 @@
           data-panel="live"
         >
           <section id="summaryCards" class="status-overview" aria-label="주차장 상태 요약"></section>
+
+          <section
+            id="robotGroupPanel"
+            class="panel robot-group-panel hidden"
+            aria-label="입차·출차 로봇 그룹 상태"
+          >
+            <div class="panel-header">
+              <div>
+                <h2>로봇 그룹 연결 상태</h2>
+                <p class="panel-description">
+                  입차/출차 요청이 각각 어느 로봇 그룹(Isaac Sim)으로 전달되는지 표시합니다.
+                </p>
+              </div>
+            </div>
+            <div id="robotGroupList" class="robot-group-list"></div>
+          </section>
+
           <section class="panel live-floor-panel">
             <div class="panel-header live-panel-header">
               <div class="live-title-group">

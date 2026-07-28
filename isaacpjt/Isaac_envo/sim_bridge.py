@@ -88,15 +88,25 @@ sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_motion"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
+# 입차 전용 실행(2026-07-27): 출차 로봇(exit_lead/exit_follow)은 스폰하지 않는다.
+# site_map(사이트 정의)은 입출차 대칭을 보존하고, 여기서 입차팀만 골라 쓴다 —
+# 출차도 띄우려면 이 필터를 sm.ROBOTS 로 되돌리면 된다.
+ROBOTS = tuple(r for r in sm.ROBOTS if sm.team_of(r) == sm.ENTRY)
+
 RENDER_HZ = 20.0   # 물리(PHYSICS_HZ)와 독립. 낮출수록 sim초당 렌더 횟수↓ → GPU↓ → RTF↑
                    # (물리 정확도 무관). 60→20 은 렌더 1/3, 카메라 토픽도 20Hz 발행.
 RENDER_WIDTH = 640
-RENDER_HEIGHT = 400
-PHYSICS_HZ = 60.0   # 판별용: 120→60 으로 물리 계산 절반. rtf 오르면 물리가 병목,
+RENDER_HEIGHT = 480   # 2026-07-27 사용자: 640×480 통일(카메라 render_product 는
+                      # attach_camera_graph 기본 640×480 이미 사용 — 여기는 앱 뷰포트).
+PHYSICS_HZ = 120.0   # 판별용: 120→60 으로 물리 계산 절반. rtf 오르면 물리가 병목,
                     # 그대로면 병목은 렌더(카메라+GUI 뷰포트 지오메트리) 확정.
-LINEAR_ACCEL = 0.5
+# 접촉 솔버 최소 반복(씬 전역). 기본(TGS pos~4/vel~1)은 롤러 접촉엔 부족 —
+# 올리면 주행 흔들림·슬립·비결정성 감소(RTF 소폭↓). env 로 튜닝.
+SOLVER_POS_ITERS = int(os.environ.get("SOLVER_POS_ITERS", "16"))
+SOLVER_VEL_ITERS = int(os.environ.get("SOLVER_VEL_ITERS", "4"))
+LINEAR_ACCEL = 0.3     # 슬립 감소 다운스케일(2026-07-27, 0.5→0.3): 가속 부드럽게
 LINEAR_DECEL = 0.8
-ANGULAR_ACCEL = 0.8
+ANGULAR_ACCEL = 0.4    # 슬립 감소 다운스케일(2026-07-27, 0.8→0.4): 회전 가속 부드럽게
 # 회전 오도 보정 배율(Mission Phase B 회전 버그, a869b49 에서 발견: 제자리 90도 회전이
 # GT 대비 ~31° 어긋남). 진단: mecanum_drive.YAW_SCALE=1.12 는 wz~0.5 한 동작점에서만
 # 실측 보정된 근사치이고, cmd_vel_from_wheel_velocities 는 그 IK 의 정확한 최소자승
@@ -249,10 +259,53 @@ def _apply_physics(stage):
     px.CreateEnableStabilizationAttr(True)
     px.CreateEnableGPUDynamicsAttr(True)
     px.CreateTimeStepsPerSecondAttr(PHYSICS_HZ)
+    # ★접촉 안정화: 메카넘은 롤러 캡슐이 바닥을 미끄러지는 물리로만 움직인다.
+    # 기본 솔버 반복(TGS pos~4/vel~1)으론 롤러 8개+트럭 무게 접촉이 불안정해
+    # 주행이 비틀거리고 실행마다 결과가 달라진다(비결정). 씬 전역 최소 반복을 올려
+    # 모든 바디가 더 많이 수렴하게 한다 — 흔들림·슬립·들쭉날쭉의 1차 레버.
+    # RTF 를 조금 먹지만 안정성 우선(튜닝 노브: 여전히 흔들리면 더 올림).
+    px.CreateMinPositionIterationCountAttr(SOLVER_POS_ITERS)
+    px.CreateMinVelocityIterationCountAttr(SOLVER_VEL_ITERS)
     vctx = PhysxSchema.PhysxVehicleContextAPI.Apply(sc)
     vctx.CreateUpdateModeAttr(PhysxSchema.Tokens.velocityChange)
     vctx.CreateVerticalAxisAttr(PhysxSchema.Tokens.posY)
     vctx.CreateLongitudinalAxisAttr(PhysxSchema.Tokens.posZ)
+
+
+# 트럭 밑 그늘에서도 바닥 아루코가 검출되게 ambient 를 올린다(원본 dome=80 은 낮아
+# 트럭 밑 카메라가 마커를 못 봄, 실측). 천장 SphereLight 는 트럭 몸체에 가려 밑을
+# 못 비추므로 사방에서 오는 dome 앰비언트를 키워 그늘을 채운다. 튜닝 노브(GUI 로 조정).
+DOME_INTENSITY = float(os.environ.get("DOME_INTENSITY", "800"))
+
+
+def _brighten_lighting(stage):
+    dome = stage.GetPrimAtPath("/World/Lighting/Dome")
+    if dome and dome.IsValid():
+        a = dome.GetAttribute("inputs:intensity")
+        if a and a.IsValid():
+            a.Set(DOME_INTENSITY)
+            print(f"DOME_BRIGHTEN intensity=80→{DOME_INTENSITY:.0f} (트럭밑 마커검출용)",
+                  flush=True)
+            return True
+    print("DOME_BRIGHTEN 경고: /World/Lighting/Dome 못 찾음", flush=True)
+    return False
+
+
+# follow rear cam 은 차 밑(그늘)에서 바닥 아루코를 봐야 해 dome(800)만으론 부족하다
+# (사용자 실측). rear cam prim 에 로컬 SphereLight 를 붙여 카메라가 보는 바닥을 직접
+# 밝힌다 — 카메라 자식이라 진입/운반 내내 카메라를 따라 밑을 비춘다. 튜닝 노브.
+REAR_LIGHT_INTENSITY = float(os.environ.get("REAR_LIGHT_INTENSITY", "30000"))
+
+
+def _add_rear_cam_light(stage, cam_path):
+    """rear 카메라 prim 자식으로 SphereLight 를 붙인다(카메라 원점=차 밑을 비춤)."""
+    from pxr import UsdLux
+    light_path = f"{cam_path}/rear_fill_light"
+    light = UsdLux.SphereLight.Define(stage, light_path)
+    light.CreateIntensityAttr(REAR_LIGHT_INTENSITY)
+    light.CreateRadiusAttr(0.03)
+    print(f"REAR_LIGHT {cam_path} intensity={REAR_LIGHT_INTENSITY:.0f}", flush=True)
+    return light_path
 
 
 def _disable_sensors(stage):
@@ -606,6 +659,7 @@ def build_stage(app):
         raise RuntimeError(f"{PARKING_USD.name} 에서 /World 를 찾지 못했습니다.")
     stage.SetDefaultPrim(world)
     _apply_physics(stage)
+    _brighten_lighting(stage)
     for _ in range(30):
         app.update()
 
@@ -624,7 +678,7 @@ def build_stage(app):
     print(f"V4_MARKERS_OK count={len(markers)}", flush=True)
 
     UsdGeom.Xform.Define(stage, "/World/Robots")
-    for robot_id in sm.ROBOTS:
+    for robot_id in ROBOTS:
         dock_serves = sm.ROBOT_DOCK_MARKER[robot_id]
         if dock_serves not in markers:
             raise RuntimeError(f"도크 마커 {dock_serves} 를 v4 에서 찾지 못함")
@@ -646,13 +700,13 @@ def build_stage(app):
     for _ in range(30):
         app.update()
 
-    placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in sm.ROBOTS}
+    placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in ROBOTS}
     print(f"V4_STAGE_READY robots={placed} disabled_lidar={n_lidar} "
           f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
           f"physics={PHYSICS_HZ:.0f}Hz", flush=True)
 
     from pxr import Usd
-    _r0 = sm.ROBOTS[0]
+    _r0 = ROBOTS[0]
     _cams = [p for p in Usd.PrimRange(stage.GetPrimAtPath(robot_prim_path(_r0)))
              if p.GetTypeName() == "Camera"]
     _has_qr = any("qr_down" in str(p.GetPath()).lower() for p in _cams)
@@ -938,7 +992,7 @@ def main():
 
     # 비활성화된 로봇은 아티큘레이션을 만들지 않는다(프림이 없으니 초기화도 불가).
     arts = {}
-    for robot_id in sm.ROBOTS:
+    for robot_id in ROBOTS:
         if not stage.GetPrimAtPath(robot_prim_path(robot_id)).IsActive():
             continue
         art = Articulation(f"{robot_prim_path(robot_id)}/base_link")
@@ -1007,18 +1061,18 @@ def main():
         rclpy.init()
     ros_node = rclpy.create_node("parking_v4_runner")
     odom_pub = {r: ros_node.create_publisher(Odometry, f"/robot_{r}/odom", 10)
-                for r in sm.ROBOTS}
+                for r in ROBOTS}
 
     def _active_robots():
         """씬에 살아있는 로봇만. probe B 가 대상 외 로봇을 비활성화해도
         오도메트리 루프가 죽은 프림을 건드리지 않게 한다."""
-        return [r for r in sm.ROBOTS
+        return [r for r in ROBOTS
                 if stage.GetPrimAtPath(robot_prim_path(r)).IsActive()]
 
     # R2: 마지막으로 측정한 바디 twist(vx,vy,wz) — publish_odom 이 Odometry.twist 에
     # 싣는다(속도는 오도메트리 적분과 별개로 매 스텝 새로 측정한 값). 0 으로 시작해
     # step_odometry 가 처음 갱신하기 전에도 publish_odom 이 안전하게 읽을 수 있다.
-    last_twist = {r: (0.0, 0.0, 0.0) for r in sm.ROBOTS}
+    last_twist = {r: (0.0, 0.0, 0.0) for r in ROBOTS}
 
     def publish_odom():
         """--odom 모드에 따라 휠 오도메트리 또는 GT 를 발행한다.
@@ -1308,6 +1362,8 @@ def main():
         for r in cam_robots_bridge:
             rear_cam_path = find_rear_camera(stage, r)
             attach_camera_graph(r, rear_cam_path, role="rear")
+            if r == "entry_follow":   # follow rear 는 차 밑(그늘) — 로컬 조명 추가
+                _add_rear_cam_light(stage, rear_cam_path)
         for _ in range(30):
             app.update()
     if bridge_rear:

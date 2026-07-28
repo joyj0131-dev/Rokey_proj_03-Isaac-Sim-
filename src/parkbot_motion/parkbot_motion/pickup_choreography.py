@@ -54,19 +54,21 @@ PhaseBStep = namedtuple('PhaseBStep', ['phase', 'robot_id'])
 #                  yaw+위치 정렬. yaw_tol=1.0 → "1° 이내" 게이트가 여기서 걸린다.
 _PHASE_B_PHASES = (
     'seed_dock', 'rotate_90', 'dock_check', 'corridor_center', 'final_align')
+# 2026-07-27: follower 전용 xn_realign(진입 직전 XN 재정렬)은 제거됨. 헤드리스 실측상
+# follow 는 그 단계에서 XN(id31)을 못 봐(front 캠엔 마커64만 잡힘) 무보정 통과 →
+# 무효. 진입 중 자세 보정은 이후 rear 레인마커 기반 운반/진입 재설계가 담당한다.
 
 
 def phase_b_robot_phases(is_leader):
-    """한 로봇이 밟을 Phase B 단계 이름 리스트. 2026-07-27 재안무로 leader/follower
-    동일 5단계(좌표만 로봇별). is_leader 는 하위호환 위해 남겨둔다(무시)."""
+    """한 로봇이 밟을 Phase B 단계 이름 리스트. leader·follower 동일 5단계."""
     return list(_PHASE_B_PHASES)
 
 
 def phase_b_plan(leader_id, follower_id):
-    """진행률 분모용 스텝 목록(양 로봇 각 5단계). **실행은 동시**(오케스트레이터가
-    두 레그를 스레드로 병렬 실행) — 이 목록은 순서 의미 없이 개수(=10)만 쓴다."""
-    steps = [PhaseBStep(p, leader_id) for p in _PHASE_B_PHASES]
-    steps += [PhaseBStep(p, follower_id) for p in _PHASE_B_PHASES]
+    """진행률 분모용 스텝 목록(leader 5 + follower 5). **실행은 동시**(오케스트레이터가
+    두 레그를 스레드로 병렬 실행) — 순서 의미 없이 개수만 쓴다."""
+    steps = [PhaseBStep(p, leader_id) for p in phase_b_robot_phases(True)]
+    steps += [PhaseBStep(p, follower_id) for p in phase_b_robot_phases(False)]
     return steps
 
 

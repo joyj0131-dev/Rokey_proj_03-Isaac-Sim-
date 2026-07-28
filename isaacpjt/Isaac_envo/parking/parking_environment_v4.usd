@@ -8,7 +8,7 @@
             }
             dictionary Perspective = {
                 double3 position = (-1.018180402975583, 3.566388357774048, -3.446276095580318)
-                double3 target = (16.194144475506356, -3.4517820797415717, 7.759706770984877)
+                double3 target = (18.288903792900907, -5.002287466000373, -8.436986515808993)
             }
             dictionary Right = {
                 double3 position = (-5, 0, 0)
@@ -699,6 +699,7 @@ def Xform "World" (
                 token outputs:surface
             }
         }
+
         def Material "ArucoMat_065"
         {
             token outputs:surface.connect = </World/Looks/ArucoMat_065/Shader.outputs:surface>
@@ -896,6 +897,7 @@ def Xform "World" (
                 token outputs:surface
             }
         }
+
         def Material "ArucoMat_071"
         {
             token outputs:surface.connect = </World/Looks/ArucoMat_071/Shader.outputs:surface>
@@ -994,8 +996,6 @@ def Xform "World" (
                 token outputs:surface
             }
         }
-
-
 
         def Material "ArucoMat_000"
         {
@@ -3274,6 +3274,377 @@ def Xform "World" (
             double3 xformOp:translate = (-1.2, 0.0012, 3.8000000566244125)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
+
+        def Mesh "crossing_N_01" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 63
+            custom string aruco:note = "경로 보정 마커"
+            custom float3 aruco:position = (-2.5, 0, 6.875)
+            custom string aruco:serves = "LANE_3"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_063>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "handoff_bay_OUT_01" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 62
+            custom string aruco:note = "경로 보정 마커"
+            custom float3 aruco:position = (-8.5, 0, 7.075)
+            custom string aruco:serves = "LANE_2"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_062>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-5.000000074505806, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "handoff_bay_OUT_02" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 61
+            custom string aruco:note = "경로 보정 마커"
+            custom float3 aruco:position = (-8.5, 0, 7.075)
+            custom string aruco:serves = "LANE_1"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_061>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-6.75, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "crossing_N_02" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "lane"
+            custom int aruco:markerId = 64
+            custom string aruco:note = "경로 보정 마커"
+            custom float3 aruco:position = (-2.5, 0, 6.875)
+            custom string aruco:serves = "LANE_4"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_064>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.4000000059604645, 0.0012, 7.075)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "exit_A1_F" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 71
+            custom string aruco:note = "출차 슬롯 앞"
+            custom float3 aruco:position = (2.8, 0, -3.5)
+            custom string aruco:serves = "A1_FX"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_071>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (2.8, 0.0012, -3.5)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "exit_A2_F" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 72
+            custom string aruco:note = "출차 슬롯 앞"
+            custom float3 aruco:position = (6.2, 0, -3.5)
+            custom string aruco:serves = "A2_FX"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_072>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (6.2, 0.0012, -3.5)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "exit_A3_F" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 73
+            custom string aruco:note = "출차 슬롯 앞"
+            custom float3 aruco:position = (9.6, 0, -3.5)
+            custom string aruco:serves = "A3_FX"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_073>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            double3 xformOp:translate = (9.6, 0.0012, -3.5)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Mesh "lane_A1_N_1" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 65
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (2.8, 0, 6.875)
+            custom string aruco:serves = "A1_F"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_065>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (2.8, 0.0012, 3.500000052154064)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "lane_A1_N_02" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_center"
+            custom int aruco:markerId = 66
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (2.8, 0, 6.875)
+            custom string aruco:serves = "A1_C"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_066>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (2.8, 0.0012, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "lane_A2_N_1" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 67
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (6.2, 0, 6.875)
+            custom string aruco:serves = "A2_F"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_067>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (6.2, 0.0012, 3.500000052154064)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "lane_A2_N_02" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_center"
+            custom int aruco:markerId = 68
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (6.2, 0, 6.875)
+            custom string aruco:serves = "A2_C"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_068>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (6.2, 0.0012, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "lane_A3_N_01" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_front"
+            custom int aruco:markerId = 69
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (9.6, 0, 6.875)
+            custom string aruco:serves = "A3_F"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_069>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (9.6, 0.0012, 3.500000052154064)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Mesh "lane_A3_N_02" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom float aruco:codeSize = 0.19444445
+            custom string aruco:dictionary = "DICT_5X5_100"
+            custom string aruco:kind = "slot_center"
+            custom int aruco:markerId = 70
+            custom string aruco:note = "출차 통로 차선"
+            custom float3 aruco:position = (9.6, 0, 6.875)
+            custom string aruco:serves = "A3_C"
+            custom float aruco:yaw = 0
+            float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            rel material:binding = </World/Looks/ArucoMat_070>
+            normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
+                interpolation = "vertex"
+            )
+            point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "vertex"
+            )
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (9.6, 0.0012, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
     }
 
     def Camera "OverviewCamera"
@@ -3283,377 +3654,6 @@ def Xform "World" (
         float3 xformOp:rotateXYZ = (-90, 0, 0)
         double3 xformOp:translate = (0.5, 27, 0.01)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
-    }
-
-    def Mesh "crossing_N" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "lane"
-        custom int aruco:markerId = 63
-        custom string aruco:note = "경로 보정 마커"
-        custom float3 aruco:position = (-2.5, 0, 6.875)
-        custom string aruco:serves = "LANE_3"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_063>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-1.2, 0.0012, 7.075)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "handoff_bay_OUT" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "lane"
-        custom int aruco:markerId = 62
-        custom string aruco:note = "경로 보정 마커"
-        custom float3 aruco:position = (-8.5, 0, 7.075)
-        custom string aruco:serves = "LANE_2"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_062>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-5.000000074505806, 0.0012, 7.075)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "handoff_bay_OUT_01" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "lane"
-        custom int aruco:markerId = 61
-        custom string aruco:note = "경로 보정 마커"
-        custom float3 aruco:position = (-8.5, 0, 7.075)
-        custom string aruco:serves = "LANE_1"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_061>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-6.75, 0.0012, 7.075)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "crossing_N_01" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "lane"
-        custom int aruco:markerId = 64
-        custom string aruco:note = "경로 보정 마커"
-        custom float3 aruco:position = (-2.5, 0, 6.875)
-        custom string aruco:serves = "LANE_4"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_064>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.4000000059604645, 0.0012, 7.075)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "exit_A1_F" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 71
-        custom string aruco:note = "출차 슬롯 앞"
-        custom float3 aruco:position = (2.8, 0, -3.5)
-        custom string aruco:serves = "A1_FX"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_071>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        double3 xformOp:translate = (2.8, 0.0012, -3.5)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-    }
-
-    def Mesh "exit_A2_F" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 72
-        custom string aruco:note = "출차 슬롯 앞"
-        custom float3 aruco:position = (6.2, 0, -3.5)
-        custom string aruco:serves = "A2_FX"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_072>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        double3 xformOp:translate = (6.2, 0.0012, -3.5)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-    }
-
-    def Mesh "exit_A3_F" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 73
-        custom string aruco:note = "출차 슬롯 앞"
-        custom float3 aruco:position = (9.6, 0, -3.5)
-        custom string aruco:serves = "A3_FX"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_073>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        double3 xformOp:translate = (9.6, 0.0012, -3.5)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-    }
-
-    def Mesh "lane_A1_N_1" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 65
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (2.8, 0, 6.875)
-        custom string aruco:serves = "A1_F"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_065>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (2.8, 0.0012, 3.500000052154064)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "lane_A1_N_02" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_center"
-        custom int aruco:markerId = 66
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (2.8, 0, 6.875)
-        custom string aruco:serves = "A1_C"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_066>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (2.8, 0.0012, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "lane_A2_N_1" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 67
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (6.2, 0, 6.875)
-        custom string aruco:serves = "A2_F"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_067>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (6.2, 0.0012, 3.500000052154064)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "lane_A2_N_02" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_center"
-        custom int aruco:markerId = 68
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (6.2, 0, 6.875)
-        custom string aruco:serves = "A2_C"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_068>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (6.2, 0.0012, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "lane_A3_N" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_front"
-        custom int aruco:markerId = 69
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (9.6, 0, 6.875)
-        custom string aruco:serves = "A3_F"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_069>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (9.6, 0.0012, 3.500000052154064)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
-    def Mesh "lane_A3_N_01" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        custom float aruco:codeSize = 0.19444445
-        custom string aruco:dictionary = "DICT_5X5_100"
-        custom string aruco:kind = "slot_center"
-        custom int aruco:markerId = 70
-        custom string aruco:note = "출차 통로 차선"
-        custom float3 aruco:position = (9.6, 0, 6.875)
-        custom string aruco:serves = "A3_C"
-        custom float aruco:yaw = 0
-        float3[] extent = [(-0.125, 0, 0.125), (0.125, 0, -0.125)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0, 1, 2, 3]
-        rel material:binding = </World/Looks/ArucoMat_070>
-        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)] (
-            interpolation = "vertex"
-        )
-        point3f[] points = [(-0.125, 0, 0.125), (0.125, 0, 0.125), (0.125, 0, -0.125), (-0.125, 0, -0.125)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-            interpolation = "vertex"
-        )
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (9.6, 0.0012, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
     }
 }
 
