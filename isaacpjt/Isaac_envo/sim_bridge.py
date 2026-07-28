@@ -394,7 +394,7 @@ def spawn_handoff_vehicle(stage):
     # 대소로 회전 부호를 정한다(차종이 바뀌어도 축 좌표만 보면 되므로 하드코딩 아님).
     yaw_deg = -90.0 if front_local_z > rear_local_z else 90.0
     if RETURN_TEST:
-        yaw_deg = 0.0    # A1 주차: 길이축=z(N-S), 원본 무회전 자세(복귀 테스트)
+        yaw_deg = 180.0  # A1 주차: 길이축=z(N-S), 앞축이 남(-z=lead 쪽) 향하게(실측 정합)
 
     # 주의: target(Pickup) 자신의 로컬 트랜스폼은 build_fab_vehicles.py 가 이미
     # "FBX 로컬축(X=좌우,Y=전후,Z=위) -> PhysX/Isaac 축(X=좌우,Y=위,Z=전후)" 정렬 회전을
