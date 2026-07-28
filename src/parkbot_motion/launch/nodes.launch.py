@@ -121,11 +121,12 @@ def generate_launch_description():
     nodes.append(_node(
         package='parkbot_motion', executable='carry_action_server'))
 
-    # orchestrator: auto_start 로 자율 미션(도크→XN Phase B + 픽업 회랑).
+    # orchestrator: 웹/관제 Action 요청을 기다린다.
+    # auto_start=true 는 외부 goal 없이 자율 미션을 시작하므로 통합 운용에서는 끈다.
     nodes.append(_node(
         package='parkbot_motion', executable='pickup_orchestrator_node',
         parameters=[{
-            'auto_start': True, 'auto_leader': 'entry_lead',
+            'auto_start': False, 'auto_leader': 'entry_lead',
             'auto_follower': 'entry_follow',
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
