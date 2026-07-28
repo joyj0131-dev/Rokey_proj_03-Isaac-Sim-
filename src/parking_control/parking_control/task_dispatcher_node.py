@@ -225,6 +225,8 @@ class TaskDispatcherNode(Node):
             return
         self._db.update_task(task_id, slot_id=result.slot_id,
                              state="PROCESSING")
+        # 다른 ENTRY 요청이 같은 슬롯을 다시 고르지 않도록 액션 시작 전에 예약한다.
+        self._db.set_slot_status(result.slot_id, "RESERVED")
         self._send_execute_goal(
             task_id, request, leader_id, follower_id, result.slot_id,
             result.slot_pose.position.x, result.slot_pose.position.y)
@@ -273,7 +275,23 @@ class TaskDispatcherNode(Node):
     def _on_task_result(self, future, task_id, leader_id, follower_id):
         result = future.result().result
         state = "DONE" if result.success else "FAILED"
+        task = self._db.get_task(task_id)
         self._db.update_task(task_id, state=state)
+        if task and task.get("slot_id"):
+            if result.success:
+                slot_status = (
+                    "OCCUPIED"
+                    if task["request_type"] == "ENTRY"
+                    else "EMPTY"
+                )
+            else:
+                # 입차 실패면 예약을 해제하고, 출차 실패면 차량은 기존 슬롯에 남는다.
+                slot_status = (
+                    "EMPTY"
+                    if task["request_type"] == "ENTRY"
+                    else "OCCUPIED"
+                )
+            self._db.set_slot_status(task["slot_id"], slot_status)
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
         self._publish_formation(task_id, leader_id, follower_id, active=False)
@@ -281,7 +299,13 @@ class TaskDispatcherNode(Node):
             f"작업 {task_id[:8]} 종료: {state} ({result.message})")
 
     def _fail_task(self, task_id, leader_id, follower_id, reason):
+        task = self._db.get_task(task_id)
         self._db.update_task(task_id, state="FAILED")
+        if task and task.get("slot_id"):
+            self._db.set_slot_status(
+                task["slot_id"],
+                "EMPTY" if task["request_type"] == "ENTRY" else "OCCUPIED",
+            )
         self._db.set_robot_status(leader_id, "IDLE")
         self._db.set_robot_status(follower_id, "IDLE")
         self._publish_formation(task_id, leader_id, follower_id, active=False)

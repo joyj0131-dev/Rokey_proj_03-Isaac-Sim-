@@ -37,17 +37,14 @@ CREATE TABLE IF NOT EXISTS dispatch_log (
 );
 """
 
-#: 최초 실행 시 시드하는 기본 라우팅. entry는 현재 실제로 떠 있는
-#: user_request_gateway_node(nodes.launch.py) 기본값과 동일하게 맞춘다.
-#: exit는 아직 로봇 안무가 없으므로(2026-07-28 기준) 서비스가 없다는 전제로
-#: 이름만 미리 배정해둔다 — 출차 Isaac Sim PC가 이 이름으로 서비스를 열면
-#: 관제 쪽 코드 변경 없이 그대로 연결된다.
+#: dual 모드 직접 라우팅용 서비스. 중앙 dispatcher의
+#: dispatch_parking_task와 충돌하지 않도록 입차/출차 모두 고유 이름을 쓴다.
 _DEFAULT_GROUPS = [
     dict(
         group_id="entry",
         display_name="입차로봇 그룹",
         request_type="PARK_IN",
-        dispatch_service="dispatch_parking_task",
+        dispatch_service="dispatch_parking_task_entry",
         leader_robot_id="entry_lead",
         follower_robot_id="entry_follow",
     ),
@@ -82,6 +79,14 @@ def init_db() -> None:
 
 
 def _seed_defaults(conn: sqlite3.Connection) -> None:
+    # 2026-07-28 이전 DB의 입차 서비스는 중앙 dispatcher와 같은 이름이었다.
+    # 기본값 그대로인 행만 새 고유 이름으로 마이그레이션하고, 사용자가 지정한
+    # 커스텀 서비스 이름은 보존한다.
+    conn.execute(
+        "UPDATE robot_groups"
+        " SET dispatch_service = 'dispatch_parking_task_entry'"
+        " WHERE group_id = 'entry' AND dispatch_service = 'dispatch_parking_task'"
+    )
     existing = {row["group_id"] for row in conn.execute("SELECT group_id FROM robot_groups")}
     for group in _DEFAULT_GROUPS:
         if group["group_id"] in existing:

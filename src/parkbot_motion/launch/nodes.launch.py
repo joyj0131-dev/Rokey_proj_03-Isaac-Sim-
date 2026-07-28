@@ -143,15 +143,22 @@ def generate_launch_description():
     nodes.append(_node(
         package='parkbot_motion', executable='pickup_orchestrator_node',
         parameters=[{
+            'action_name': '/entry/execute_parking_task',
             'auto_start': False, 'auto_leader': 'entry_lead',
             'auto_follower': 'entry_follow',
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
 
-    # user_request_gateway: 다른 컴퓨터 웹 UI(feature/UI) 의 입차 요청을 받아 위 orchestrator
-    # 액션을 띄운다. dispatch_parking_task(RequestParkingTask, UI ros2 모드) + /park_in_slot
-    # (ParkInSlot, PRS 모드) 둘 다 서빙, ENTRY 시 슬롯 A1→A2→A3 순환배정. domain/whitelist
-    # env(ENV)를 그대로 받아 UI 머신과 같은 DDS 로 붙는다(크로스머신 = UI IP 도 화이트리스트에).
+    # 중앙 task_dispatcher는 dispatch_parking_task를 사용한다. 이 직접 게이트웨이는
+    # dual 모드 호환용이므로 별도 서비스 이름을 쓰며, A3는 출차 시연 차량 전용으로
+    # 남기고 입차 직접 배정 후보를 A1/A2로 제한한다.
     nodes.append(_node(
-        package='parkbot_motion', executable='user_request_gateway_node'))
+        package='parkbot_motion', executable='user_request_gateway_node',
+        name='entry_user_request_gateway',
+        parameters=[{
+            'slots': ['A1', 'A2'],
+            'action_name': '/entry/execute_parking_task',
+            'dispatch_service': 'dispatch_parking_task_entry',
+            'park_in_slot_service': '/park_in_slot_entry',
+        }]))
     return LaunchDescription(nodes)

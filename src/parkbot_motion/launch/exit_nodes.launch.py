@@ -210,7 +210,7 @@ def generate_launch_description():
         package='parkbot_motion', executable='exit_pickup_orchestrator_node',
         name='exit_pickup_orchestrator_node',
         parameters=[{
-            'action_name': '/exit/execute_pickup_choreography',
+            'action_name': '/exit/execute_parking_task',
             'carry_action': '/exit/carry_to_slot',
             'auto_start': auto_start_param, 'auto_leader': 'exit_lead',
             'auto_follower': 'exit_follow',
@@ -227,7 +227,7 @@ def generate_launch_description():
         package='parkbot_motion', executable='user_request_gateway_node',
         name='exit_user_request_gateway',
         parameters=[{
-            'action_name': '/exit/execute_pickup_choreography',
+            'action_name': '/exit/execute_parking_task',
             'leader_robot_id': 'exit_lead', 'follower_robot_id': 'exit_follow',
             'dispatch_service': 'dispatch_parking_task_exit',
             'park_in_slot_service': '/park_in_slot_exit'}]))
