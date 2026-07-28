@@ -88,7 +88,8 @@ from std_msgs.msg import Int32
 
 from parkbot_motion.axle_center import TroughTracker
 from parkbot_motion.depth_stop_detector import roi_min_depth
-from parkbot_motion.pose_controller_node import odom_quat_to_yaw_deg, resolve_pose_msg_type
+from parkbot_motion.pose_controller_node import (
+    odom_quat_to_yaw_deg, resolve_pose_msg_type, travel_axis_value)
 
 # 러너의 실측 작동값(taskC2fix-report.md §2.3 DEPTH_ROI_FRAC 주석) — 이 카메라
 # 자산(수직FOV 65°, 지상고 0.16m)에서 바닥을 피하려면 depth_stop_detector 의
@@ -154,6 +155,9 @@ class AxleDetectorNode(Node):
         self.declare_parameter('pose_msg_type', 'auto')
         self.declare_parameter('axle_center_topic', f'/robot_{robot_id}/axle_center')
         self.declare_parameter('axle_index_topic', f'/robot_{robot_id}/axle_index')
+        # 'x'|'-x'|'z'|'-z' — § 위 "주행좌표" 절, pose_controller_node.travel_axis_value.
+        # 기본 'x' 는 entry_lead/entry_follow(world -x 진입) 배치 그대로, 회귀 없음.
+        self.declare_parameter('travel_axis', 'x')
 
         # TroughTracker 파라미터 — 기본값은 러너 인프로세스 _ingress_axle 이 쓰는
         # 실측 검증값 그대로(3342행: baseline_frames=30, drop_margin=0.05,
@@ -173,6 +177,7 @@ class AxleDetectorNode(Node):
             pose_msg_type_param, self.pose_topic, self.get_topic_names_and_types())
         self.axle_center_topic = gp('axle_center_topic').value
         self.axle_index_topic = gp('axle_index_topic').value
+        self.travel_axis = str(gp('travel_axis').value)
         self.roi_frac = tuple(float(v) for v in gp('roi_frac').value)
         baseline_frames = int(gp('baseline_frames').value)
         drop_margin = float(gp('drop_margin').value)
@@ -199,7 +204,7 @@ class AxleDetectorNode(Node):
             f'axle_detector_node 시작: robot_id={robot_id} '
             f'left={self.left_depth_topic} right={self.right_depth_topic} '
             f'pose_topic={self.pose_topic} pose_msg_type={self.pose_msg_type}'
-            f'({pose_msg_type_how}) roi_frac={self.roi_frac} '
+            f'({pose_msg_type_how}) travel_axis={self.travel_axis} roi_frac={self.roi_frac} '
             f'baseline_frames={baseline_frames} drop_margin={drop_margin} '
             f'confirm_frames={confirm_frames} -> '
             f'{self.axle_center_topic} / {self.axle_index_topic}')
@@ -226,14 +231,14 @@ class AxleDetectorNode(Node):
 
     def _on_odom(self, msg):
         p = msg.pose.pose.position
-        self._handle_pose(p.x)
+        self._handle_pose(p.x, p.z)
 
     def _on_pose_stamped(self, msg):
         p = msg.pose.position
-        self._handle_pose(p.x)
+        self._handle_pose(p.x, p.z)
 
-    def _handle_pose(self, x):
-        travel_pos = float(x)
+    def _handle_pose(self, x, z):
+        travel_pos = travel_axis_value(x, z, self.travel_axis)
         combined = combine_side_depths(self._left_min, self._right_min)
         n_before = len(self.tracker.troughs)
         self.tracker.update(travel_pos, combined)

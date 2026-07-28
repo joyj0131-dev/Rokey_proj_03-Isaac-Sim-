@@ -72,6 +72,48 @@ def phase_b_plan(leader_id, follower_id):
     return steps
 
 
+# ---- Phase X(출차: 도크→남측 회랑→A3 접근) 순수 시퀀싱 (2026-07-27, 사용자 설계 지시) ----
+#
+# 사용자 지시 그대로 옮긴 안무 — "로봇이 바로 A3구역으로 이동하면 안 되고, 일단
+# 제자리에서 90도 회전하고, 그다음 아루코 마커 보고 인식하고, 다시 90도 회전하고,
+# 아루코마커 따라서 트럭까지 가도록". Phase B(입차, 도크→북측 회랑 z=7.075)와 같은
+# 원리(오도 제자리회전 ↔ 마커융합 직진을 번갈아 씀)를 반대쪽(출차, 도크→남측 회랑
+# z=-7.075)에 적용한다 — site_map_v4.py 의 ENTRY(z+)/EXIT(z-) 부호 규약 그대로.
+#
+#   seed_dock     : ref_ids=[dock_id] 하드필터 + 위치전용(Phase B seed_dock 과 동일).
+#   rotate_south  : 도크 스폰 yaw(동쪽 90°)에서 제자리 90° 회전해 남향(180°) —
+#                   "①일단 제자리에서 90도 회전". **오도 인스턴스**(회전 중 마커 상실,
+#                   Phase B rotate_90 과 동일 근거).
+#   corridor_lock : 남진하며 ref 를 남측 회랑마커(lead=XS id30 / follow=LANE_3X id76,
+#                   둘 다 z=-7.075)로 전환 — "②아루코 마커 보고 인식". 도크 데칼
+#                   z 에서 회랑 z(-7.075)까지 융합 직진, x=도크 x 유지.
+#   rotate_east   : 제자리 90° 회전해 동향(90°, +x) — "③다시 90도 회전". 회랑 행
+#                   (z=-7.075)을 따라 A3(x=9.6) 쪽으로 갈 방향.
+#
+# "④아루코마커 따라서 트럭까지"(A3 열 진입 + 트럭 접근)는 **여기 포함하지 않는다** —
+# 실측(2026-07-27, Isaac 라이브 구동)에서 lead/follow 가 둘 다 x=9.6 의 같은 지점을
+# 목표로 동시 주행하다 물리적으로 충돌했다(사용자 관찰: "두 로봇이 동시에 해당
+# 좌표에 가려니까 문제 발생"). 그래서 이 구간(수렴 구간)은 이 4단계처럼 동시 실행하지
+# 않고, 오케스트레이터의 ``_converge_to_truck``(순차: lead 완주 → follow 는 z 오프셋
+# 만큼 뒤에서 따라감)가 별도로 담당한다 — "뒤따라가는 로봇은 항상 적정거리를
+# 유지하면서 앞로봇을 따라가야" 한다는 사용자 지시를 반영한 재설계.
+_PHASE_X_PHASES = ('seed_dock', 'rotate_south', 'corridor_lock', 'rotate_east')
+
+
+def phase_x_robot_phases():
+    """한 로봇이 밟을 Phase X(출차 회랑) 단계 이름 리스트."""
+    return list(_PHASE_X_PHASES)
+
+
+def phase_x_plan(leader_id, follower_id):
+    """진행률 분모용 스텝 목록(양 로봇 각 4단계, Phase B 와 동일 규약: 동시 실행,
+    개수만 의미 있음). A3 열 진입 이후(수렴 구간)는 여기 포함되지 않는다(§ 위
+    _PHASE_X_PHASES 주석 — _converge_to_truck 가 순차로 별도 처리)."""
+    steps = [PhaseBStep(p, leader_id) for p in _PHASE_X_PHASES]
+    steps += [PhaseBStep(p, follower_id) for p in _PHASE_X_PHASES]
+    return steps
+
+
 def corridor_plan(leader_id, follower_id, leader_trough_index=0, follower_trough_index=1):
     """스태거링된 전체 안무 계획 -- follower 의 회랑 전체(approach+align+ingress)가
     먼저 끝나고, 그 다음에야 leader 의 회랑 전체가 시작되는 순서로 6단계를 반환한다.

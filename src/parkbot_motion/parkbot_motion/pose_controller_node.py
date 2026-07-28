@@ -100,6 +100,30 @@ def resolve_pose_msg_type(declared, topic, topic_names_and_types):
     return guess, 'auto-heuristic(토픽 미발행, 이름으로 추정)'
 
 
+def travel_axis_value(x, z, axis):
+    """자세의 (x, z) -> 축감지/진입(``axle_detector_node``/``ingress_node``)이
+    쓰는 1차원 "주행좌표". 두 노드 모두 원래 world **x** 만 지원했다(entry_lead/
+    entry_follow가 world -x 로 진입하는 배치 하나만 있었으므로, 각 노드 docstring
+    "주행좌표" 절 참고). 2026-07-27 Phase X(출차, exit_lead/exit_follow가 북향
+    +z 로 A3 트럭 밑에 진입)에서 처음으로 z 축 진입이 생겨 일반화한다.
+
+    ``axis``: 'x'|'-x'|'z'|'-z'. 부호는 "SEEK 진행 방향으로 이 좌표가 감소해야
+    한다"는 ``ingress_control``의 내장 가정(RETURN 보정식이 그렇게 유도돼 있다,
+    ``ingress_control.return_phase_vx`` docstring 참고)을 axis 별로 맞추기 위함이다
+    — Phase X는 북향으로 전진할수록 world z가 **증가**하므로 '-z'(=-z가 감소)를
+    쓴다. 기존 x 배치는 부호 반전 없이 'x' 그대로(회귀 없음).
+    """
+    if axis == 'x':
+        return float(x)
+    if axis == '-x':
+        return -float(x)
+    if axis == 'z':
+        return float(z)
+    if axis == '-z':
+        return -float(z)
+    raise ValueError(f"travel_axis 는 'x'|'-x'|'z'|'-z' 여야 합니다: {axis!r}")
+
+
 def goal_quat_to_yaw_deg(x, y, z, w):
     """``NavigateToPose`` 목표 ``PoseStamped`` 의 쿼터니언 -> yaw_deg(월드 Y축 기준).
 

@@ -222,7 +222,7 @@ def _extract_map_info(parking_map: ParkingMap) -> dict:
     }
 
 
-class _ParkingDbReader:
+class ParkingDbReader:
     """dispatcher가 쓰는 MySQL을 조회한다.
 
     기본은 읽기 전용이지만, execute()는 테스트 환경 초기화(DB 초기화 버튼)
@@ -316,7 +316,7 @@ class Ros2DataSource(DataSource):
         self._emergency_stop_client = None
         self._safety_reset_client = None
         self._operation_approval_client = None
-        self._db: _ParkingDbReader | None = None
+        self._db: ParkingDbReader | None = None
         self._last_safety_state_at: float | None = None
         self._safety_state.update(
             state="UNKNOWN",
@@ -464,7 +464,7 @@ class Ros2DataSource(DataSource):
         )
         self._spin_thread.start()
 
-        self._db = _ParkingDbReader(
+        self._db = ParkingDbReader(
             config.DB_HOST, config.DB_USER, config.DB_PASSWORD, config.DB_NAME
         )
         self._stop_event.clear()
