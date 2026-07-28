@@ -57,50 +57,36 @@ ISAAC_ROOT = Path(os.environ.get(
 ))
 ISAAC_PYTHON = ISAAC_ROOT / "python.sh"
 
-# 2026-07-27 추가: 출차존(exit_wait, config/parking_map.yaml — 대시보드 라벨
-# "▲ 출차 구역 (차량 대기)") 순찰 보행자. 처음엔 새 Xform을 만들어 translate만
-# 직접 옮겼는데(다리 움직임 없이 미끄러지듯 이동) 실제로 걷는 것처럼 보이지
-# 않았다. animation/pedestrians_v4.usda에는 이미 애니메이션 그래프가 붙은
-# 진짜 걷는 캐릭터(/World/Characters/Character, omni.anim.people +
-# AnimationGraphAPI)가 있으므로, 그걸 명령 파일(exit_patrol_commands.txt)로
-# 왕복시키고 이 코드는 EXIT_PATROL_CYCLE_SEC마다 EXIT_PATROL_ACTIVE_SEC초만
-# visibility를 켜는 역할만 한다(위치/걷기 자체는 손대지 않음).
-#
-# ⚠ 실험적 기능: omni.anim.people의 정확한 명령 문법과 carb 설정 키는
-# 설치된 확장 버전(omni.anim.people-0.7.9+107.3.3)에서 직접 켜보고 검증하지
-# 못했다(이 코드를 작성한 환경엔 Isaac Sim이 없음). configure_exit_patrol_walk()
-# 의 자동 설정이 안 먹으면 Isaac Sim의 Window > Animation > People 창을 열어
-# "Command File" 필드에 EXIT_PATROL_COMMAND_FILE 경로를 직접 넣어주면 된다
-# (그 GUI 경로는 공식 기능이라 100% 동작한다).
-EXIT_PATROL_CHARACTER_PRIM_PATH = "/World/Characters/Character"
-EXIT_PATROL_COMMAND_FILE = WORK_DIR / "animation" / "exit_patrol_commands.txt"
-EXIT_PATROL_X = -8.5           # entry_wait/exit_wait와 같은 차로(X=-8.5)
-EXIT_PATROL_Z_NEAR = -7.075    # 출차 구역(차량 대기) 쪽 끝 — exit_wait 위치
-EXIT_PATROL_Z_FAR = -4.075     # 도크 쪽으로 3 m 걸어들어온 지점
-EXIT_PATROL_SPEED_MPS = 1.5    # exit_patrol_commands.txt GoTo 속도와 동일하게 유지
-EXIT_PATROL_CYCLE_SEC = 60.0   # 1분마다
-EXIT_PATROL_ACTIVE_SEC = 10.0  # 10초 동안만 보이며 왕복(실제 위치는 명령 파일이 자체 반복)
+# 2026-07-27 시도: 출차존(exit_wait, config/parking_map.yaml — 대시보드 라벨
+# "▲ 출차 구역 (차량 대기)")에서 실제로 걷는 캐릭터(omni.anim.people +
+# AnimationGraphAPI, 명령 파일로 왕복)를 붙여봤지만 검증 실패로 되돌렸다 —
+# 이 환경엔 Isaac Sim이 없어 명령 문법/carb 설정을 직접 켜서 확인할 수
+# 없었고, 실제로 걷지 않았다. 2026-07-28: 목표를 "자연스럽게 걷기"에서
+# "장애물 감지 테스트"로 좁혀 훨씬 단순한 방식으로 바꿨다 — 애니메이션
+# 그래프도 명령 파일도 없이, 고정 좌표에 그냥 서 있는 캐릭터를
+# EXIT_TEST_CYCLE_SEC마다 EXIT_TEST_ACTIVE_SEC초만 켰다 끄는 것뿐이다.
+# animation/pedestrians_v4.usda의 EntryPedestrian/ExitPedestrian이 쓰는
+# 것과 같은 방식(Xform + Body 참조, 걷기 애니메이션 없음)이라 이미
+# 검증된 경로다.
+EXIT_TEST_CHAR_USD = (
+    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/"
+    "Assets/Isaac/5.1/Isaac/People/Characters/male_adult_construction_03/"
+    "male_adult_construction_03.usd"
+)
+EXIT_TEST_PRIM_PATH = "/World/Pedestrians/ExitTestDummy"
+EXIT_TEST_X = -8.5          # entry_wait/exit_wait와 같은 차로(X=-8.5)
+EXIT_TEST_Z = -7.075        # 출차 구역(차량 대기) 고정 좌표 — exit_wait와 동일 지점
+EXIT_TEST_CYCLE_SEC = 60.0  # 1분마다
+EXIT_TEST_ACTIVE_SEC = 10.0  # 10초 동안만 스폰
 
 
-def exit_patrol_position(cycle_phase):
-    """순찰 보행자의 (보이는지, Z좌표 추정치)를 반환한다. Isaac/pxr에
-    의존하지 않는 순수 함수라 test_exit_patrol_pedestrian.py에서 그대로
-    단위 테스트한다.
+def exit_test_dummy_visible(cycle_phase):
+    """장애물 감지 테스트용 고정 인형의 스폰 여부. Isaac/pxr에 의존하지
+    않는 순수 함수라 test_exit_test_dummy.py에서 그대로 단위 테스트한다.
 
-    실제 캐릭터 위치는 omni.anim.people(exit_patrol_commands.txt)이 자체
-    반복 구동하므로, 여기 Z값은 프림에 직접 쓰지 않고 로그/디버깅용으로만
-    쓴다 — visible(첫 값)만 step_exit_patrol_pedestrian()이 실제로 쓴다.
-
-    cycle_phase: 0 <= cycle_phase < EXIT_PATROL_CYCLE_SEC 범위의 위상(초).
-    EXIT_PATROL_ACTIVE_SEC 이후는 항상 (False, Z_NEAR) — 숨은 상태다.
+    cycle_phase: 0 <= cycle_phase < EXIT_TEST_CYCLE_SEC 범위의 위상(초).
     """
-    if cycle_phase >= EXIT_PATROL_ACTIVE_SEC:
-        return False, EXIT_PATROL_Z_NEAR
-    leg_distance = EXIT_PATROL_Z_FAR - EXIT_PATROL_Z_NEAR
-    round_trip_sec = 2.0 * abs(leg_distance) / EXIT_PATROL_SPEED_MPS
-    leg_phase = (cycle_phase % round_trip_sec) / round_trip_sec
-    frac = (leg_phase / 0.5) if leg_phase < 0.5 else (1.0 - (leg_phase - 0.5) / 0.5)
-    return True, EXIT_PATROL_Z_NEAR + frac * leg_distance
+    return cycle_phase < EXIT_TEST_ACTIVE_SEC
 
 
 def robot_within_person_radius(robot_xy, person_positions, radius):
@@ -375,48 +361,35 @@ def spawn_demo_vehicles(stage, markers):
           f"names={[n for n, _ in DEMO_VEHICLES]}", flush=True)
 
 
-def configure_exit_patrol_walk(stage):
-    """--with-pedestrians: 이미 있는 애니메이션 그래프 캐릭터
-    (/World/Characters/Character)를 exit_patrol_commands.txt 명령으로
-    출차존에서 왕복 보행시킨다. 새 프림을 만들지 않는다 — 다리가 실제로
-    움직이는 애니메이션은 omni.anim.people의 AnimationGraph가 담당하고,
-    이 함수는 그 캐릭터에게 "어디를 왕복하라"는 명령 파일 경로만 연결한다.
-
-    ⚠ 실험적: carb 설정 키가 설치된 확장 버전과 안 맞으면 조용히 실패할 수
-    있다 — 그때는 Isaac Sim의 Window > Animation > People 창에서
-    EXIT_PATROL_COMMAND_FILE 경로를 직접 지정하면 된다(공식 GUI 경로).
+def create_exit_test_dummy(stage):
+    """--with-pedestrians: 출차존 고정 좌표(X=-8.5, Z=-7.075)에 장애물
+    감지 테스트용 인형을 만든다. 걷지 않는다 — animation/pedestrians_v4.usda의
+    EntryPedestrian/ExitPedestrian과 같은 방식(Xform + Body 참조)이라
+    애니메이션 그래프도 명령 파일도 필요 없다. 실제 스폰/은폐는
+    step_exit_test_dummy()가 visibility만 토글해서 한다. LiDAR 사람
+    분류에는 mesh만 있으면 되므로 물리 콜라이더는 만들지 않는다.
     """
-    character = stage.GetPrimAtPath(EXIT_PATROL_CHARACTER_PRIM_PATH)
-    if not character or not character.IsValid():
-        raise RuntimeError(
-            f"{EXIT_PATROL_CHARACTER_PRIM_PATH} 를 찾지 못했습니다 — "
-            "animation/pedestrians_v4.usda의 Character 프림이 없거나 "
-            "이름/경로가 바뀌었습니다.")
-    if not EXIT_PATROL_COMMAND_FILE.is_file():
-        raise FileNotFoundError(f"순찰 명령 파일 없음: {EXIT_PATROL_COMMAND_FILE}")
+    from pxr import Gf, UsdGeom
 
-    try:
-        import carb.settings
+    UsdGeom.Xform.Define(stage, "/World/Pedestrians")
+    prim = stage.DefinePrim(EXIT_TEST_PRIM_PATH, "Xform")
+    xf = UsdGeom.Xformable(prim)
+    xf.ClearXformOpOrder()
+    xf.AddTranslateOp().Set(Gf.Vec3d(EXIT_TEST_X, 0.0, EXIT_TEST_Z))
+    UsdGeom.Imageable(prim).MakeInvisible()
 
-        settings = carb.settings.get_settings()
-        settings.set(
-            "/exts/omni.anim.people/command_settings/command_file_path",
-            str(EXIT_PATROL_COMMAND_FILE),
-        )
-        print(
-            f"V4_EXIT_PATROL_COMMAND_FILE={EXIT_PATROL_COMMAND_FILE} "
-            "(carb setting 자동 적용 시도 — 실제로 안 걸으면 Window > "
-            "Animation > People 창에서 같은 경로를 수동으로 지정하세요)",
-            flush=True,
-        )
-    except Exception as exc:
-        print(
-            f"V4_EXIT_PATROL_COMMAND_FILE_MANUAL_SETUP_NEEDED "
-            f"path={EXIT_PATROL_COMMAND_FILE} "
-            f"reason={type(exc).__name__}: {exc} — Window > Animation > "
-            "People 창에서 Command File 경로를 수동으로 지정하세요.",
-            flush=True,
-        )
+    body = stage.DefinePrim(f"{EXIT_TEST_PRIM_PATH}/Body", "Xform")
+    body.GetReferences().AddReference(EXIT_TEST_CHAR_USD)
+    body_xf = UsdGeom.Xformable(body)
+    body_xf.ClearXformOpOrder()
+    body_xf.AddRotateXYZOp().Set(Gf.Vec3f(-90, 0, 0))
+    body_xf.AddTranslateOp().Set(Gf.Vec3d(0, 0.16, 0))
+    print(
+        f"V4_EXIT_TEST_DUMMY_READY prim={EXIT_TEST_PRIM_PATH} "
+        f"pos=({EXIT_TEST_X},{EXIT_TEST_Z}) "
+        f"cycle={EXIT_TEST_CYCLE_SEC:.0f}s active={EXIT_TEST_ACTIVE_SEC:.0f}s",
+        flush=True,
+    )
 
 
 def build_stage(app, keep_lidar=False, with_pedestrians=False, with_vehicles=False):
@@ -485,7 +458,7 @@ def build_stage(app, keep_lidar=False, with_pedestrians=False, with_vehicles=Fal
             app.update()
 
     if with_pedestrians:
-        configure_exit_patrol_walk(stage)
+        create_exit_test_dummy(stage)
         for _ in range(5):
             app.update()
 
@@ -1634,42 +1607,34 @@ def main():
             vx, vy, wz = read_wheel_twist(arts[r], wheel_idx[r])
             odom[r].update(vx, vy, wz, dt)
 
-    patrol_was_visible = {"value": False}
+    test_dummy_was_visible = {"value": False}
 
-    def step_exit_patrol_pedestrian(now_sim):
-        """EXIT_PATROL_CYCLE_SEC마다 EXIT_PATROL_ACTIVE_SEC초만 Character가
-        보이게 한다. 실제 걷기(다리 애니메이션과 위치)는 omni.anim.people이
-        exit_patrol_commands.txt를 따라 자체 반복 구동하므로, 여기서는
-        위치를 직접 만지지 않고 visibility만 켜고 끈다.
-
-        보이는 순간마다 캐릭터의 실제 월드 좌표를 콘솔에 한 번 찍는다 —
-        exit_patrol_commands.txt의 GoTo가 실제로 먹혔다면 X≈-8.5,
-        Z가 -4~-7 사이여야 한다(LiDAR ROI: entry_wait_lane/exit_wait_lane,
-        parking_control/pedestrian_obstacle_node.py 참고). 다른 좌표가
-        찍히면 명령 파일이 안 먹혔거나 NavMesh가 없는 것 — 이 로그를 그대로
-        가져오면 원인을 좁힐 수 있다."""
+    def step_exit_test_dummy(now_sim):
+        """EXIT_TEST_CYCLE_SEC마다 EXIT_TEST_ACTIVE_SEC초만 고정 좌표의
+        테스트 인형을 보이게 한다. 위치는 고정이라 여기서 옮기지 않고
+        visibility만 켜고 끈다. 나타날 때마다 실제 월드 좌표를 한 번
+        찍어서 LiDAR ROI(parking_control/pedestrian_obstacle_node.py의
+        entry_wait_lane/exit_wait_lane) 안에 있는지 바로 확인할 수 있다."""
         from pxr import Usd, UsdGeom
 
-        prim = stage.GetPrimAtPath(EXIT_PATROL_CHARACTER_PRIM_PATH)
+        prim = stage.GetPrimAtPath(EXIT_TEST_PRIM_PATH)
         if not prim or not prim.IsValid():
             return
-        visible, _ = exit_patrol_position(now_sim % EXIT_PATROL_CYCLE_SEC)
+        visible = exit_test_dummy_visible(now_sim % EXIT_TEST_CYCLE_SEC)
         imageable = UsdGeom.Imageable(prim)
         if visible:
             imageable.MakeVisible()
-            if not patrol_was_visible["value"]:
+            if not test_dummy_was_visible["value"]:
                 m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
                     Usd.TimeCode.Default())
                 x, y, z = (float(v) for v in m.ExtractTranslation())
                 print(
-                    f"V4_EXIT_PATROL_WORLD_POS x={x:.2f} y={y:.2f} z={z:.2f} "
-                    f"(expected x≈{EXIT_PATROL_X:.2f}, z 사이 "
-                    f"{EXIT_PATROL_Z_NEAR:.2f}~{EXIT_PATROL_Z_FAR:.2f})",
+                    f"V4_EXIT_TEST_DUMMY_SPAWNED x={x:.2f} y={y:.2f} z={z:.2f}",
                     flush=True,
                 )
         else:
             imageable.MakeInvisible()
-        patrol_was_visible["value"] = visible
+        test_dummy_was_visible["value"] = visible
 
     if "--headless-test" in sys.argv[1:]:
         def _p(a):
@@ -1801,7 +1766,7 @@ def main():
         publish_odom()
         publish_vehicle_pose()
         if with_pedestrians:
-            step_exit_patrol_pedestrian(now_sim)
+            step_exit_test_dummy(now_sim)
         wheel_depth_step += 1
         step_wheel_depth(wheel_depth_step)
         report_rtf(now_sim)
