@@ -71,3 +71,7 @@ class DataSource(ABC):
     def get_sensor_status(self) -> list[dict]:
         """웹 도면에 표시할 센서 연결 상태. 구현이 없으면 빈 목록."""
         return []
+
+    def get_robot_group_status(self) -> list[dict]:
+        """입차/출차 로봇 그룹별 연결 상태 (dual 모드 전용). 구현이 없으면 빈 목록."""
+        return []

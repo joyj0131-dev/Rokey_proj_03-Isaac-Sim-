@@ -37,6 +37,12 @@ def _create_datasource() -> DataSource:
         from sources.ros2_prs_source import Ros2PrsDataSource
         return Ros2PrsDataSource(store)
 
+    # dual: 입차/출차 요청을 서로 다른 로봇 그룹(=서로 다른 Isaac Sim PC)으로
+    # 분리 라우팅. 라우팅 표는 core/db.py(SQLite) 참고.
+    if config.PARKING_MODE == "dual":
+        from sources.ros2_dual_source import Ros2DualDataSource
+        return Ros2DualDataSource(store)
+
     # 지연 import: rclpy/parking_robot_interfaces는 ROS2 환경이 source된
     # 상태에서만 존재하므로, mock 모드 실행 시에는 아예 건드리지 않는다.
     from sources.ros2_source import Ros2DataSource
@@ -119,6 +125,12 @@ def get_system():
     }
 
 
+@app.get("/api/robot-groups")
+def get_robot_groups():
+    """입차/출차 로봇 그룹별 라우팅 대상 및 연결 상태 (dual 모드 전용, 그 외는 빈 목록)."""
+    return datasource.get_robot_group_status()
+
+
 @app.get("/api/dashboard")
 def get_dashboard():
     snapshot = store.snapshot()
@@ -140,6 +152,7 @@ def get_dashboard():
         "alerts": list(reversed(alerts)),
         "map": datasource.get_map_info(),
         "sensors": sensors,
+        "robot_groups": datasource.get_robot_group_status(),
         "summary": {
             "total_slots": len(slots),
             "empty_slots": sum(slot.status == "EMPTY" for slot in slots),
