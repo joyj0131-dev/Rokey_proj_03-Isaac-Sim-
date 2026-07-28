@@ -1,19 +1,41 @@
 #!/usr/bin/env python3
-"""carry_action_server — Phase D 2로봇 가상중심(virtual-center) 운반 액션 서버.
+"""carry_action_server — 운반(가상중심 제어) 액션 서버.
 
-트럭을 든 lead/follow 를 하나의 강체로 보고, 두 로봇의 **중점** 을 목표 위치로 몬다.
+2026-07-27 재작성(사용자 지시): follow 단독 제어(발산)를 버리고 **가상중심(virtual
+-center) 강체 제어**로 되돌린다. 단, 트럭 자세 측위는 **follow rear 하나로 대표**한다.
 
-2026-07-27 재안무: 진입 후 lead 서향(-90°)/follow 동향(+90°)으로 **반평행**이다.
-이 편성에서는 두 로봇 헤딩 평균이 degenerate(±180) 라 옛 방식(center_pose_from_robots
-로 중심 yaw + robot_twist_from_center 로 중심프레임 분배)이 깨져 나선 발산했다(실측).
-- 측위: /robot_<id>/pose(marker_localizer 바닥마커 융합, **GT 아님**) 두 개. 중심=참
-  중점(위치 평균), 트럭방향=formation.truck_yaw_from_robots(위치기반, 헤딩 무관).
-- 제어: **월드프레임**에서 중심 위치오차 -> 월드속도(순수 병진, omega=0 — 회전 안 함).
-  formation.robot_twist_world 로 각 로봇 **자기 heading** 에 투영 -> 두 /cmd_vel.
-  lead 는 서향이라 후진, follow 는 동향이라 전진으로 자연히 동쪽 운반(강체 병진).
+측위(follow rear 하나로 트럭 대표):
+  차 든 직후 follow /pose yaw 는 90°(x축 평행)로 시딩되고 follow marker_localizer 는
+  rear-only 로 바닥 레인마커만 본다. 이 follow /pose(x,z,yaw)가 곧 트럭 뒷축 자세다.
+  lead 는 **강체 가정**으로 유도: 시작 시 lead/follow world pose 로 축간거리 L(부호
+  포함, 트럭 heading 투영)을 한 번 재고, 이후 매 틱 lead = follow + L·heading(fyaw),
+  center = 두 축 중점 = follow + ½L·heading(fyaw). yaw 가 돌면 heading 이 같이 돌아
+  lead·center 도 따라 돈다(트럭 강체).
 
-책임은 "중심을 목표 위치로 몰기(방향 유지)"까지. 슬롯 앞 90° 회전·진입·안착(lift
-down)은 오케가 CarryToSlot 성공 뒤 순차 처리(단일 책임).
+제어(둘 다 cmd_vel — 가상중심):
+  center 를 목표(target_x,target_z)로, 트럭 yaw 를 target_yaw 로 몰아가는 **월드 중심
+  twist**(v_world 병진 + omega yaw회전)를 세운 뒤, formation.robot_twist_world 로
+  follow·lead **각자 heading 에 투영**해 body twist 를 따로 발행한다. 반평행(lead 서향
+  /follow 동향)이라도 성립. 슬립으로 자세가 틀어지면 follow rear 가 다시 재면 그 오차가
+  v_world·omega 로 자동 반영돼 둘 다 보정된다.
+  · **제어 철학(사용자 지시 2026-07-28 재확정)**: 차를 든 뒤 yaw≈yaw_target 이므로,
+    **마커 안 보이면 오직 경로방향 body-x 순항**만 낸다(vy=wz=0). 두 로봇이 각자 body-x
+    로만 밀고(반평행이라 follow=+, lead=−) 옆·회전은 일절 안 낸다. **yaw·위치(옆) 정렬은
+    follow rear 가 마커를 봐서 자기 위치·yaw 를 실제로 알 때만** — 그때만 가상중심
+    월드투영으로 along(목표복귀)+cross(경로복귀)+omega(yaw정렬)를 낸다. 마커 없이 odom 만
+    믿고 vy/wz 를 내면 슬립 드리프트를 추종하거나 애먼 옆·회전으로 트럭을 흔든다(실측:
+    lane 락업·발산). stop 은 마커로 목표 도달(along·perp·yaw)을 확인했을 때만.
+  · **미리 멈추지 말 것**: follow rear 근거리 사각 탓에 목표 좌표에 딱 서면 도착 마커가
+    안 보이고 서 버린다 → 마커 못 봤으면 **순항(cruise) 으로 계속 전진**해 사각 밖에서
+    마커를 찾고(과주행 상한), 한 번 본 뒤엔 지나쳤어도 **후진**해서 마커 좌표에 맞춘다
+    (앵커된 pose 로 몰아 사각 순간통과에도 진동·hang 없음). ref_marker_dist 는
+    mdist_marker_id=-1(아무 ref 마커나)로 발행해 "봤나" 신호로 쓴다.
+  · **회전 선행 게이트**: yaw 오차가 align_gate 보다 크면 along 을 죽이고 회전만
+    → 슬롯 앞 90° 회전이 끝나기 전에 남진해 입구를 비스듬히 긁는 걸 막는다.
+
+한 세그먼트가 lane 운반(경로 +x)·슬롯 주차(경로 -z, 회전 후 진입) 둘 다 커버한다.
+정지: 마커 측위 중(신선) + 경로상 목표 도달/지남(along) + 경로정렬(perp) + yaw.
+축간거리 L 은 첫 세그먼트에서 한 번 재 캐시(트럭 강체 물리상수)해 재사용.
 """
 import math
 import threading
@@ -29,51 +51,149 @@ from geometry_msgs.msg import PoseStamped, Twist
 from std_msgs.msg import Float32
 
 from parking_robot_interfaces.action import CarryToSlot
-from parkbot_motion import formation
 from parkbot_motion.pose_controller_node import odom_quat_to_yaw_deg
+from parkbot_motion import formation
+
+
+def lead_center_from_follow(follow_pos, fyaw, l_signed):
+    """follow world pose + 트럭 yaw + 부호축간거리 -> (lead_pos, center) world.
+
+    lead·center 는 트럭 heading=(sinψ,cosψ) 위에 있다(둘 다 트럭 장축=센터라인).
+    l_signed = (lead_start-follow_start)·heading_start(부호 포함) 한 번 고정.
+    """
+    hx, hz = math.sin(fyaw), math.cos(fyaw)
+    lead = (follow_pos[0] + l_signed * hx, follow_pos[1] + l_signed * hz)
+    center = (follow_pos[0] + 0.5 * l_signed * hx, follow_pos[1] + 0.5 * l_signed * hz)
+    return lead, center
+
+
+def carry_translation(e, path_dir, eyaw, marker, confirmed, align_gate, max_lin,
+                      pos_gain, fwd_min, pos_tol, cross_max, cruise, overshoot_max):
+    """경로기반 중심 병진속도 v_world(x,z). (사용자 지시 2026-07-27/28)
+
+    계획 경로 = 세그먼트 시작중심→목표(직선), path_dir=진행 단위벡터.
+    along = 목표까지 경로투영(부호). marker = 현재 마커 신선(방금 봤나), confirmed = 이
+    세그먼트에서 한 번이라도 봤나.
+
+    - |eyaw|>align_gate: along 0 (회전 먼저 — 슬롯 앞 90° 회전 클리핑 방지).
+    - **마커 한 번도 못 봄(not confirmed)**: 옆 없이 **순항(cruise) 전진**만(마커 찾기,
+      과주행 상한).
+    - **마커 한 번 봄(confirmed)**: 목표(마커) 좌표로 **정밀 P**(along>0 전진, along<0 후진).
+      |along|<=pos_tol 정지. → **직진(along)은 마커 잠깐 잃어도 계속**(경로 마커공백 통과).
+    - **cross(경로 수직 이탈 옆보정)는 현재 marker 일 때만**: 마커로 위치를 실제로 재확인한
+      순간만 옆으로 잡는다. 마커 없을 땐 안 함 — 없을 때 하면 드리프트하는 odom 을 추종해
+      발산한다(슬롯 진입 중 마커 3→65 공백 실측). 마커 없으면 현재 헤딩으로 곧게만.
+    """
+    px, pz = path_dir
+    along = e[0] * px + e[1] * pz
+    if abs(eyaw) > align_gate:
+        a_speed = 0.0
+    elif not confirmed:                          # 마커 탐색: 순항 전진(옆보정 없음)
+        return (0.0, 0.0) if along < -overshoot_max else (cruise * px, cruise * pz)
+    elif abs(along) <= pos_tol:
+        a_speed = 0.0                            # 마커 좌표 도달 → 정지
+    else:
+        a_speed = max(-max_lin, min(max_lin, pos_gain * along))  # 전진/후진 P
+        if abs(a_speed) < fwd_min:
+            a_speed = math.copysign(fwd_min, along)              # 견인하한
+    vx, vz = a_speed * px, a_speed * pz
+    if marker:                                    # 현재 마커 신선할 때만 옆보정
+        ex_p = e[0] - along * px
+        ez_p = e[1] - along * pz
+        perp = math.hypot(ex_p, ez_p)
+        if perp > pos_tol:
+            c = min(cross_max, pos_gain * perp)
+            vx += c * ex_p / perp
+            vz += c * ez_p / perp
+    return (vx, vz)
+
+
+def blind_cruise_vx(cruise, fyaw, path_dir, along, confirmed, overshoot_max):
+    """마커 없을 때 follow 의 body-x 순항속도[m/s]. **vy=wz=0** (사용자 지시 2026-07-28:
+    차를 든 뒤 마커가 안 보이면 위치·yaw 를 신뢰할 수 없으니, 옆·회전 없이 오직
+    경로방향으로 x 만 민다). follow heading=(sinψ,cosψ) 와 path_dir 의 내적으로 전진
+    부호를 정한다(heading 이 path 와 반대면 후진, 수직이면 0 — 마커 볼 때 omega 로
+    회전해야 진행). lead 는 반평행이라 이 값의 부호만 뒤집어 쓴다. confirmed(한 번
+    마커 봄) 후 목표를 overshoot_max 이상 지나치면 0(마커 영영 못 봄 안전정지)."""
+    if confirmed and along < -overshoot_max:
+        return 0.0
+    proj = path_dir[0] * math.sin(fyaw) + path_dir[1] * math.cos(fyaw)
+    return cruise * proj
+
+
+def carry_yaw_omega(eyaw, yaw_gain, max_ang, yaw_tol_rad, yaw_min_cmd,
+                    r_lever, rot_budget, max_lin):
+    """yaw 오차 -> 중심 회전각속도 omega[rad/s]. 비례(yaw_gain)+포화(max_ang)+메카넘
+    데드밴드 하한(yaw_min_cmd)+회전strafe 캡(omega·레버암 ≤ rot_budget·max_lin)."""
+    omega = max(-max_ang, min(max_ang, yaw_gain * eyaw))
+    if abs(eyaw) > yaw_tol_rad and abs(omega) < yaw_min_cmd:
+        omega = math.copysign(yaw_min_cmd, eyaw)
+    if r_lever > 1e-6:
+        cap = rot_budget * max_lin / r_lever
+        omega = max(-cap, min(cap, omega))
+    return omega
 
 
 class CarryActionServer(Node):
     def __init__(self):
         super().__init__('carry_action_server')
         self._cbg = ReentrantCallbackGroup()
-        # 중심 = 두 로봇 위치의 참 중점(오프셋 파라미터 불필요 — 실제 pose 를 직접 쓴다).
-        # 레버암도 실제 (P_i - C) 로 잡으므로 옛 lead/follow_offset_x 는 폐기됨.
         self.declare_parameter('control_hz', 20.0)
         self.declare_parameter('pose_stale_sec', 1.0)
         self.declare_parameter('pos_gain', 0.8)
         self.declare_parameter('yaw_gain', 1.2)
-        # 운반 속도명령 상한[m/s]. 0.20 은 들어올린(무거운) 트럭을 밀기엔 낮았다
-        # (실측 명령0.20→실제0.03m/s 정체). 속도제어라 목표가 높을수록 바퀴 토크가
-        # 커져 부하를 이긴다 — 0.5 로 올려 견인력 확보(튜닝 노브, 더 올려도 됨).
-        self.declare_parameter('max_lin', 0.5)
-        # 전진 견인 데드밴드 하한[m/s]. TRANSLATE 는 목표 x오차 비례로 감속하는데,
-        # 무거운(들어올린) 트럭은 명령이 작으면 바퀴 토크가 부족해 목표 앞에서
-        # 정체한다(명령0.2→실제0.03 실측). 목표 밖(|ex|>pos_tol)에서 비례항이 이
-        # 값보다 작으면 부호를 지키며 이 최소 명령으로 깔아 견인력을 확보한다.
-        # max_lin~0.2 사이에서 하드웨어로 튜닝(더 무거우면 올림). pos_tol 안에선
-        # 발동 안 해 정지를 막지 않는다.
-        self.declare_parameter('fwd_min', 0.3)
+        # 운반 전진 속도 상한[m/s]. 무거운(들어올린) 트럭 견인 — 튜닝 노브.
+        # 2026-07-27 사용자: 0.5→0.3(미끄러짐↓).
+        self.declare_parameter('max_lin', 0.3)
+        # 전진 견인 데드밴드 하한[m/s]: 마커 보고 목표에 감속접근할 때 비례속도가 이
+        # 값보다 작아도 이 최소명령으로 깔아 바퀴 토크 확보(명령0.2→실제0.03 정체 실측).
+        # 감속 여지 위해 0.15(트럭이 이보다 낮은 명령에 정체하면 올릴 것 — 캘리브레이션).
+        self.declare_parameter('fwd_min', 0.15)
+        # 마커 못 볼 때 순항 전진속도[m/s]: 목표 좌표에 미리 멈추지 않고 이 속도로 계속
+        # 가서 follow rear 근거리 사각(~1.1m) 밖으로 나가 마커를 찾는다.
+        self.declare_parameter('cruise_speed', 0.2)
+        # 과주행 안전상한[m]: 마커 **못 본 채** 목표를 이만큼 지나치면 순항 정지(무한전진
+        # 방지). 실측상 목표 0.84m 지나서야 마커를 봤으므로 그보다 넉넉히(마커 보면 즉시
+        # 후진 P 로 되돌리니 이 값은 "마커 영영 못 봄" 실패거리일 뿐).
+        self.declare_parameter('overshoot_max', 1.2)
         self.declare_parameter('max_ang', 0.5)
         self.declare_parameter('pos_tol', 0.06)
         self.declare_parameter('yaw_tol', 1.0)
-        # 직진 정지 트리거: 차밑 카메라(양 로봇)가 목표 마커를 **같은 거리**로 인식하면 회전.
-        self.declare_parameter('marker_match_tol', 0.10)   # |d_lead-d_follow| 이하면 일치[m]
-        self.declare_parameter('marker_fresh_sec', 0.5)    # 두 거리 다 이 시간 내여야 유효
-        # 직진 중 옆드리프트(슬립) 보정: 마커보정된 /pose 로 중심을 레인 z 에 붙인다.
-        # 전진(±V)은 그대로, 옆으로만 살짝. 0 이면 순수 x(보정 끔).
-        self.declare_parameter('lat_gain', 1.0)            # 옆보정 게인[1/s]
-        self.declare_parameter('lat_max', 0.15)            # 옆보정 속도 상한[m/s]
-        self.declare_parameter('goal_timeout_sec', 600.0)   # 저rtf 헤드리스 14m 운반 여유
+        # 메카넘 회전 데드밴드 보정[rad/s]: yaw 오차가 tol 밖인데 비례 wz 가 이 값보다
+        # 작으면 이 최소 회전속도로 깐다(mission_control.yaw_min_cmd 와 동형).
+        self.declare_parameter('yaw_min_cmd', 0.05)
+        self.declare_parameter('marker_fresh_sec', 0.5)    # ref_marker_dist 신선도[s]
+        # 회전 strafe 포화 방지: omega·레버암 ≤ rot_budget·max_lin 로 omega 캡.
+        self.declare_parameter('rot_budget', 0.6)
+        # 병진 개시 게이트[deg]: yaw 오차가 이 값보다 크면 **병진을 죽이고 제자리 회전
+        # 먼저** 한다. 슬롯 진입 전 90° 회전이 끝나기 전에 남진하면 트럭이 슬롯 입구를
+        # 비스듬히 긁는 걸 막는다(운반 lane 은 시작부터 yaw≈목표라 즉시 병진).
+        self.declare_parameter('align_gate_deg', 8.0)
+        # 경로이탈 옆보정 속도 상한[m/s]: 마커로 경로 벗어남 확인 시 옆으로 되돌리는
+        # 속도 캡. 전진(max_lin)보다 작게 둬 옆이동이 전진을 압도 않게.
+        self.declare_parameter('cross_max', 0.15)
+        # 세그먼트 **완료(다음 단계 진행)** 판정 tol — 제어용 pos_tol(0.06)/yaw_tol(1°)보다
+        # 헐겁게(사용자 지시 2026-07-28: 완벽 정렬 말고 일정 값 이내면 넘어가라). 너무
+        # 빡빡하면 마커 깜빡임·슬립으로 도착판정을 못 채워 다음 단계(슬롯 회전/하강)로
+        # 못 넘어간다(실측 CARRY_LANE 헌팅). 완료는 marker_confirmed(이 구간 마커 봤음)+
+        # 이 tol 로 판정.
+        self.declare_parameter('goal_pos_tol', 0.15)
+        self.declare_parameter('goal_yaw_tol_deg', 4.0)
+        self.declare_parameter('goal_timeout_sec', 600.0)
 
         gp = lambda n: self.get_parameter(n).value           # noqa: E731
         self.control_hz = float(gp('control_hz'))
         self.pose_stale_sec = float(gp('pose_stale_sec'))
-        self.marker_match_tol = float(gp('marker_match_tol'))
         self.marker_fresh_sec = float(gp('marker_fresh_sec'))
-        self.lat_gain = float(gp('lat_gain'))
-        self.lat_max = float(gp('lat_max'))
         self.fwd_min = float(gp('fwd_min'))
+        self.yaw_min_cmd = float(gp('yaw_min_cmd'))
+        self.rot_budget = float(gp('rot_budget'))
+        self.align_gate = math.radians(float(gp('align_gate_deg')))
+        self.cross_max = float(gp('cross_max'))
+        self.cruise = float(gp('cruise_speed'))
+        self.overshoot_max = float(gp('overshoot_max'))
+        self.goal_pos_tol = float(gp('goal_pos_tol'))
+        self.goal_yaw_tol_rad = math.radians(float(gp('goal_yaw_tol_deg')))
         self.gains = dict(
             pos_gain=float(gp('pos_gain')), yaw_gain=float(gp('yaw_gain')),
             max_lin=float(gp('max_lin')), max_ang=float(gp('max_ang')),
@@ -84,14 +204,18 @@ class CarryActionServer(Node):
         self._pose = {}     # robot_id -> (x, z, yaw_deg, mono_time)
         self._subs = {}     # robot_id -> pose 구독(지연 생성)
         self._cmd = {}      # robot_id -> cmd_vel 퍼블리셔(지연 생성)
-        self._mdist = {}    # robot_id -> (목표마커까지 거리[m], mono_time). 정지 트리거용.
+        self._mdist = {}    # robot_id -> (목표 주차앞 마커까지 거리[m], mono_time)
+        # 부호축간거리 L: 첫 세그먼트에서 한 번 재고(양쪽 측위 신선할 때) 캐시해
+        # 이후 재사용. 트럭 강체라 물리상수 — lane 이동·회전 뒤 lead 측위가 오도로
+        # 드리프트해도 여기 값은 안 흔들린다.
+        self._axle_l_signed = None
 
         self._server = ActionServer(
             self, CarryToSlot, 'carry_to_slot', self._execute,
             callback_group=self._cbg,
             goal_callback=lambda _g: GoalResponse.ACCEPT,
             cancel_callback=lambda _g: CancelResponse.ACCEPT)
-        self.get_logger().info('carry_action_server 시작 (월드프레임 반평행 중심제어)')
+        self.get_logger().info('carry_action_server 시작 (가상중심 제어, follow rear 대표)')
 
     def _ensure_io(self, rid):
         if rid not in self._cmd:
@@ -108,16 +232,12 @@ class CarryActionServer(Node):
         with self._lock:
             self._mdist[rid] = (float(msg.data), time.monotonic())
 
-    def _marker_seen(self, lead, follow):
-        """차밑 카메라가 타깃 슬롯마커를 **최근에**(marker_fresh_sec 내) 봤는가.
-        둘 중 **하나라도** 신선하면 True — 트럭 중심이 그 마커 근처에 왔다는 신호.
-        (예전 '양쪽 동시 등거리' 는 두 카메라가 ~2m 떨어져 마커를 보는 시점이 어긋나
-        기하학적으로 거의 안 걸렸다. 정지 정밀도는 중심-마커위치 도달로 따로 잡는다.)"""
+    def _marker_seen(self, follow):
+        """follow rear 가 목표 주차앞 마커를 최근(marker_fresh_sec 내)에 봤는가."""
         now = time.monotonic()
         with self._lock:
-            ml, mf = self._mdist.get(lead), self._mdist.get(follow)
-        fresh = lambda m: m is not None and now - m[1] <= self.marker_fresh_sec  # noqa: E731
-        return fresh(ml) or fresh(mf)
+            mf = self._mdist.get(follow)
+        return mf is not None and now - mf[1] <= self.marker_fresh_sec
 
     def _on_pose(self, rid, msg):
         p, q = msg.pose.position, msg.pose.orientation
@@ -125,19 +245,14 @@ class CarryActionServer(Node):
         with self._lock:
             self._pose[rid] = (float(p.x), float(p.z), yaw_deg, time.monotonic())
 
-    def _robot_poses(self, lead, follow):
-        """캐시된 두 pose -> ((lx,lz,lyaw_rad),(fx,fz,fyaw_rad)). 하나라도 스테일/없음이면
-        None(안전정지). 반평행 편성이라 중심수식(center_pose_from_robots)에 안 넣고 개별
-        pose 를 그대로 넘긴다 — 제어는 각 로봇 실제 heading 을 써야 한다."""
+    def _pose_of(self, rid):
+        """캐시 pose -> (x, z, yaw_rad) | None(스테일/없음)."""
         now = time.monotonic()
         with self._lock:
-            lp, fp = self._pose.get(lead), self._pose.get(follow)
-        out = []
-        for p in (lp, fp):
-            if p is None or now - p[3] > self.pose_stale_sec:
-                return None
-            out.append((p[0], p[1], math.radians(p[2])))
-        return tuple(out)
+            fp = self._pose.get(rid)
+        if fp is None or now - fp[3] > self.pose_stale_sec:
+            return None
+        return (fp[0], fp[1], math.radians(fp[2]))
 
     def _pub(self, rid, tw):
         m = Twist()
@@ -148,50 +263,68 @@ class CarryActionServer(Node):
         for rid in (lead, follow):
             self._cmd[rid].publish(Twist())
 
+    def _init_axle_dist(self, lead, follow, deadline, goal_handle):
+        """시작 시 lead·follow world pose 로 부호축간거리 L 을 한 번 잰다.
+
+        L = (lead-follow)·heading(follow_yaw). follow heading 위 lead 성분(부호 포함).
+        pose 신선해질 때까지 대기. 반환 l_signed | None(취소/타임아웃)."""
+        while rclpy.ok():
+            if goal_handle.is_cancel_requested or time.monotonic() > deadline:
+                return None
+            fp, lp = self._pose_of(follow), self._pose_of(lead)
+            if fp is not None and lp is not None:
+                dx, dz = lp[0] - fp[0], lp[1] - fp[1]
+                hx, hz = math.sin(fp[2]), math.cos(fp[2])
+                return dx * hx + dz * hz
+            self._stop(lead, follow)
+            time.sleep(1.0 / self.control_hz)
+        return None
+
     def _execute(self, goal_handle):
         g = goal_handle.request
         lead, follow = g.lead_robot_id, g.follow_robot_id
         self._ensure_io(lead)
         self._ensure_io(follow)
-        target = (g.target_x, g.target_z)
-        # target_yaw_deg 는 **상대 회전량(delta)** 으로 해석한다(절대각 아님). 위치기반
-        # truck_yaw 가 그립 삐뚤어짐에 취약해(실측 트럭은 x정렬인데 -74° 로 오독) 절대
-        # 목표(-180)를 쓰면 오독분만큼 오버회전한다. 시작 truck_yaw 를 기준으로 delta 만큼
-        # 만 돌면 오독 오프셋이 상쇄돼 실제 90° 회전이 정확히 나온다. rel_ref 잡을 때 확정.
-        turn_delta = math.radians(g.target_yaw_deg)
-        target_yaw = None
+        target_x, target_z = g.target_x, g.target_z
+        yaw_target = math.radians(g.target_yaw_deg)   # 절대(운반 중 90° 유지)
         self.get_logger().info(
-            f'carry 시작 lead={lead} follow={follow} target=({g.target_x},{g.target_z}) '
-            f'turn_delta={g.target_yaw_deg}° (상대)')
+            f'carry 시작 lead={lead} follow={follow} target=({target_x},{target_z}) '
+            f'yaw_target={g.target_yaw_deg}° (가상중심, follow rear 대표)')
 
-        # 2페이즈 월드프레임 중심제어(반평행 대응):
-        #  TRANSLATE: omega=0 순수병진으로 중심을 (target_x,target_z) 로. 방향은 강체그립 유지.
-        #  ROTATE   : 위치 유지하며 트럭 yaw 를 target_yaw 로(슬롯 진입용 90° 회전).
-        # ROTATE 에서 omega 는 **적응 제한** — 레버암 strafe(omega*r)가 속도예산을 넘으면
-        # 메카넘 포화로 편성이 뒤틀리므로(운반 실측), omega ≤ 0.6*max_lin/r_max 로 눌러 천천히.
         gp = self.gains
         pos_gain, yaw_gain = gp['pos_gain'], gp['yaw_gain']
         max_lin, max_ang, pos_tol, yaw_tol = (
             gp['max_lin'], gp['max_ang'], gp['pos_tol'], gp['yaw_tol'])
         yaw_tol_rad = math.radians(yaw_tol)
-        phase = 'TRANSLATE'
-        reached = 0
-        settle_need = 5
-        marker_confirmed = False   # 타깃 슬롯마커를 이 carry 중 한 번이라도 봤나(래치)
 
         period = 1.0 / self.control_hz
-        prev = time.monotonic()
-        deadline = prev + self.goal_timeout
+        deadline = time.monotonic() + self.goal_timeout
         result = CarryToSlot.Result()
+
+        # 축간거리 L: 캐시 있으면 재사용, 없으면(첫 세그먼트) 한 번 측정 후 캐시.
+        if self._axle_l_signed is None:
+            l_signed = self._init_axle_dist(lead, follow, deadline, goal_handle)
+            if l_signed is None:
+                self._stop(lead, follow)
+                goal_handle.abort()
+                result.success, result.message = False, 'no start pose (lead/follow)'
+                return result
+            self._axle_l_signed = l_signed
+            self.get_logger().info(f'carry 축간거리 L={l_signed:.3f} m 측정·캐시')
+        l_signed = self._axle_l_signed
+        r_lever = 0.5 * abs(l_signed)                 # 중점에서 각 축까지 레버암
+
+        reached = 0
+        settle_need = 5
+        marker_confirmed = False   # 이 세그먼트에서 마커를 한 번이라도 봤나(래치)
+        path_dir = None            # 세그먼트 시작중심→목표 단위벡터(첫 유효틱에 확정)
         tick = 0
-        center = None            # 최근 유효 중심(로그/결과용)
-        theta = 0.0
-        rel_ref = None           # 시작 상대벡터(lp-fp) — 이걸 유지해 truck_yaw 고정
+        cx = cz = 0.0
+        center_yaw = yaw_target
 
         while rclpy.ok():
             time.sleep(period)
             now = time.monotonic()
-            prev = now
             tick += 1
             if goal_handle.is_cancel_requested:
                 self._stop(lead, follow)
@@ -204,99 +337,180 @@ class CarryActionServer(Node):
                 result.success, result.message = False, 'timeout'
                 return result
 
-            poses = self._robot_poses(lead, follow)   # (lp,fp) each (x,z,yaw_rad) | None
-            if poses is None:
-                self._stop(lead, follow)              # 스테일 -> 안전 정지
+            fp = self._pose_of(follow)
+            if fp is None:
+                self._stop(lead, follow)        # follow pose 스테일 -> 안전 정지
                 continue
-            lp, fp = poses
-            center = ((lp[0] + fp[0]) / 2.0, (lp[1] + fp[1]) / 2.0)   # 참 중점
-            theta = formation.truck_yaw_from_robots(lp, fp)          # 트럭 장축(위치기반)
-            if rel_ref is None:                                      # 시작 편성 = 유지목표
-                rel_ref = (lp[0] - fp[0], lp[1] - fp[1])
-                target_yaw = theta + turn_delta                      # 상대: 시작각 + delta
+            fx, fz, fyaw = fp
+            center_yaw = fyaw                    # follow rear = 트럭 yaw
+            lead_pos, (cx, cz) = lead_center_from_follow((fx, fz), fyaw, l_signed)
+            lead_yaw = fyaw + math.pi            # 반평행(트럭 반대편)
+            if path_dir is None:                 # 계획 경로 = 시작중심→목표(직선)
+                dpx, dpz = target_x - cx, target_z - cz
+                dn = math.hypot(dpx, dpz)
+                path_dir = (dpx / dn, dpz / dn) if dn > 1e-6 else (0.0, 0.0)
 
-            # ROTATE 용 중심 월드속도(위치 유지). TRANSLATE(순수 x)는 안 씀.
-            ex, ez = target[0] - center[0], target[1] - center[1]
-            dist = math.hypot(ex, ez)
-            vwx, vwz = pos_gain * ex, pos_gain * ez
-            vmag = math.hypot(vwx, vwz)
-            if vmag > max_lin:
-                vwx, vwz = vwx * max_lin / vmag, vwz * max_lin / vmag
+            e = (target_x - cx, target_z - cz)   # 중점→목표 world
+            along = e[0] * path_dir[0] + e[1] * path_dir[1]   # 경로방향 남은거리(부호)
+            perp = math.hypot(e[0] - along * path_dir[0], e[1] - along * path_dir[1])
+            eyaw = ((yaw_target - center_yaw + math.pi) % (2 * math.pi)) - math.pi
+            marker = self._marker_seen(follow)   # follow rear 가 ref 마커 방금 봤나(현재 신선)
+            marker_confirmed = marker_confirmed or marker
 
-            dtheta = ((target_yaw - theta + math.pi) % (2 * math.pi)) - math.pi
-            if phase == 'TRANSLATE':
-                # 전진(월드 +x)을 목표 x오차 비례로 감속한다 — 옛 등속 ±max_lin 은
-                # 목표에서 못 멈추고 그냥 지나쳤다(dist<=pos_tol 5틱이 등속 통과라 안
-                # 걸림). v_fwd 는 목표 근처에서 0 으로 줄어 자연 정지한다. 무거운 트럭
-                # 견인: 목표 밖(|ex|>pos_tol)인데 비례항이 견인 데드밴드(fwd_min)보다
-                # 작으면 부호 지키며 fwd_min 으로 깐다(안 그러면 목표 앞에서 정체).
-                # + 마커보정된 /pose 로 옆드리프트만 잡는다(vzc 를 각 로봇 body 로 투영,
-                # E-W 편성이라 대부분 y(strafe)). 레인마커로 /pose 가 정확해야 이 보정
-                # 이 옳게 먹는다(핵심).
-                ex_c = target[0] - center[0]
-                v_fwd = max(-max_lin, min(max_lin, pos_gain * ex_c))
-                if abs(ex_c) > pos_tol and abs(v_fwd) < self.fwd_min:
-                    v_fwd = math.copysign(self.fwd_min, ex_c)
-                ez_c = target[1] - center[1]
-                vzc = max(-self.lat_max, min(self.lat_max, self.lat_gain * ez_c))
-                tl = (-v_fwd + vzc * math.cos(lp[2]), -vzc * math.sin(lp[2]), 0.0)
-                tf = (v_fwd + vzc * math.cos(fp[2]), -vzc * math.sin(fp[2]), 0.0)
-                # 회전 게이트: 타깃 슬롯마커를 이 carry 중 **한 번이라도 봤고**(래치;
-                # 두 카메라가 ~2m 떨어져 마커 위 통과 시점과 중심 도달 시점이 어긋나므로
-                # "지금 보임" 대신 "이 접근 중 확인됨"으로 게이트) + 중심이 그 마커
-                # 위치(target)에 도달하면 정지·회전. 마커를 아예 못 보면 래치가 안 켜져
-                # 정지 안 하고 timeout 안전망까지 직진(마커 게이트 유지).
-                if self._marker_seen(lead, follow):
-                    marker_confirmed = True
-                reached = reached + 1 if (marker_confirmed and dist <= pos_tol) else 0
-                if reached >= settle_need:
-                    phase = 'ROTATE'
-                    reached = 0
-                    self.get_logger().info(
-                        f"carry: 슬롯마커 인식+중심도달 → 정지·회전 delta={g.target_yaw_deg}° "
-                        f"center=({center[0]:.2f},{center[1]:.2f}) dist={dist:.3f}")
-                    self._stop(lead, follow)
-                    continue
-            else:  # ROTATE — 위치 유지 + 트럭을 delta 만큼 회전(적응제한 omega)
-                r_max = max(math.hypot(lp[0] - center[0], lp[1] - center[1]),
-                            math.hypot(fp[0] - center[0], fp[1] - center[1]), 0.1)
-                omega_cap = 0.6 * max_lin / r_max     # 레버암 strafe 가 속도예산 안 넘게
-                omega = max(-min(max_ang, omega_cap),
-                            min(min(max_ang, omega_cap), yaw_gain * dtheta))
-                if dist <= pos_tol and abs(dtheta) <= yaw_tol_rad:
-                    reached += 1
-                else:
-                    reached = 0
-                if reached >= settle_need:
-                    break
-                tl = formation.robot_twist_world((vwx, vwz), omega, lp, center, lp[2])
-                tf = formation.robot_twist_world((vwx, vwz), omega, fp, center, fp[2])
+            if marker:
+                # ── 마커 보임 = follow 가 자기 위치·yaw 를 실제로 확인 ──
+                # 그때만 가상중심 월드투영으로 정밀 보정: along(목표복귀)+cross(경로복귀)
+                # +omega(yaw정렬). 두 로봇이 강체로 협조(반평행이라도 성립).
+                v_world = carry_translation(
+                    e, path_dir, eyaw, True, True, self.align_gate, max_lin,
+                    pos_gain, self.fwd_min, pos_tol, self.cross_max, self.cruise,
+                    self.overshoot_max)
+                omega = carry_yaw_omega(
+                    eyaw, yaw_gain, max_ang, yaw_tol_rad, self.yaw_min_cmd,
+                    r_lever, self.rot_budget, max_lin)
+                follow_cmd = formation.robot_twist_world(
+                    v_world, omega, (fx, fz), (cx, cz), fyaw)
+                lead_cmd = formation.robot_twist_world(
+                    v_world, omega, lead_pos, (cx, cz), lead_yaw)
+            elif abs(eyaw) > self.align_gate:
+                # ── 마커 없지만 **의도된 큰 회전 대기**(슬롯 90° 턴/큰 yaw 드리프트) ──
+                # 제자리 회전만(병진 0). 90° 턴은 도는 내내 rear 가 마커를 볼 수 없어
+                # (마커3 서→턴중 사각→65/66 남) marker 게이트로는 회전이 시작을 못 한다
+                # (실측 CARRY_SLOT 락업). 회전은 0.408 보정된 양이라 odom 으로 돌려도 신뢰.
+                # rot_budget=1.0: 순수 회전이라 병진 여유 남길 필요 없음(레버암속도=max_lin).
+                omega = carry_yaw_omega(
+                    eyaw, yaw_gain, max_ang, yaw_tol_rad, self.yaw_min_cmd,
+                    r_lever, 1.0, max_lin)
+                follow_cmd = formation.robot_twist_world(
+                    (0.0, 0.0), omega, (fx, fz), (cx, cz), fyaw)
+                lead_cmd = formation.robot_twist_world(
+                    (0.0, 0.0), omega, lead_pos, (cx, cz), lead_yaw)
+            else:
+                # ── 마커 없고 yaw 정렬됨 → 오직 경로방향 body-x 순항 ──
+                # (사용자 지시 2026-07-28: 차 든 뒤 yaw≈yaw_target 이니 그냥 x 로만 밀고,
+                #  yaw·위치 정렬은 follow rear 가 마커 봐서 odom 알 때만. vy=wz=0 강제.)
+                fvx = blind_cruise_vx(self.cruise, fyaw, path_dir, along,
+                                      marker_confirmed, self.overshoot_max)
+                follow_cmd = (fvx, 0.0, 0.0)
+                lead_cmd = (-fvx, 0.0, 0.0)   # 반평행(트럭 반대편) → 반대 body-x
+                omega = 0.0
 
-            self._pub(lead, tl)
-            self._pub(follow, tf)
+            self._pub(follow, follow_cmd)
+            self._pub(lead, lead_cmd)
+
+            # 정지(다음 단계 진행): 이 구간 마커를 봤고(marker_confirmed) 가상중심이
+            # 목표에 **헐거운 tol 이내**로 들어오면 완료 — 완벽 정렬을 기다리지 않는다
+            # (사용자 지시 2026-07-28). 현재 마커 신선(marker)까지 요구하면 도착 순간
+            # 마커가 깜빡여 카운트가 리셋돼 영영 못 넘어간다(실측). marker_confirmed 라
+            # 최근 마커로 앵커된 odom 이니 이 tol 이면 충분.
+            at_goal = (marker_confirmed and abs(along) <= self.goal_pos_tol
+                       and perp <= self.goal_pos_tol
+                       and abs(eyaw) <= self.goal_yaw_tol_rad)
+            reached = reached + 1 if at_goal else 0
+            if reached >= settle_need:
+                break
 
             fb = CarryToSlot.Feedback()
-            fb.phase = phase
-            fb.dist_remaining = dist
+            fb.phase = 'CARRY'
+            fb.dist_remaining = abs(along)
             goal_handle.publish_feedback(fb)
 
-            # 진단 계측(~1Hz): 페이즈·각 로봇 /pose·중심·트럭yaw·잔여·명령. ponytail: 안정 뒤 삭제 가능.
             if tick % max(1, int(self.control_hz)) == 0:
                 self.get_logger().info(
-                    f'CARRY_DBG[{phase}] pose[{lead}]=({lp[0]:.2f},{lp[1]:.2f},{math.degrees(lp[2]):.1f}) '
-                    f'pose[{follow}]=({fp[0]:.2f},{fp[1]:.2f},{math.degrees(fp[2]):.1f}) '
-                    f'center=({center[0]:.2f},{center[1]:.2f}) truck_yaw={math.degrees(theta):.1f} '
-                    f'dist={dist:.2f} dyaw={math.degrees(dtheta):.1f} mconf={int(marker_confirmed)} '
-                    f'cmd[{lead}]=({tl[0]:.2f},{tl[1]:.2f},{tl[2]:.2f}) '
-                    f'cmd[{follow}]=({tf[0]:.2f},{tf[1]:.2f},{tf[2]:.2f})')
+                    f'CARRY_DBG center=({cx:.2f},{cz:.2f},{math.degrees(center_yaw):.1f}) '
+                    f'along={along:.2f} perp={perp:.2f} eyaw={math.degrees(eyaw):.1f} '
+                    f'omega={omega:.3f} mark={int(marker)} '
+                    f'follow=({follow_cmd[0]:.2f},{follow_cmd[1]:.2f},{follow_cmd[2]:.2f}) '
+                    f'lead=({lead_cmd[0]:.2f},{lead_cmd[1]:.2f},{lead_cmd[2]:.2f})')
 
         self._stop(lead, follow)
         goal_handle.succeed()
         result.success, result.message = True, 'carry done'
-        if center is not None:
-            result.final_x, result.final_z = center[0], center[1]
-            result.final_yaw_deg = math.degrees(theta)
+        result.final_x, result.final_z = cx, cz
+        result.final_yaw_deg = math.degrees(center_yaw)
         return result
+
+
+def _demo():
+    """가상중심 유도·제어 기하 자기검증(노드 없이)."""
+    # 트럭 yaw=90°(x평행), follow 서쪽(0,7), lead 동쪽(L=1.7 앞). center=중점.
+    L = 1.7
+    lead, center = lead_center_from_follow((0.0, 7.0), math.radians(90), L)
+    assert abs(lead[0] - 1.7) < 1e-9 and abs(lead[1] - 7.0) < 1e-9, lead
+    assert abs(center[0] - 0.85) < 1e-9 and abs(center[1] - 7.0) < 1e-9, center
+
+    # 동쪽 목표로 병진(omega=0): follow(동향+90) 전진(+), lead(서향-90) 후진(-), 둘 다 world +x.
+    v_world = (0.5, 0.0)
+    fcmd = formation.robot_twist_world(v_world, 0.0, (0.0, 7.0), center, math.radians(90))
+    lcmd = formation.robot_twist_world(v_world, 0.0, lead, center, math.radians(90) + math.pi)
+    assert fcmd[0] > 0.49 and lcmd[0] < -0.49, (fcmd, lcmd)
+
+    # yaw 회전(omega>0=CW) 강체 검증: body twist 를 world 로 되돌리면 follow·lead 가
+    # z 로 **반대** 이동해야(강체 회전). 반평행이라 body vy 부호는 같게 나오는 게 정상.
+    def _body_to_world_z(cmd, yaw):
+        # world = vx*(sinψ,cosψ) + vy*(cosψ,-sinψ); z 성분만.
+        return cmd[0] * math.cos(yaw) + cmd[1] * (-math.sin(yaw))
+    fyaw_r, lyaw_r = math.radians(90), math.radians(90) + math.pi
+    fr = formation.robot_twist_world((0.0, 0.0), 0.3, (0.0, 7.0), center, fyaw_r)
+    lr = formation.robot_twist_world((0.0, 0.0), 0.3, lead, center, lyaw_r)
+    assert _body_to_world_z(fr, fyaw_r) * _body_to_world_z(lr, lyaw_r) < 0, (fr, lr)
+
+    # carry_translation: 마커못봄=순항(안멈춤) / 마커봄=감속+cross(후진금지) / 회전선행.
+    gate = math.radians(8.0)
+    lane = (1.0, 0.0)   # 운반 경로 +x
+    P = dict(align_gate=gate, max_lin=0.3, pos_gain=0.8, fwd_min=0.15,
+             pos_tol=0.06, cross_max=0.15, cruise=0.2, overshoot_max=1.2)
+    ct = lambda e, pd, eyaw, mk, cf: carry_translation(
+        e, pd, eyaw, mk, cf, P['align_gate'], P['max_lin'], P['pos_gain'], P['fwd_min'],
+        P['pos_tol'], P['cross_max'], P['cruise'], P['overshoot_max'])
+    # (1) 마커 못 봄(첫 탐색) + 목표 앞 + z이탈: **순항(0.2) 전진만**, 옆보정 없음.
+    vw = ct((1.0, 0.3), lane, 0.0, False, False)
+    assert abs(vw[0] - 0.2) < 1e-9 and abs(vw[1]) < 1e-9, vw
+    # (2) 현재 마커 봄 + 목표 앞: P(0.3) + cross(z 0.15 되돌림).
+    vw = ct((1.0, 0.3), lane, 0.0, True, True)
+    assert abs(vw[0] - 0.3) < 1e-9 and abs(vw[1] - 0.15) < 1e-9, vw
+    # (2b) ★confirmed 지만 마커 **지금 안 보임** + z이탈: along(0.3) 유지, **cross 안 함**
+    #      (마커 공백에서 odom 추종 금지 — 발산 방지). 곧게만 전진.
+    vw = ct((1.0, 0.3), lane, 0.0, False, True)
+    assert abs(vw[0] - 0.3) < 1e-9 and abs(vw[1]) < 1e-9, vw
+    # (3) 현재 마커 봄 + 목표 지남(along=-0.2): **후진**해서 마커 좌표로 되돌림.
+    vw = ct((-0.2, 0.0), lane, 0.0, True, True)
+    assert abs(vw[0] + 0.16) < 1e-9 and abs(vw[1]) < 1e-9, vw
+    # (3b) confirmed + 마커 좌표 도달(|along|<=tol): 정지.
+    vw = ct((-0.03, 0.0), lane, 0.0, True, True)
+    assert vw == (0.0, 0.0), vw
+    # (4) yaw 미정렬(20°>8°): along 죽음(회전 먼저).
+    vw = ct((1.0, 0.0), lane, math.radians(20), True, True)
+    assert vw == (0.0, 0.0), vw
+    # (5a) 마커 못 봄(첫 탐색) + 목표 0.7 지남(< overshoot 1.2): 아직 순항.
+    vw = ct((-0.7, 0.0), lane, 0.0, False, False)
+    assert abs(vw[0] - 0.2) < 1e-9 and abs(vw[1]) < 1e-9, vw
+    # (5b) 마커 못 봄(첫 탐색) + 과주행(1.5 지남 > 1.2): 정지(마커 영영 못 봄 안전).
+    vw = ct((-1.5, 0.0), lane, 0.0, False, False)
+    assert vw == (0.0, 0.0), vw
+    # (6) 슬롯 진입(경로 -z) confirmed(마커 잠깐 없음): along -z 0.3 곧게 남진.
+    vw = ct((0.0, -7.0), (0.0, -1.0), 0.0, False, True)
+    assert abs(vw[0]) < 1e-9 and abs(vw[1] + 0.3) < 1e-9, vw
+
+    # blind_cruise_vx: 마커 없을 때 follow body-x 순항(vy=wz=0), heading·path 부호.
+    # lane yaw=90 path +x: proj=1 → +cruise (follow 전진 동쪽).
+    assert abs(blind_cruise_vx(0.2, math.radians(90), (1.0, 0.0), 5.0, False, 1.2) - 0.2) < 1e-9
+    # slot 회전 전 yaw=90 path -z: proj=0 → 0 (마커 봐서 omega 로 회전해야 진행).
+    assert abs(blind_cruise_vx(0.2, math.radians(90), (0.0, -1.0), 5.0, True, 1.2)) < 1e-9
+    # slot 회전 후 yaw=0 path -z: proj=-1 → -cruise (body 후진=−z 하강).
+    assert abs(blind_cruise_vx(0.2, 0.0, (0.0, -1.0), 5.0, True, 1.2) + 0.2) < 1e-9
+    # confirmed 후 과주행(along<-1.2): 안전정지 0.
+    assert blind_cruise_vx(0.2, math.radians(90), (1.0, 0.0), -1.5, True, 1.2) == 0.0
+
+    # carry_yaw_omega: +eyaw→+omega, -eyaw→-omega(대칭), 캡(rot_budget·max_lin/lever) 이내.
+    om = carry_yaw_omega(math.radians(90), 1.2, 0.5, math.radians(1), 0.05, 1.78, 1.0, 0.3)
+    om2 = carry_yaw_omega(math.radians(-90), 1.2, 0.5, math.radians(1), 0.05, 1.78, 1.0, 0.3)
+    assert om > 0 and om2 < 0 and abs(om + om2) < 1e-9, (om, om2)
+    assert abs(om - 0.3 / 1.78) < 1e-9, om            # 큰 오차 → 캡(1.0*0.3/1.78) 포화
+    # 작은 오차(0.5°<1° tol)도 데드밴드 하한 없이 비례값(캡 이내).
+    small = carry_yaw_omega(math.radians(0.5), 1.2, 0.5, math.radians(1), 0.05, 1.78, 1.0, 0.3)
+    assert 0 < small < 0.05 + 1e-9, small
+    print("carry _demo OK")
 
 
 def main():
@@ -312,4 +526,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == 'demo':
+        _demo()
+    else:
+        main()

@@ -88,10 +88,16 @@ sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_aruco"))
 sys.path.insert(0, str(REPO_ROOT / "src" / "parkbot_motion"))
 from parkbot_aruco import site_map_v4 as sm   # noqa: E402
 
+# 입차 전용 실행(2026-07-27): 출차 로봇(exit_lead/exit_follow)은 스폰하지 않는다.
+# site_map(사이트 정의)은 입출차 대칭을 보존하고, 여기서 입차팀만 골라 쓴다 —
+# 출차도 띄우려면 이 필터를 sm.ROBOTS 로 되돌리면 된다.
+ROBOTS = tuple(r for r in sm.ROBOTS if sm.team_of(r) == sm.ENTRY)
+
 RENDER_HZ = 20.0   # 물리(PHYSICS_HZ)와 독립. 낮출수록 sim초당 렌더 횟수↓ → GPU↓ → RTF↑
                    # (물리 정확도 무관). 60→20 은 렌더 1/3, 카메라 토픽도 20Hz 발행.
 RENDER_WIDTH = 640
-RENDER_HEIGHT = 400
+RENDER_HEIGHT = 480   # 2026-07-27 사용자: 640×480 통일(카메라 render_product 는
+                      # attach_camera_graph 기본 640×480 이미 사용 — 여기는 앱 뷰포트).
 PHYSICS_HZ = 120.0   # 판별용: 120→60 으로 물리 계산 절반. rtf 오르면 물리가 병목,
                     # 그대로면 병목은 렌더(카메라+GUI 뷰포트 지오메트리) 확정.
 # 접촉 솔버 최소 반복(씬 전역). 기본(TGS pos~4/vel~1)은 롤러 접촉엔 부족 —
@@ -283,6 +289,23 @@ def _brighten_lighting(stage):
             return True
     print("DOME_BRIGHTEN 경고: /World/Lighting/Dome 못 찾음", flush=True)
     return False
+
+
+# follow rear cam 은 차 밑(그늘)에서 바닥 아루코를 봐야 해 dome(800)만으론 부족하다
+# (사용자 실측). rear cam prim 에 로컬 SphereLight 를 붙여 카메라가 보는 바닥을 직접
+# 밝힌다 — 카메라 자식이라 진입/운반 내내 카메라를 따라 밑을 비춘다. 튜닝 노브.
+REAR_LIGHT_INTENSITY = float(os.environ.get("REAR_LIGHT_INTENSITY", "30000"))
+
+
+def _add_rear_cam_light(stage, cam_path):
+    """rear 카메라 prim 자식으로 SphereLight 를 붙인다(카메라 원점=차 밑을 비춤)."""
+    from pxr import UsdLux
+    light_path = f"{cam_path}/rear_fill_light"
+    light = UsdLux.SphereLight.Define(stage, light_path)
+    light.CreateIntensityAttr(REAR_LIGHT_INTENSITY)
+    light.CreateRadiusAttr(0.03)
+    print(f"REAR_LIGHT {cam_path} intensity={REAR_LIGHT_INTENSITY:.0f}", flush=True)
+    return light_path
 
 
 def _disable_sensors(stage):
@@ -655,7 +678,7 @@ def build_stage(app):
     print(f"V4_MARKERS_OK count={len(markers)}", flush=True)
 
     UsdGeom.Xform.Define(stage, "/World/Robots")
-    for robot_id in sm.ROBOTS:
+    for robot_id in ROBOTS:
         dock_serves = sm.ROBOT_DOCK_MARKER[robot_id]
         if dock_serves not in markers:
             raise RuntimeError(f"도크 마커 {dock_serves} 를 v4 에서 찾지 못함")
@@ -677,13 +700,13 @@ def build_stage(app):
     for _ in range(30):
         app.update()
 
-    placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in sm.ROBOTS}
+    placed = {r: sm.ROBOT_DOCK_MARKER[r] for r in ROBOTS}
     print(f"V4_STAGE_READY robots={placed} disabled_lidar={n_lidar} "
           f"render={RENDER_WIDTH}x{RENDER_HEIGHT}@{RENDER_HZ:.0f}Hz "
           f"physics={PHYSICS_HZ:.0f}Hz", flush=True)
 
     from pxr import Usd
-    _r0 = sm.ROBOTS[0]
+    _r0 = ROBOTS[0]
     _cams = [p for p in Usd.PrimRange(stage.GetPrimAtPath(robot_prim_path(_r0)))
              if p.GetTypeName() == "Camera"]
     _has_qr = any("qr_down" in str(p.GetPath()).lower() for p in _cams)
@@ -969,7 +992,7 @@ def main():
 
     # 비활성화된 로봇은 아티큘레이션을 만들지 않는다(프림이 없으니 초기화도 불가).
     arts = {}
-    for robot_id in sm.ROBOTS:
+    for robot_id in ROBOTS:
         if not stage.GetPrimAtPath(robot_prim_path(robot_id)).IsActive():
             continue
         art = Articulation(f"{robot_prim_path(robot_id)}/base_link")
@@ -1038,18 +1061,18 @@ def main():
         rclpy.init()
     ros_node = rclpy.create_node("parking_v4_runner")
     odom_pub = {r: ros_node.create_publisher(Odometry, f"/robot_{r}/odom", 10)
-                for r in sm.ROBOTS}
+                for r in ROBOTS}
 
     def _active_robots():
         """씬에 살아있는 로봇만. probe B 가 대상 외 로봇을 비활성화해도
         오도메트리 루프가 죽은 프림을 건드리지 않게 한다."""
-        return [r for r in sm.ROBOTS
+        return [r for r in ROBOTS
                 if stage.GetPrimAtPath(robot_prim_path(r)).IsActive()]
 
     # R2: 마지막으로 측정한 바디 twist(vx,vy,wz) — publish_odom 이 Odometry.twist 에
     # 싣는다(속도는 오도메트리 적분과 별개로 매 스텝 새로 측정한 값). 0 으로 시작해
     # step_odometry 가 처음 갱신하기 전에도 publish_odom 이 안전하게 읽을 수 있다.
-    last_twist = {r: (0.0, 0.0, 0.0) for r in sm.ROBOTS}
+    last_twist = {r: (0.0, 0.0, 0.0) for r in ROBOTS}
 
     def publish_odom():
         """--odom 모드에 따라 휠 오도메트리 또는 GT 를 발행한다.
@@ -1339,6 +1362,8 @@ def main():
         for r in cam_robots_bridge:
             rear_cam_path = find_rear_camera(stage, r)
             attach_camera_graph(r, rear_cam_path, role="rear")
+            if r == "entry_follow":   # follow rear 는 차 밑(그늘) — 로컬 조명 추가
+                _add_rear_cam_light(stage, rear_cam_path)
         for _ in range(30):
             app.update()
     if bridge_rear:

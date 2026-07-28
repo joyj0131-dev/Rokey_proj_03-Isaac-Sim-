@@ -1,0 +1,41 @@
+running develop
+Removing /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot-aruco.egg-link (link to .)
+running egg_info
+writing ../../build/parkbot_aruco/parkbot_aruco.egg-info/PKG-INFO
+writing dependency_links to ../../build/parkbot_aruco/parkbot_aruco.egg-info/dependency_links.txt
+writing entry points to ../../build/parkbot_aruco/parkbot_aruco.egg-info/entry_points.txt
+writing requirements to ../../build/parkbot_aruco/parkbot_aruco.egg-info/requires.txt
+writing top-level names to ../../build/parkbot_aruco/parkbot_aruco.egg-info/top_level.txt
+reading manifest file '../../build/parkbot_aruco/parkbot_aruco.egg-info/SOURCES.txt'
+writing manifest file '../../build/parkbot_aruco/parkbot_aruco.egg-info/SOURCES.txt'
+running build
+running build_py
+copying parkbot_aruco/marker_localizer_node.py -> /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco
+running install
+running install_lib
+creating /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/aruco_detector.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/marker_localizer_node.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/site_map_v4.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/marker_localizer.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/aruco_pose.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/__init__.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+copying /home/rokey/p3/cobot_ws/build/parkbot_aruco/build/lib/parkbot_aruco/pose_estimator.py -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/aruco_detector.py to aruco_detector.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/marker_localizer_node.py to marker_localizer_node.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/site_map_v4.py to site_map_v4.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/marker_localizer.py to marker_localizer.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/aruco_pose.py to aruco_pose.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco/pose_estimator.py to pose_estimator.cpython-310.pyc
+running install_data
+copying resource/parkbot_aruco -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/ament_index/resource_index/packages
+copying package.xml -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco
+copying data/marker_map.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+copying data/marker_map_v4.json -> /home/rokey/p3/cobot_ws/install/parkbot_aruco/share/parkbot_aruco/data
+running install_egg_info
+Copying ../../build/parkbot_aruco/parkbot_aruco.egg-info to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/python3.10/site-packages/parkbot_aruco-0.1.0-py3.10.egg-info
+running install_scripts
+Installing aruco_detector script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+Installing marker_localizer_node script to /home/rokey/p3/cobot_ws/install/parkbot_aruco/lib/parkbot_aruco
+writing list of installed files to '/home/rokey/p3/cobot_ws/build/parkbot_aruco/install.log'

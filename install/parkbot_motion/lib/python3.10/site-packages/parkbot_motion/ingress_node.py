@@ -101,8 +101,9 @@ from parkbot_motion.axle_detector_node import DEPTH_ROI_FRAC, depth_image_to_arr
 from parkbot_motion.depth_stop_detector import roi_min_depth
 from parkbot_motion.ingress_control import (
     DEFAULT_FORWARD_SPEED, DEFAULT_LAT_DEADBAND, DEFAULT_LAT_KP, DEFAULT_LAT_VY_MAX,
-    DEFAULT_POS_TOL, DEFAULT_RETURN_SPEED, DEFAULT_SETTLE_FRAMES, IngressController)
-from parkbot_motion.pose_controller_node import resolve_pose_msg_type
+    DEFAULT_POS_TOL, DEFAULT_RETURN_SPEED, DEFAULT_SETTLE_FRAMES, DEFAULT_YAW_DEADBAND_DEG,
+    DEFAULT_YAW_KP, DEFAULT_YAW_WZ_MAX, DEFAULT_YAW_WZ_MIN, IngressController)
+from parkbot_motion.pose_controller_node import odom_quat_to_yaw_deg, resolve_pose_msg_type
 
 
 class IngressNode(Node):
@@ -133,6 +134,13 @@ class IngressNode(Node):
         # +1: 로컬 forward=world -x(서향, 기존). -1: 동향(+90°) 로봇이 후진으로
         # -x 진입(2026-07-27 재안무 follow). SEEK/RETURN vx 를 함께 뒤집는다.
         self.declare_parameter('drive_sign', 1.0)
+        # 진입 중 유지할 목표 헤딩[deg](2026-07-28): 마커융합 /pose yaw 로 이 각을 잡아
+        # 똑바로 진입(lead −90/follow +90). NaN(기본)=유지 비활성(기존 wz=0). 런치에서 준다.
+        self.declare_parameter('hold_yaw_deg', float('nan'))
+        self.declare_parameter('yaw_kp', DEFAULT_YAW_KP)
+        self.declare_parameter('yaw_wz_max', DEFAULT_YAW_WZ_MAX)
+        self.declare_parameter('yaw_deadband_deg', DEFAULT_YAW_DEADBAND_DEG)
+        self.declare_parameter('yaw_wz_min', DEFAULT_YAW_WZ_MIN)
 
         self.declare_parameter('max_dt', 0.5)
         self.declare_parameter('goal_timeout_sec', 120.0)
@@ -167,6 +175,12 @@ class IngressNode(Node):
         self.pos_tol = float(gp('pos_tol').value)
         self.settle_frames = int(gp('settle_frames').value)
         self.drive_sign = float(gp('drive_sign').value)
+        hold_yaw = float(gp('hold_yaw_deg').value)
+        self.hold_yaw_deg = None if math.isnan(hold_yaw) else hold_yaw   # NaN=유지 비활성
+        self.yaw_kp = float(gp('yaw_kp').value)
+        self.yaw_wz_max = float(gp('yaw_wz_max').value)
+        self.yaw_deadband_deg = float(gp('yaw_deadband_deg').value)
+        self.yaw_wz_min = float(gp('yaw_wz_min').value)
 
         self.max_dt = float(gp('max_dt').value)
         self.goal_timeout_sec = float(gp('goal_timeout_sec').value)
@@ -191,6 +205,8 @@ class IngressNode(Node):
         self._last_stamp_sec = None
         self._last_pose_wall_time = None
         self._last_travel_x = None
+        self._last_yaw_deg = None
+        self._dbg_tick = 0               # INGRESS_DBG 주기 로그용
 
         cbg = ReentrantCallbackGroup()
         self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
@@ -268,15 +284,18 @@ class IngressNode(Node):
 
     def _on_odom(self, msg):
         p = msg.pose.pose.position
-        self._handle_pose(p.x, msg.header.stamp)
+        q = msg.pose.pose.orientation
+        self._handle_pose(p.x, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
 
     def _on_pose_stamped(self, msg):
         p = msg.pose.position
-        self._handle_pose(p.x, msg.header.stamp)
+        q = msg.pose.orientation
+        self._handle_pose(p.x, odom_quat_to_yaw_deg(q.x, q.y, q.z, q.w), msg.header.stamp)
 
-    def _handle_pose(self, x, stamp):
+    def _handle_pose(self, x, yaw_deg, stamp):
         x = float(x)
         self._last_travel_x = x
+        self._last_yaw_deg = float(yaw_deg)
         self._last_pose_wall_time = time.monotonic()
 
         stamp_sec = stamp.sec + stamp.nanosec * 1e-9
@@ -322,9 +341,20 @@ class IngressNode(Node):
                 return
 
             axle_centers_snapshot = list(self._axle_centers)
-            vx, vy, wz = ctrl.step(x, eff_left, eff_right, axle_centers_snapshot, dt)
+            vx, vy, wz = ctrl.step(x, self._last_yaw_deg, eff_left, eff_right,
+                                   axle_centers_snapshot, dt)
             self._publish_twist(vx, vy, wz)
             self._publish_feedback(active, ctrl, x, vy, len(axle_centers_snapshot))
+
+            self._dbg_tick += 1
+            if self._dbg_tick % 20 == 0:   # 옆으로 미는 게 vy(중심)인지 wz(yaw회전)인지 판별용
+                tx = ctrl.target_x
+                fmt = lambda v: 'None' if v is None else f'{v:.3f}'   # noqa: E731
+                self.get_logger().info(
+                    f'INGRESS_DBG phase={ctrl.phase} x={x:.3f} '
+                    f'target={fmt(tx)} yaw={self._last_yaw_deg:.1f} '
+                    f'L={fmt(eff_left)} R={fmt(eff_right)} '
+                    f'vx={vx:.3f} vy={vy:.3f} wz={wz:.3f} troughs={len(axle_centers_snapshot)}')
             if ctrl.done:
                 active['outcome'] = 'midpoint_reached'
                 active['done_event'].set()
@@ -375,7 +405,9 @@ class IngressNode(Node):
             trough_index, forward_speed=forward_speed, return_speed=return_speed,
             lat_kp=self.lat_kp, lat_vy_max=self.lat_vy_max, lat_deadband=self.lat_deadband,
             pos_tol=self.pos_tol, settle_frames=self.settle_frames,
-            drive_sign=self.drive_sign)
+            drive_sign=self.drive_sign, hold_yaw_deg=self.hold_yaw_deg,
+            yaw_kp=self.yaw_kp, yaw_wz_max=self.yaw_wz_max,
+            yaw_deadband_deg=self.yaw_deadband_deg, yaw_wz_min=self.yaw_wz_min)
 
         done_event = threading.Event()
         active = {'ctrl': ctrl, 'goal_handle': goal_handle, 'done_event': done_event,

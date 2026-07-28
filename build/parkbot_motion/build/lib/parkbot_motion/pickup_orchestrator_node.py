@@ -229,8 +229,6 @@ class PickupOrchestratorNode(Node):
         # 기본 True — bringup_pickup_e2e.sh 가 도크 스폰에서 기동할 때 켠다. False 면
         # 기존처럼 XN 종단 자세에서 곧장 픽업만 실행(하위호환, 기존 스모크/테스트).
         self.declare_parameter('run_phase_b_first', True)
-        # XN(크로싱) 마커 — 두 로봇 공용(러너 read_markers["XN"], id31, x=-2.5, z=6.875).
-        self.declare_parameter('phase_b_xn_id', 31)
         # XN 이동(2026-07-26 사용자 재배치): (-2.5,6.875) -> (-3.2,7.075) 회랑 마커.
         self.declare_parameter('phase_b_xn_x', -3.2)
         self.declare_parameter('phase_b_xn_z', 7.075)
@@ -297,7 +295,6 @@ class PickupOrchestratorNode(Node):
         # ---- Phase B 파라미터 캐시 ----
         self.dock_check_yaw_tol = float(gp('dock_check_yaw_tol').value)
         self.run_phase_b_first = bool(gp('run_phase_b_first').value)
-        self.phase_b_xn_id = int(gp('phase_b_xn_id').value)
         self.phase_b_xn_x = float(gp('phase_b_xn_x').value)
         self.phase_b_xn_z = float(gp('phase_b_xn_z').value)
         self.phase_b_xn_standoff = float(gp('phase_b_xn_standoff').value)
@@ -523,11 +520,12 @@ class PickupOrchestratorNode(Node):
     # ---- Phase B(도크 스폰→XN 융합주행) 레그 ----
 
     def _set_localizer_ref(self, node_name, ref_ids, correct_yaw, label,
-                           mdist_marker_id=None):
+                           mdist_marker_id=None, use_front=None, force_yaw_deg=None):
         """융합 localizer 의 ``ref_ids``/``correct_yaw`` 를 크로스노드 set_parameters
         로 전환한다(T1 계약: ``ref_ids`` 는 반드시 명시적 INTEGER_ARRAY 로).
-        ``mdist_marker_id`` 지정 시 ref_marker_dist 발행 대상 마커도 같이 설정한다
-        (carry 정지·회전 트리거를 특정 슬롯 레인마커로 한정).
+        ``mdist_marker_id`` 지정 시 ref_marker_dist 발행 대상 마커도 같이 설정한다.
+        ``use_front``(운반): False 면 rear-only(전방캠 무시). ``force_yaw_deg``: 지정
+        시 융합필터 yaw 를 즉시 그 각도로 리셋(차 든 직후 90°). None 이면 안 건드림.
 
         비재진입 폴링(§ 클래스 docstring "동시성 패턴")으로 서비스 응답을 기다린다.
         """
@@ -542,6 +540,14 @@ class PickupOrchestratorNode(Node):
             Parameter('correct_yaw', Parameter.Type.BOOL,
                       bool(correct_yaw)).to_parameter_msg(),
         ]
+        if use_front is not None:
+            req.parameters.append(
+                Parameter('use_front', Parameter.Type.BOOL,
+                          bool(use_front)).to_parameter_msg())
+        if force_yaw_deg is not None:
+            req.parameters.append(
+                Parameter('force_yaw_deg', Parameter.Type.DOUBLE,
+                          float(force_yaw_deg)).to_parameter_msg())
         if mdist_marker_id is not None:
             req.parameters.append(
                 Parameter('mdist_marker_id', Parameter.Type.INTEGER,
@@ -663,18 +669,6 @@ class PickupOrchestratorNode(Node):
                     ok, reason = self._navigate_phase_b(
                         robot_id, 'nav_fused', self.navigate_fused_action,
                         dock_x, corridor_z, final_yaw, label)
-            elif phase == 'xn_realign':
-                # follower 전용(사용자 지시 2026-07-27): 진입 직전 XN(id31)으로 yaw 를
-                # 한 번 더 정렬한다. follow 는 동향(+90)이라 XN(x=-3.2, 서쪽)은 rear
-                # 캠에 잡히지만 marker_localizer 양캠 융합이라 ref=[xn_id]만 주면 된다.
-                # 위치는 (dock_x, corridor_z) 유지 — final_align 과 동일 메커니즘,
-                # 기준마커만 XN. follow 가 진입 시작 yaw 가 틀어진 채 들어가 트럭 바퀴에
-                # 부딪히던 것(사용자 실측)을 진입 시작 자세를 다시 잡아 막는다.
-                ok, reason = self._set_localizer_ref(node, [self.phase_b_xn_id], True, label)
-                if ok:
-                    ok, reason = self._navigate_phase_b(
-                        robot_id, 'nav_fused', self.navigate_fused_action,
-                        dock_x, corridor_z, final_yaw, label)
             else:  # pragma: no cover
                 ok, reason = False, f'알 수 없는 Phase B 단계: {phase}'
             if not ok:
@@ -709,8 +703,10 @@ class PickupOrchestratorNode(Node):
 
     def _on_execute_parking_task(self, goal_handle):
         goal = goal_handle.request
-        leader_id = goal.leader_robot_id
-        follower_id = goal.follower_robot_id
+        # goal 에 로봇이 비면 노드 파라미터(auto_leader/auto_follower) 기본값 사용 —
+        # action call 에 slot_id 만 줘도 되게(2026-07-27). 둘 다 비면 아래 가드가 잡는다.
+        leader_id = goal.leader_robot_id or self.get_parameter('auto_leader').value
+        follower_id = goal.follower_robot_id or self.get_parameter('auto_follower').value
 
         if not leader_id or not follower_id:
             msg = ('execute_pickup_choreography 는 leader_robot_id/follower_robot_id '
@@ -785,21 +781,20 @@ class PickupOrchestratorNode(Node):
                     return ExecuteParkingTask.Result(success=False, message=reason)
             self.get_logger().info('Phase B 동시 완료: 두 로봇 최종 정렬(1° 이내)')
 
-            # Phase B 종료 후 픽업 진입 전: 두 로봇 localizer 의 마커 보정을 끈다
-            # (ref_ids 를 무매칭값 [-1] 로 -> filter_detections_by_ref 가 아무 마커도
-            # 통과 안 시킴 -> 순수 오도예측). 이유(라이브 실측): 픽업 approach 는
-            # 90° 회전을 포함하는데, 회전 중 전방캠이 XN 을 극단 각도로 봐(로봇 x
-            # 추정이 GT 대비 ~0.5m 편차) 위치전용 보정이 융합자세를 오염시켜 수렴이
-            # 깨진다(R3c "회전 중 마커오염" 재발). 마커를 끄면 융합자세는 정확한
-            # Phase B 종단(직전 XN 보정)에서 순수 오도예측만 하고(짧은 XN→베이
-            # 경로라 드리프트 작음), 최종 정밀은 뎁스 축검출이 맡는다 —
-            # axle_detector/ingress 가 같은 융합프레임을 써서 검출축 기준 상대정지라
-            # 절대 드리프트가 상쇄된다.
+            # Phase B 종료 후 진입 전: 두 로봇 localizer ref 를 **회랑마커(61~64)** 로
+            # 켜고 correct_yaw=True. (2026-07-28 사용자 지시로 재설계)
+            # 왜 켜나: 진입은 이제 **직진**(옛 XN 90° 회전 approach 없음)이라, 트럭 진입
+            # 경로 바닥에 깔린 회랑마커 61~64 를 down 캠이 깨끗이 본다. 진입 중 이 마커로
+            # yaw 를 보정해야(ingress_node hold_yaw), 먼 마커서 정렬 후 트럭까지 요가
+            # 드리프트해 바퀴에 부딪히던 문제가 풀린다(옛 마커오염 근거=회전 중 XN 극단
+            # 각도였는데 직진 진입엔 해당 없음). 정지는 여전히 뎁스 축검출(같은 융합
+            # 프레임 상대정지). 마커는 x=-6.75(61)까지만이라 그보다 깊은 구간은 오도예측.
             for rid in (leader_id, follower_id):
                 node = ((self.phase_b_leader_localizer_node if rid == leader_id
                          else self.phase_b_follower_localizer_node)
                         or f'/robot_{rid}/marker_localizer_node')
-                self._set_localizer_ref(node, [-1], False, f'pickup-marker-off[{rid}]')
+                self._set_localizer_ref(node, self.park_lane_marker_ids, True,
+                                        f'ingress-corridor-ref[{rid}]', use_front=True)
         # ---- 트럭 밑 진입: **순차(스태거)** (2026-07-27 사용자 지시) ----
         # lead 가 **먼저** 들어가 안쪽(더 깊은) 축(leader_trough_index=1)에 자리잡고, 그
         # 다음에야 follow 가 들어가 바깥쪽 축(follower_trough_index=0)에 멈춘다. 이 순서면
@@ -841,27 +836,25 @@ class PickupOrchestratorNode(Node):
             goal_handle.abort()
             return ExecuteParkingTask.Result(success=False, message=fail_reason)
 
-        # ---- Stage 4 주차: 운반(직진) → 슬롯앞 회전 → 가운데 진입 → 안착 ----
-        # carry 실시간 pose 보정: 양 로봇 localizer 를 **경로 위 레인 마커(61~64)**로 켠다
-        # (픽업에서 [-1] 로 꺼둠). 이걸로 /pose 가 마커보정을 받아 정확해져야 carry 가
-        # 옆드리프트를 즉시 잡는다(안 켜면 순수 오도 드리프트→제어 발산, 실측). correct_yaw
-        # =False(위치만; 레인마커 yaw 는 약함, 방향은 위치기반 truck_yaw 로).
-        # ref = 드리프트 보정용 레인마커 + 정지트리거용 슬롯 레인마커(둘 다 검출해야
-        # /pose 보정도 되고 타깃 마커도 잡힌다). mdist_marker_id 로 ref_marker_dist 는
-        # 슬롯 레인마커에만 발행 → 엉뚱한 레인마커 등거리로 조기회전하지 않는다.
+        # ---- Stage 4 운반: follow rear 기준 (2026-07-27 재작성, 사용자 지시) ----
+        # 차 든 후 follow marker_localizer 를 rear-only(use_front=False) + yaw90 시딩
+        # (force_yaw_deg=90) + correct_yaw=True(rear 레인마커로 yaw 보정)로 켠다. ref=
+        # 경로 레인마커(61~64) + 목표 주차앞 마커(slot lane). mdist 는 주차앞 마커에만
+        # → follow rear 가 그걸 봐야 정지. lead 는 -v 만이라 localizer 설정 불필요.
+        follow_node = (self.phase_b_follower_localizer_node
+                       or f'/robot_{follower_id}/marker_localizer_node')
         carry_ref = self.park_lane_marker_ids + [self.park_slot_lane_id]
-        for rid in (leader_id, follower_id):
-            node = ((self.phase_b_leader_localizer_node if rid == leader_id
-                     else self.phase_b_follower_localizer_node)
-                    or f'/robot_{rid}/marker_localizer_node')
-            self._set_localizer_ref(node, carry_ref, False,
-                                    f'carry-marker-on[{rid}]',
-                                    mdist_marker_id=self.park_slot_lane_id)
-        # ① 슬롯 lane(park_slot_x, park_lane_z)까지 직진 후 트럭을 park_turn_deg(상대 CCW 90°)
-        #    만큼 회전 — carry 2페이즈가 직진+회전을 한 번에. 상대각이라 truck_yaw 오독 상쇄.
+        # mdist=-1: ref 마커(61~64,3) **아무거나** 보면 ref_marker_dist 발행 → carry 가
+        # "follow rear 가 방금 측위했나"(=옆·yaw 보정 켜는 신호)로 쓴다(특정 도착마커 아님).
+        self._set_localizer_ref(follow_node, carry_ref, True,
+                                f'carry-follow[{follower_id}]',
+                                mdist_marker_id=-1,
+                                use_front=False, force_yaw_deg=90.0)
+        # ① 운반: 주차앞(park_slot_x, park_lane_z=7.075)로 yaw90 유지하며 이동, follow
+        #    rear 가 주차앞 마커 보고 x 도달하면 정지(회전·진입은 SP3 주차에서).
         self._publish_feedback(goal_handle, 'CARRY_LANE', idx, total)
         ok, reason = self._carry(leader_id, follower_id,
-                                 self.park_slot_x, self.park_lane_z, self.park_turn_deg,
+                                 self.park_slot_x, self.park_lane_z, 90.0,
                                  f'carry-lane[{leader_id}+{follower_id}]')
         if not ok:
             self._publish_feedback(goal_handle, 'FAILED', idx, total)
@@ -869,16 +862,22 @@ class PickupOrchestratorNode(Node):
             goal_handle.abort()
             return ExecuteParkingTask.Result(success=False, message=f'운반(lane) 실패: {reason}')
         idx += 1
-        # 슬롯 진입 정지 트리거를 슬롯 가운데 마커로 전환(레인마커 3 은 회전 뒤 안 보임).
-        slot_ref = [self.park_slot_front_id, self.park_slot_center_id]
-        for rid in (leader_id, follower_id):
-            node = ((self.phase_b_leader_localizer_node if rid == leader_id
-                     else self.phase_b_follower_localizer_node)
-                    or f'/robot_{rid}/marker_localizer_node')
-            self._set_localizer_ref(node, slot_ref, False,
-                                    f'carry-slot-marker[{rid}]',
-                                    mdist_marker_id=self.park_slot_center_id)
-        # ② 회전된 트럭을 슬롯 가운데(park_center_z)까지 -z 진입(yaw 유지=상대회전 0).
+        # 슬롯 마커로 ref 전환(follow 만 — 새 carry 는 follow rear 하나로 트럭 대표,
+        # lead 측위는 안 씀). rear-only 유지(use_front 안 건드림). correct_yaw=True 로
+        # 마커를 보고 yaw 를 정렬한다. force_yaw 는 안 줘야(필터 현 yaw≈90 유지) carry 가
+        # 90→0 회전을 그대로 몬다. ref 3종:
+        #   레인마커(3): 90→0 제자리 회전 중 follow rear 가 **중심(=마커3 위치)**을
+        #     향하므로 회전 내내 yaw 기준. 회전 끝나면 follow 북쪽→rear 남향이라 3 은 벗어남.
+        #   앞/가운데(65@z3.5, 66@z0): 남진(진입) 중 순차로 들어와 yaw·정지 기준.
+        # mdist=-1: 위 셋 중 아무거나 보면 발행 → carry 옆·yaw 보정 신호(회전 중 마커3,
+        #   진입 중 65/66). 정지는 중점이 목표(2.8,0) 도달 + 이 신호 신선 조합으로 판정.
+        slot_ref = [self.park_slot_lane_id, self.park_slot_front_id, self.park_slot_center_id]
+        self._set_localizer_ref(follow_node, slot_ref, True,
+                                f'carry-slot-marker[{follower_id}]',
+                                mdist_marker_id=-1)
+        # ② 주차: carry 한 세그먼트가 트럭을 90°→0°(N-S) 제자리 회전(회전선행 게이트)
+        #    후 슬롯 가운데(park_center_z=0)까지 -z 진입. follow rear 가 가운데마커(66)
+        #    를 보고(래치) 중점이 (slot_x,0)·yaw0 도달하면 정지.
         self._publish_feedback(goal_handle, 'CARRY_SLOT', idx, total)
         ok, reason = self._carry(leader_id, follower_id,
                                  self.park_slot_x, self.park_center_z, 0.0,

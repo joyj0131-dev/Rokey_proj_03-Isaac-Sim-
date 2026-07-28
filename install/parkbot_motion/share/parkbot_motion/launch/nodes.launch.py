@@ -46,18 +46,18 @@ def _node(**kw):
 def _localizer(rid, seed):
     # marker_localizer: 로봇 네임스페이스 + 전후방 이중카메라 + 도크 스폰 자세 seed.
     # (orchestrator 가 ref_ids 를 런타임 전환) FQN=/robot_<rid>/marker_localizer_node.
+    params = {
+        'image_topic': f'/robot_{rid}/front/image_raw',
+        'camera_info_topic': f'/robot_{rid}/front/camera_info',
+        'odom_topic': f'/robot_{rid}/odom',
+        'pose_topic': f'/robot_{rid}/pose',
+        'rear_image_topic': f'/robot_{rid}/rear/image_raw',
+        'rear_camera_info_topic': f'/robot_{rid}/rear/camera_info',
+        'seed_pose': seed,
+        'marker_map': MARKER_MAP, 'fuse': True, 'frame': 'usd'}
     return _node(
         package='parkbot_aruco', executable='marker_localizer_node',
-        namespace=f'/robot_{rid}',
-        parameters=[{
-            'image_topic': f'/robot_{rid}/front/image_raw',
-            'camera_info_topic': f'/robot_{rid}/front/camera_info',
-            'odom_topic': f'/robot_{rid}/odom',
-            'pose_topic': f'/robot_{rid}/pose',
-            'rear_image_topic': f'/robot_{rid}/rear/image_raw',
-            'rear_camera_info_topic': f'/robot_{rid}/rear/camera_info',
-            'seed_pose': seed,
-            'marker_map': MARKER_MAP, 'fuse': True, 'frame': 'usd'}])
+        namespace=f'/robot_{rid}', parameters=[params])
 
 
 def generate_launch_description():
@@ -102,16 +102,21 @@ def generate_launch_description():
         # 2026-07-27 재안무: lead 서향(-90°)→전진진입(drive_sign +1),
         # follow 동향(+90°)→후진진입(drive_sign -1). 둘 다 world -x 로 트럭 밑에.
         drive_sign = -1.0 if rid == 'entry_follow' else 1.0
+        # 2026-07-28: 진입 중 마커융합 /pose yaw 로 이 헤딩 유지(Phase B 최종 yaw 와
+        # 동일: lead -90/follow +90) → 먼 마커서 정렬 후 트럭까지 요 드리프트로 바퀴에
+        # 부딪히던 문제 해결. 정지는 depth 축검출 그대로.
+        hold_yaw = 90.0 if rid == 'entry_follow' else -90.0
         nodes.append(_node(
             package='parkbot_motion', executable='ingress_node',
             name=f'ingress_{rid}',
             parameters=[{'robot_id': rid, 'goal_timeout_sec': INGRESS_TIMEOUT,
                          'pose_topic': f'/robot_{rid}/pose',
                          'pose_msg_type': 'posestamped',
-                         'drive_sign': drive_sign,
-                         # 슬립 감소 다운스케일(2026-07-27): 전진 0.4→0.2, 후진 0.15→0.1, 횡 0.15→0.1.
-                         'forward_speed': 0.2, 'return_speed': 0.1,
-                         'lat_vy_max': 0.1}]))
+                         'drive_sign': drive_sign, 'hold_yaw_deg': hold_yaw}]))
+                         # 진입 속도 원복(2026-07-27): 다운스케일(forward 0.2/lat 0.1)이
+                         # 진입 중 z 드리프트를 키워 트럭 중심선 이탈→축 미검출 유발(실측
+                         # lead z=6.51 vs 트럭 7.075). 노드 기본값(forward 0.4/return 0.15/
+                         # lat_vy_max 0.15) 사용. 슬립은 진입 밖(Phase B/carry)에서만 관리.
 
     # lift ×2
     for rid in ('entry_lead', 'entry_follow'):
@@ -124,12 +129,16 @@ def generate_launch_description():
     nodes.append(_node(
         package='parkbot_motion', executable='carry_action_server'))
 
-    # orchestrator: auto_start 로 자율 미션(도크→XN Phase B + 픽업 회랑).
+    # orchestrator: auto_start=False (2026-07-27) — launch 는 노드만 띄우고 대기.
+    # 목표 주차 자리는 다른 터미널에서 action call 로 지정:
+    #   ros2 action send_goal /execute_pickup_choreography \
+    #     parking_robot_interfaces/action/ExecuteParkingTask "{slot_id: 'A1'}"
+    # leader/follower 를 goal 에 안 주면 auto_leader/auto_follower 기본값을 쓴다.
     nodes.append(_node(
         package='parkbot_motion', executable='pickup_orchestrator_node',
         parameters=[{
-            'auto_start': True, 'auto_leader': 'entry_lead',
-            'auto_follower': 'entry_follow', 'auto_delay_sec': 3.0,
+            'auto_start': False, 'auto_leader': 'entry_lead',
+            'auto_follower': 'entry_follow',
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
     return LaunchDescription(nodes)

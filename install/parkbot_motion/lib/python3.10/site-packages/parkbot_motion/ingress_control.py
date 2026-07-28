@@ -45,6 +45,7 @@
   (마지막 반환값이 뭐였는지도 기억 안 함, 호출자가 그 값을 무기한 재사용하면
   안 된다).
 """
+import math
 
 DEFAULT_FORWARD_SPEED = 0.4    # m/s -- 러너 FWD_SPEED
 DEFAULT_RETURN_SPEED = 0.15    # m/s -- 러너 RETURN_SPEED
@@ -56,6 +57,11 @@ DEFAULT_SETTLE_FRAMES = 10     # 틱  -- 이 모듈 전용(러너엔 대응 없�
                                 #   settle_frames=30 보다 짧게 잡음 -- 1차원 위치만
                                 #   다뤄 median 스무딩이 필요 없으므로 표본 수를
                                 #   줄여도 안전하다는 판단, 필요시 파라미터로 늘릴 것)
+# 진입 중 yaw 유지(2026-07-28 사용자): 마커융합 /pose yaw 로 목표 헤딩 유지해 똑바로 진입.
+DEFAULT_YAW_KP = 0.8            # 진입 yaw유지 게인(pose_controller 1.2 보다 부드럽게)
+DEFAULT_YAW_WZ_MAX = 0.3       # rad/s -- 진입 중 회전은 완만히(주행과 동시)
+DEFAULT_YAW_DEADBAND_DEG = 1.0  # deg  -- 이 이내면 wz=0(불필요한 미세회전 억제)
+DEFAULT_YAW_WZ_MIN = 0.05      # rad/s -- 메카넘 회전 데드밴드 보정(mission_control 동형)
 
 
 def lateral_centring_vy(left, right, *, kp=DEFAULT_LAT_KP, vy_max=DEFAULT_LAT_VY_MAX,
@@ -74,6 +80,29 @@ def lateral_centring_vy(left, right, *, kp=DEFAULT_LAT_KP, vy_max=DEFAULT_LAT_VY
     if abs(err) < deadband:
         return 0.0
     return max(-vy_max, min(vy_max, kp * err))
+
+
+def yaw_hold_wz(yaw_deg, hold_yaw_deg, *, kp, wz_max, deadband_deg, wz_min):
+    """진입 주행 중 yaw 유지 wz[rad/s]. (사용자 지시 2026-07-28)
+
+    진입 전 Phase B 정렬은 트럭에서 먼 마커에서 하고, 정렬 뒤 트럭까지 wz=0 로
+    수 m 주행하는 동안 메카넘 롤러 슬립으로 yaw 가 틀어져 **바퀴에 부딪혔다**.
+    진입은 이미 마커융합 /pose 를 쓰므로(회랑마커 61~64 가 진입경로 바닥에 있음)
+    그 yaw 로 목표 헤딩(lead −90/follow +90)을 매 틱 잡아 똑바로 들어가게 한다.
+
+    yaw_deg/hold_yaw_deg=None 이면 0(비활성, 하위호환). err 는 최단각[-180,180].
+    데드밴드 밖인데 비례 wz 가 wz_min 보다 작으면 메카넘 회전 데드밴드 보정으로 깐다.
+    부호·규약은 pose_controller 와 동일(project yaw, angular.z 그대로, 브리지가 SIGN_YAW).
+    """
+    if hold_yaw_deg is None or yaw_deg is None:
+        return 0.0
+    err = ((hold_yaw_deg - yaw_deg + 180.0) % 360.0) - 180.0
+    if abs(err) < deadband_deg:
+        return 0.0
+    wz = max(-wz_max, min(wz_max, kp * math.radians(err)))
+    if abs(wz) < wz_min:
+        wz = math.copysign(wz_min, err)
+    return wz
 
 
 def return_phase_vx(remaining, return_speed, drive_sign=1.0):
@@ -121,7 +150,9 @@ class IngressController:
                  return_speed=DEFAULT_RETURN_SPEED, lat_kp=DEFAULT_LAT_KP,
                  lat_vy_max=DEFAULT_LAT_VY_MAX, lat_deadband=DEFAULT_LAT_DEADBAND,
                  pos_tol=DEFAULT_POS_TOL, settle_frames=DEFAULT_SETTLE_FRAMES,
-                 drive_sign=1.0):
+                 drive_sign=1.0, hold_yaw_deg=None, yaw_kp=DEFAULT_YAW_KP,
+                 yaw_wz_max=DEFAULT_YAW_WZ_MAX, yaw_deadband_deg=DEFAULT_YAW_DEADBAND_DEG,
+                 yaw_wz_min=DEFAULT_YAW_WZ_MIN):
         if trough_index < 0:
             raise ValueError(f"trough_index 는 0 이상이어야 합니다: {trough_index!r}")
         self.trough_index = trough_index
@@ -134,6 +165,12 @@ class IngressController:
         self.lat_deadband = lat_deadband
         self.pos_tol = pos_tol
         self.settle_frames = max(1, int(settle_frames))
+        # 진입 중 유지할 목표 헤딩[deg]. None 이면 yaw 유지 비활성(기존 wz=0).
+        self.hold_yaw_deg = None if hold_yaw_deg is None else float(hold_yaw_deg)
+        self.yaw_kp = yaw_kp
+        self.yaw_wz_max = yaw_wz_max
+        self.yaw_deadband_deg = yaw_deadband_deg
+        self.yaw_wz_min = yaw_wz_min
 
         self.phase = self.PHASE_SEEK
         self.target_x = None
@@ -152,24 +189,30 @@ class IngressController:
     def done(self):
         return self.phase == self.PHASE_DONE
 
-    def step(self, travel_x, left_min, right_min, axle_centers, dt):
-        """한 틱: (주행좌표, 좌뎁스, 우뎁스, 지금까지 확정된 트로프 중심 리스트,
-        dt) -> (vx, vy, wz). ``wz`` 는 이 안무에서 항상 0.0(요 보정 없음 —
-        브리프의 하드 요구사항: 순수 ``linear.x`` 만으로는 요 드리프트가 나서
-        충돌한다는 R4 의 실측을 반영해, 이 컨트롤러는 wz=0 을 내되 호출자가
-        중앙유지(vy)와 결합해 드리프트를 억제하는 전체 설계에 의존한다 — 요
-        자체를 능동 보정하는 루프는 taskC2fix 가 검증 표본 부재로 보류한
-        것과 같은 이유로 여기서도 넣지 않았다).
+    def step(self, travel_x, yaw_deg, left_min, right_min, axle_centers, dt):
+        """한 틱: (주행좌표, 현재 yaw[deg], 좌뎁스, 우뎁스, 지금까지 확정된 트로프
+        중심 리스트, dt) -> (vx, vy, wz).
+
+        ``wz`` 는 **SEEK(전진 진입 주행) 에서만** 목표 헤딩(hold_yaw_deg) 유지로 낸다
+        (2026-07-28: 진입 전 먼 마커 정렬만으론 주행 중 요 드리프트로 바퀴에 부딪혀,
+        마커융합 /pose yaw 로 매 틱 잡는다). **RETURN 은 wz=0**(2026-07-28 정정): 깊은
+        축에서의 미세 x정렬 구간인데, 거기선 로봇이 트럭 바퀴 사이에 끼어 있고 rear 캠이
+        마커를 완전히 잃어(실측 x<-6.8 블라인드) /pose yaw 가 순수 odom 이라, 그 드리프트로
+        wz 를 내면 끼인 채 회전해 바퀴를 밀어버린다(트럭 밀림 실측). SETTLING/DONE 도 wz=0.
+        hold_yaw_deg=None 이면 SEEK 도 wz=0(기존 동작).
         """
         vy = lateral_centring_vy(left_min, right_min, kp=self.lat_kp,
                                   vy_max=self.lat_vy_max, deadband=self.lat_deadband)
         self._lat_pos_est += vy * dt
         self.max_lat_dev_est = max(self.max_lat_dev_est, abs(self._lat_pos_est))
+        wz = yaw_hold_wz(yaw_deg, self.hold_yaw_deg, kp=self.yaw_kp,
+                         wz_max=self.yaw_wz_max, deadband_deg=self.yaw_deadband_deg,
+                         wz_min=self.yaw_wz_min)
 
         if self.phase == self.PHASE_SEEK:
             target = pick_target_axle(axle_centers, self.trough_index)
             if target is None:
-                return (self.drive_sign * self.forward_speed, vy, 0.0)
+                return (self.drive_sign * self.forward_speed, vy, wz)
             self.target_x = float(target)
             self.phase = self.PHASE_RETURN
             # 같은 틱에 RETURN 을 곧바로 평가한다(축이 확정된 그 순간부터
@@ -183,7 +226,7 @@ class IngressController:
                 self._settle_count = 0
             else:
                 vx = return_phase_vx(remaining, self.return_speed, self.drive_sign)
-                return (vx, vy, 0.0)
+                return (vx, vy, 0.0)   # RETURN: 블라인드 축정렬 — 회전 금지(바퀴 밀림)
 
         if self.phase == self.PHASE_SETTLING:
             self._settle_count += 1
@@ -200,9 +243,29 @@ if __name__ == "__main__":
     # 정확히 반대 부호여야 한다. 축은 아직 미검출이라 SEEK 국면.
     w = IngressController(0, drive_sign=1.0)   # 서향(기존)
     e = IngressController(0, drive_sign=-1.0)  # 동향(후진 진입)
-    vw = w.step(0.0, None, None, [], 0.05)[0]  # SEEK vx
-    ve = e.step(0.0, None, None, [], 0.05)[0]
+    vw = w.step(0.0, None, None, None, [], 0.05)[0]  # SEEK vx (yaw_deg=None → wz=0)
+    ve = e.step(0.0, None, None, None, [], 0.05)[0]
     assert vw > 0 and ve < 0 and abs(vw + ve) < 1e-9, (vw, ve)
     # RETURN vx 도 부호 반전(같은 remaining 부호에서 서향 음수/동향 양수).
     assert return_phase_vx(0.5, 0.15, 1.0) < 0 < return_phase_vx(0.5, 0.15, -1.0)
-    print("ingress_control drive_sign self-check OK")
+
+    # yaw 유지 자기검증: hold_yaw_deg=None 이면 wz=0(하위호환), 지정 시 오차 줄이는 방향.
+    assert yaw_hold_wz(85.0, None, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05) == 0.0
+    # follow 목표 +90°, 현재 85°(부족) → +방향 회전(err=+5° >0). 서로 반대편 오차는 반대부호.
+    lo = yaw_hold_wz(85.0, 90.0, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05)
+    hi = yaw_hold_wz(95.0, 90.0, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05)
+    assert lo > 0 and hi < 0 and abs(lo + hi) < 1e-9, (lo, hi)
+    # 데드밴드 안(0.5°<1°) → 0. 큰 오차는 wz_max 로 포화.
+    assert yaw_hold_wz(89.5, 90.0, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05) == 0.0
+    assert abs(yaw_hold_wz(0.0, 90.0, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05)) == 0.3
+    # ±180 경계 최단각: 179 → -179 목표면 err=+2°(양수), -178° 로 안 돈다.
+    assert yaw_hold_wz(179.0, -179.0, kp=0.8, wz_max=0.3, deadband_deg=1.0, wz_min=0.05) > 0
+    # SEEK 에서 hold_yaw 주면 wz 가 실린다(yaw 부족 → 회전 명령).
+    h = IngressController(0, drive_sign=-1.0, hold_yaw_deg=90.0)
+    _vx, _vy, wz = h.step(0.0, 85.0, None, None, [], 0.05)
+    assert wz > 0, wz
+    # RETURN(블라인드 축정렬)은 yaw 오차가 커도 wz=0 — 끼인 채 회전 금지(바퀴 밀림).
+    r = IngressController(0, drive_sign=1.0, hold_yaw_deg=-90.0)
+    _vx, _vy, wz = r.step(0.0, -70.0, None, None, [0.5], 0.05)  # 축확정→RETURN, yaw 20°틀림
+    assert r.phase == IngressController.PHASE_RETURN and wz == 0.0, (r.phase, wz)
+    print("ingress_control self-check OK (drive_sign + yaw_hold + RETURN wz0)")

@@ -135,6 +135,10 @@ class MarkerLocalizerNode(Node):
         self.declare_parameter("fuse", False)              # 오도메트리 융합(구독 필요)
         self.declare_parameter("odom_topic", "/robot_entry_lead/odom")  # fuse=True 일 때 구독
         self.declare_parameter("log_every", 1)             # 같은 마커 N프레임마다 로그
+        # 진단(rear 카메라 가시성 검증용): True 면 ref 필터 **전** 검출된 모든 마커
+        # ID 를 카메라(front/rear)별로 로그한다. follow rear 가 각 위치(XN/마커3/
+        # 마커66)에서 어떤 마커를 실제로 보는지 확인용. 검증 끝나면 다시 끈다.
+        self.declare_parameter("log_all_detections", False)
         self.declare_parameter("frame", "usd")             # usd(기존 호환) | ros_map
         # R3c: 다중 로봇이 각자 노드 인스턴스를 띄울 때 서로 다른 /robot_pose 를
         # 내야 하므로 토픽명을 파라미터화한다(기본값은 기존 하드코딩 값 그대로 —
@@ -160,6 +164,14 @@ class MarkerLocalizerNode(Node):
         # 러너 drive_to_pose `_apply_fix` correct_yaw=False(위치전용 보정)의
         # ROS2 이식. 기본 True=기존 filt.update(fix) 그대로(하위호환).
         self.declare_parameter("correct_yaw", True)
+        # 차 든 후 운반(사용자 지시 2026-07-27): follow 는 rear cam 만 쓴다. False 면
+        # front 이미지 콜백을 스킵해 rear 관측만 /pose 보정에 반영한다. 오케가 carry
+        # 진입 시 런타임 전환. 기본 True(하위호환, 전방+후방 양캠).
+        self.declare_parameter("use_front", True)
+        # 차 든 직후 yaw 시딩(사용자 지시 2026-07-27): set_parameters 로 이 값을 주면
+        # 융합필터 yaw 를 즉시 이 각도로 리셋한다(위치 x,z 유지). carry 시작 시 오케가
+        # 90 으로 리셋 → 이후 rear 레인마커로 보정. 기본 NaN(리셋 안 함).
+        self.declare_parameter("force_yaw_deg", float('nan'))
         # carry 정지·회전 트리거용: ref_marker_dist 를 **이 마커에만** 발행한다.
         # -1(기본)=검출한 아무 ref 마커까지 거리(하위호환). 오케스트레이터가 carry
         # 진입 전 선택 슬롯의 레인마커(A1'=3/A2'=4/A3'=5)로 런타임 설정 → 두 로봇이
@@ -180,11 +192,13 @@ class MarkerLocalizerNode(Node):
         self.max_reproj = float(self.get_parameter("max_reproj_px").value)
         self.fuse = bool(self.get_parameter("fuse").value)
         self.log_every = max(1, int(self.get_parameter("log_every").value))
+        self.log_all_detections = bool(self.get_parameter("log_all_detections").value)
         self.frame = self.get_parameter("frame").value
         self.T_base_cam = np.array(
             self.get_parameter("t_base_cam").value, dtype=np.float64).reshape(4, 4)
         self.ref_ids = list(self.get_parameter("ref_ids").value)
         self.correct_yaw = bool(self.get_parameter("correct_yaw").value)
+        self.use_front = bool(self.get_parameter("use_front").value)
         self.mdist_marker_id = int(self.get_parameter("mdist_marker_id").value)
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
@@ -293,6 +307,20 @@ class MarkerLocalizerNode(Node):
                     return SetParametersResult(
                         successful=False, reason="correct_yaw must be a bool")
                 self.correct_yaw = bool(p.value)
+            elif p.name == "use_front":
+                if p.type_ != Parameter.Type.BOOL:
+                    return SetParametersResult(
+                        successful=False, reason="use_front must be a bool")
+                self.use_front = bool(p.value)
+            elif p.name == "force_yaw_deg":
+                if p.type_ not in (Parameter.Type.DOUBLE, Parameter.Type.INTEGER):
+                    return SetParametersResult(
+                        successful=False, reason="force_yaw_deg must be a number")
+                val = float(p.value)
+                if (self.filt is not None and self.filt.x is not None
+                        and not math.isnan(val)):
+                    self.filt.yaw = val   # 위치 유지, yaw 만 즉시 리셋
+                    self.get_logger().info(f"force_yaw_deg: 필터 yaw → {val:.1f}° 리셋")
             elif p.name == "mdist_marker_id":
                 if p.type_ != Parameter.Type.INTEGER:
                     return SetParametersResult(
@@ -321,6 +349,8 @@ class MarkerLocalizerNode(Node):
             self._publish_pose(px, pz, pyaw, msg.header)
 
     def _on_image(self, msg: Image):
+        if not self.use_front:
+            return   # rear-only 모드(운반): front 관측 무시
         if self.K is None:
             self.get_logger().warn("camera_info 대기 중 — 아직 K 없음", once=True)
             return
@@ -349,6 +379,11 @@ class MarkerLocalizerNode(Node):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         poses = AP.detect_and_estimate(
             gray, self.detector, self.code_size, K, dist)
+        if self.log_all_detections and poses:
+            # ref 필터 전 검출 전체 — rear 가 실제로 무슨 마커를 보는지 검증용.
+            self.get_logger().info(
+                f"[검출][{cam}캠] 마커 {sorted(set(int(p.marker_id) for p in poses))} "
+                f"(현재 ref={self.ref_ids})")
         poses = filter_detections_by_ref(poses, self.ref_ids)
 
         for p in poses:

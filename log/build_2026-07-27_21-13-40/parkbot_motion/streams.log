@@ -1,0 +1,29 @@
+[0.241s] Invoking command in '/home/rokey/p3/cobot_ws/src/parkbot_motion': AMENT_PREFIX_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces LD_LIBRARY_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages:/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/parkbot_motion build --build-base /home/rokey/p3/cobot_ws/build/parkbot_motion/build install --record /home/rokey/p3/cobot_ws/build/parkbot_motion/install.log --install-scripts $base/lib/parkbot_motion --single-version-externally-managed install_data
+[0.334s] running egg_info
+[0.334s] writing ../../build/parkbot_motion/parkbot_motion.egg-info/PKG-INFO
+[0.334s] writing dependency_links to ../../build/parkbot_motion/parkbot_motion.egg-info/dependency_links.txt
+[0.334s] writing entry points to ../../build/parkbot_motion/parkbot_motion.egg-info/entry_points.txt
+[0.334s] writing requirements to ../../build/parkbot_motion/parkbot_motion.egg-info/requires.txt
+[0.334s] writing top-level names to ../../build/parkbot_motion/parkbot_motion.egg-info/top_level.txt
+[0.335s] reading manifest file '../../build/parkbot_motion/parkbot_motion.egg-info/SOURCES.txt'
+[0.335s] writing manifest file '../../build/parkbot_motion/parkbot_motion.egg-info/SOURCES.txt'
+[0.335s] running build
+[0.335s] running build_py
+[0.335s] copying parkbot_motion/pickup_orchestrator_node.py -> /home/rokey/p3/cobot_ws/build/parkbot_motion/build/lib/parkbot_motion
+[0.336s] running install
+[0.336s] running install_lib
+[0.337s] copying /home/rokey/p3/cobot_ws/build/parkbot_motion/build/lib/parkbot_motion/pickup_orchestrator_node.py -> /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion
+[0.337s] byte-compiling /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion/pickup_orchestrator_node.py to pickup_orchestrator_node.cpython-310.pyc
+[0.341s] running install_data
+[0.341s] running install_egg_info
+[0.341s] removing '/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion-0.1.0-py3.10.egg-info' (and everything under it)
+[0.341s] Copying ../../build/parkbot_motion/parkbot_motion.egg-info to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages/parkbot_motion-0.1.0-py3.10.egg-info
+[0.341s] running install_scripts
+[0.350s] Installing axle_detector_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] Installing carry_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] Installing ingress_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] Installing lift_action_server script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] Installing pickup_orchestrator_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] Installing pose_controller_node script to /home/rokey/p3/cobot_ws/install/parkbot_motion/lib/parkbot_motion
+[0.350s] writing list of installed files to '/home/rokey/p3/cobot_ws/build/parkbot_motion/install.log'
+[0.362s] Invoked command in '/home/rokey/p3/cobot_ws/src/parkbot_motion' returned '0': AMENT_PREFIX_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces LD_LIBRARY_PATH=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/rokey/p3/cobot_ws/build/parkbot_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rokey/p3/cobot_ws/install/parkbot_motion/lib/python3.10/site-packages:/home/rokey/p3/cobot_ws/install/parking_robot_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/parkbot_motion build --build-base /home/rokey/p3/cobot_ws/build/parkbot_motion/build install --record /home/rokey/p3/cobot_ws/build/parkbot_motion/install.log --install-scripts $base/lib/parkbot_motion --single-version-externally-managed install_data
