@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_cpp/parking_robot_interfaces/srv/release_zones.hpp

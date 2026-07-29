@@ -1,9 +1,0 @@
-[console_scripts]
-axle_detector_node = parkbot_motion.axle_detector_node:main
-carry_action_server = parkbot_motion.carry_action_server:main
-ingress_node = parkbot_motion.ingress_node:main
-lift_action_server = parkbot_motion.lift_action_server:main
-pickup_orchestrator_node = parkbot_motion.pickup_orchestrator_node:main
-pose_controller_node = parkbot_motion.pose_controller_node:main
-user_request_gateway_node = parkbot_motion.user_request_gateway_node:main
-

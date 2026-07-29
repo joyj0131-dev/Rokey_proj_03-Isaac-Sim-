@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake

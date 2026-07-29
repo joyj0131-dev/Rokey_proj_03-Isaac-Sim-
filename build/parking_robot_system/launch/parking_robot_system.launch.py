@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/src/parking_robot_system/launch/parking_robot_system.launch.py

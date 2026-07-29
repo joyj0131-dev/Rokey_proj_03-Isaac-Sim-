@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_rs/parking_robot_interfaces/rust/src/srv.rs

@@ -1,6 +1,0 @@
-Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/rokey/p3/cobot_ws/src/parking_robot_interfaces -DCMAKE_INSTALL_PREFIX=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces
-Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/rokey/p3/cobot_ws/src/parking_robot_interfaces -DCMAKE_INSTALL_PREFIX=/home/rokey/p3/cobot_ws/install/parking_robot_interfaces
-Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/rokey/p3/cobot_ws/build/parking_robot_interfaces -- -j24 -l24
-Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/rokey/p3/cobot_ws/build/parking_robot_interfaces -- -j24 -l24
-Invoking command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/rokey/p3/cobot_ws/build/parking_robot_interfaces
-Invoked command in '/home/rokey/p3/cobot_ws/build/parking_robot_interfaces' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/rokey/p3/cobot_ws/build/parking_robot_interfaces

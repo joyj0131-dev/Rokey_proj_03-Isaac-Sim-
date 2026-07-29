@@ -162,7 +162,12 @@ class CarryActionServer(Node):
         # 메카넘 회전 데드밴드 보정[rad/s]: yaw 오차가 tol 밖인데 비례 wz 가 이 값보다
         # 작으면 이 최소 회전속도로 깐다(mission_control.yaw_min_cmd 와 동형).
         self.declare_parameter('yaw_min_cmd', 0.05)
-        self.declare_parameter('marker_fresh_sec', 0.5)    # ref_marker_dist 신선도[s]
+        # ref_marker_dist 신선도[s]. 이 안에 rear 마커검출이 있으면 "방금 봄"=정렬 지속.
+        # 2.0 으로 넓힘(구 0.5): 저RTF(0.2배속)에서 카메라 검출이 벽시계로 띄엄띄엄 와
+        # 0.5s 창이 자꾸 만료→정렬이 깜빡 끊겨 "랜덤 정렬"이 됐다(실측). 넓히면 검출
+        # 간격을 덮어 정렬이 연속으로 돌아 수렴이 안정적. 융합 /pose 는 그새 odom 으로
+        # 유지되니(느린 운반속도) 드리프트 무시가능. RTF 오르면 다시 줄이는 노브.
+        self.declare_parameter('marker_fresh_sec', 2.0)
         # 회전 strafe 포화 방지: omega·레버암 ≤ rot_budget·max_lin 로 omega 캡.
         self.declare_parameter('rot_budget', 0.6)
         # 병진 개시 게이트[deg]: yaw 오차가 이 값보다 크면 **병진을 죽이고 제자리 회전
@@ -178,7 +183,12 @@ class CarryActionServer(Node):
         # 못 넘어간다(실측 CARRY_LANE 헌팅). 완료는 marker_confirmed(이 구간 마커 봤음)+
         # 이 tol 로 판정.
         self.declare_parameter('goal_pos_tol', 0.15)
-        self.declare_parameter('goal_yaw_tol_deg', 4.0)
+        # 슬롯 종단 yaw 완료 tol. 4°→15°(2026-07-28 로그 분석): 슬롯에서 마커66 이 rear
+        # 근거리 사각(~1.1m)으로 거의 안 잡혀 90° 회전이 ~15° 삐뚤게 끝나는데, 그 잔여 yaw 를
+        # 마커 없이 못 줄여 eyaw≤4° 가 영영 안 떠서 슬롯을 지나쳤다(실측 CARRY_SLOT). 15°면
+        # along≈0·perp≤0.15 구간에서 at_goal 이 떠 슬롯 안에 멈춘다(약간 삐뚤지만 안 지나침).
+        # 근본해결(똑바로 주차)은 슬롯 마커 커버리지/회전 정확도 개선 필요 — 별개 과제.
+        self.declare_parameter('goal_yaw_tol_deg', 15.0)
         self.declare_parameter('goal_timeout_sec', 600.0)
 
         gp = lambda n: self.get_parameter(n).value           # noqa: E731
@@ -210,12 +220,18 @@ class CarryActionServer(Node):
         # 드리프트해도 여기 값은 안 흔들린다.
         self._axle_l_signed = None
 
+        # 서빙할 액션 이름 — 파라미터화(2026-07-28): 같은 도메인(126)에 출차팀이 이 노드를
+        # 복붙해 돌려 이름이 겹치므로, 입차는 launch 에서 'entry_carry_to_slot' 로 준다.
+        # 기본값은 하위호환(단독 실행/테스트). orchestrator 의 carry_action 파라미터와 일치해야.
+        self.declare_parameter('carry_action_name', 'carry_to_slot')
+        carry_action_name = self.get_parameter('carry_action_name').value
         self._server = ActionServer(
-            self, CarryToSlot, 'carry_to_slot', self._execute,
+            self, CarryToSlot, carry_action_name, self._execute,
             callback_group=self._cbg,
             goal_callback=lambda _g: GoalResponse.ACCEPT,
             cancel_callback=lambda _g: CancelResponse.ACCEPT)
-        self.get_logger().info('carry_action_server 시작 (가상중심 제어, follow rear 대표)')
+        self.get_logger().info(
+            f"carry_action_server 시작 (가상중심 제어, follow rear 대표) action='{carry_action_name}'")
 
     def _ensure_io(self, rid):
         if rid not in self._cmd:
@@ -287,9 +303,19 @@ class CarryActionServer(Node):
         self._ensure_io(follow)
         target_x, target_z = g.target_x, g.target_z
         yaw_target = math.radians(g.target_yaw_deg)   # 절대(운반 중 90° 유지)
+        # 세그먼트별 과주행 상한(2026-07-28 슬롯 과주행 근본수정):
+        #  · 슬롯 종단(target_yaw≈0): 목표 좌표가 곧 도착마커(66) — 지나치면 주차칸을
+        #    벗어난다. goal_pos_tol(0.15) **밑**으로 잡아 blind 순항이 z=0 을 살짝만
+        #    지나 멈추게 → marker_confirmed(하강 중 마커 봤음)만 latch 돼 있으면 막판
+        #    마커66 을 못 봐도 odom 만으로 at_goal 이 떠 그 자리에 선다.
+        #  · 레인(target_yaw≈90): 도착마커(slot-lane 3)가 rear 뒤라 **일부러 지나쳐**
+        #    되돌아와야 rear 가 본다 → 넉넉한 self.overshoot_max 유지.
+        # 레인은 지나쳐 마커 찾기, 슬롯은 지나치면 이탈 — 정반대 요구를 세그먼트로 가른다.
+        seg_overshoot = 0.10 if abs(g.target_yaw_deg) < 45.0 else self.overshoot_max
         self.get_logger().info(
             f'carry 시작 lead={lead} follow={follow} target=({target_x},{target_z}) '
-            f'yaw_target={g.target_yaw_deg}° (가상중심, follow rear 대표)')
+            f'yaw_target={g.target_yaw_deg}° overshoot={seg_overshoot:.2f} '
+            f'(가상중심, follow rear 대표)')
 
         gp = self.gains
         pos_gain, yaw_gain = gp['pos_gain'], gp['yaw_gain']
@@ -364,7 +390,7 @@ class CarryActionServer(Node):
                 v_world = carry_translation(
                     e, path_dir, eyaw, True, True, self.align_gate, max_lin,
                     pos_gain, self.fwd_min, pos_tol, self.cross_max, self.cruise,
-                    self.overshoot_max)
+                    seg_overshoot)
                 omega = carry_yaw_omega(
                     eyaw, yaw_gain, max_ang, yaw_tol_rad, self.yaw_min_cmd,
                     r_lever, self.rot_budget, max_lin)
@@ -390,7 +416,7 @@ class CarryActionServer(Node):
                 # (사용자 지시 2026-07-28: 차 든 뒤 yaw≈yaw_target 이니 그냥 x 로만 밀고,
                 #  yaw·위치 정렬은 follow rear 가 마커 봐서 odom 알 때만. vy=wz=0 강제.)
                 fvx = blind_cruise_vx(self.cruise, fyaw, path_dir, along,
-                                      marker_confirmed, self.overshoot_max)
+                                      marker_confirmed, seg_overshoot)
                 follow_cmd = (fvx, 0.0, 0.0)
                 lead_cmd = (-fvx, 0.0, 0.0)   # 반평행(트럭 반대편) → 반대 body-x
                 omega = 0.0

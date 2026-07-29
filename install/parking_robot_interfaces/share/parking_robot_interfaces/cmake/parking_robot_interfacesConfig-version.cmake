@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/ament_cmake_core/parking_robot_interfacesConfig-version.cmake

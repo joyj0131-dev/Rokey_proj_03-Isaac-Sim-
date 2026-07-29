@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_generator_py/parking_robot_interfaces/action/_carry_to_slot_s.c

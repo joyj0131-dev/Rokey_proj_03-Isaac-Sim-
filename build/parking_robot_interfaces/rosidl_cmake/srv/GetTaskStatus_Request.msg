@@ -1,2 +1,0 @@
-# [초안] user_request_gateway의 요청 상태/예상 완료 시간 조회 서비스.
-string task_id

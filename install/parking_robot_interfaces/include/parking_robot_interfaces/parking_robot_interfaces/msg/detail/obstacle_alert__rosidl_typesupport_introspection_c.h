@@ -1,1 +1,0 @@
-/home/rokey/p3/cobot_ws/build/parking_robot_interfaces/rosidl_typesupport_introspection_c/parking_robot_interfaces/msg/detail/obstacle_alert__rosidl_typesupport_introspection_c.h

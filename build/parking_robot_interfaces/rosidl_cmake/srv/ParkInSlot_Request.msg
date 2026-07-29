@@ -1,2 +1,0 @@
-# 사용자 → user_request_gateway. 지정 구역 주차 요청(P1).
-string slot_id
