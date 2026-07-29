@@ -236,10 +236,7 @@ UI에서 입차/출차를 요청하면 해당 PC 로봇이 자동으로 움직�
    못 받으면(`UNKNOWN`) **모든 요청을 조용히 거부**한다. `control_tower.launch`를 통째로 띄우면 해결.
 3. **DDS 환경(§1-1, §1-2)을 모든 터미널에 동일하게.** 빠지면 discovery로 토픽은 보여도
    데이터가 안 흐른다(publisher count 0).
-4. **입차 PC에서 `user_request_gateway_node`를 수동 실행하지 말 것.** 기본 서비스명이
-   `dispatch_parking_task`라 관제 task_dispatcher와 **같은 이름 서버 2대**가 돼 요청이 랜덤
-   라우팅된다. `nodes.launch.py`는 의도적으로 안 띄운다.
-5. **`sim_orchestrator`(가짜 로봇 데모)를 추가로 띄우지 말 것.** DB에 가짜 위치가 섞여
+4. **`sim_orchestrator`(가짜 로봇 데모)를 추가로 띄우지 말 것.** DB에 가짜 위치가 섞여
    `robot_position_bridge`의 실측과 충돌한다.
 
 ---
