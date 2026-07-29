@@ -164,14 +164,10 @@ def generate_launch_description():
             'phase_b_leader_localizer_node': '/robot_entry_lead/marker_localizer_node',
             'phase_b_follower_localizer_node': '/robot_entry_follow/marker_localizer_node'}]))
 
-    # user_request_gateway: 다른 컴퓨터 웹 UI(feature/UI) 의 입차 요청을 받아 위 orchestrator
-    # 액션을 띄운다. dispatch_parking_task(RequestParkingTask, UI ros2 모드) + /park_in_slot
-    # (ParkInSlot, PRS 모드) 둘 다 서빙, ENTRY 시 슬롯 A1→A2→A3 순환배정. domain/whitelist
-    # env(ENV)를 그대로 받아 UI 머신과 같은 DDS 로 붙는다(크로스머신 = UI IP 도 화이트리스트에).
-    # dispatch 접수는 통합 관제(featureUI)의 중앙 task_dispatcher 가 담당한다:
+    # 입차 요청 접수는 통합 관제(UI)의 중앙 task_dispatcher 가 담당한다:
     #   UI → dispatch_parking_task(단일 서버) → '/entry/execute_parking_task'(위 orchestrator).
-    # 그래서 이 머신에선 bypass user_request_gateway 를 안 띄운다(dispatch_parking_task 가
-    # 2대가 되면 UI 요청이 랜덤 라우팅돼 로봇이 안 움직였던 문제 — 세션 실측).
+    # (구 bypass user_request_gateway 노드는 제거됨 — dispatch_parking_task 서버가 2대가 되면
+    #  UI 요청이 랜덤 라우팅돼 로봇이 안 움직였던 문제 때문.)
     # 솔로 테스트는 orchestrator 액션에 직접 발행:
     #   ros2 action send_goal /entry/execute_parking_task \
     #     parking_robot_interfaces/action/ExecuteParkingTask "{slot_id: 'A1'}"
