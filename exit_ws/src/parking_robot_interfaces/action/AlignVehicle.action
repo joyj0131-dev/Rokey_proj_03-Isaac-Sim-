@@ -1,0 +1,7 @@
+# [초안] robot_task_orchestrator -> align_action_server 정밀 정렬 액션 (SR-04).
+geometry_msgs/Pose target_pose
+---
+bool success
+float32 final_error
+---
+float32 current_error

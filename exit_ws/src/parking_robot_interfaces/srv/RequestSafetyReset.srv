@@ -1,0 +1,12 @@
+string operator_id
+string inspection_note
+bool area_clear
+bool robots_stopped
+bool load_secured
+bool sensors_checked
+---
+bool accepted
+string state
+uint64 stop_epoch
+string message
+string[] blockers

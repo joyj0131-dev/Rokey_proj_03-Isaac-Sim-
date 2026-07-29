@@ -1,0 +1,4 @@
+# PARKING_MODE=ros2 실행 시 requirements.txt에 추가로 필요.
+# rclpy / parking_robot_interfaces는 pip이 아니라 ROS2(Humble) 환경 source +
+# colcon build로 제공되므로 여기 포함하지 않는다.
+mysql-connector-python

@@ -1,0 +1,15 @@
+uint8 MEASUREMENT_WAITING=0
+uint8 MEASUREMENT_OK=1
+uint8 MEASUREMENT_NO_VALID_POINTS=2
+uint8 MEASUREMENT_TF_ERROR=3
+
+std_msgs/Header header
+string sensor_id
+string source_topic
+uint8 measurement_status
+string status_message
+uint32 received_point_count
+uint32 filtered_point_count
+uint32 slot_point_count
+uint8 stabilization_frames
+parking_robot_interfaces/SlotOccupancy[] slots

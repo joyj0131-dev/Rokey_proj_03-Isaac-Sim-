@@ -1,0 +1,7 @@
+# [초안] robot_task_orchestrator -> vehicle_detection_node 인식 액션 (SR-01, SR-04).
+bool trigger
+---
+bool success
+parking_robot_interfaces/VehicleInfo vehicle_info
+---
+string status

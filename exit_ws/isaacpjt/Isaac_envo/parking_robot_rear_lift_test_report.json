@@ -1,0 +1,166 @@
+{
+  "passed": true,
+  "assets": {
+    "parking": "/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/parking/parking_environment.usd",
+    "parking_test_layer": "/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/parking/parking_environment_mechanical_test.usd",
+    "vehicle": "/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/fab_vehicles.usd",
+    "robot": "/home/rokey/cobot3_ws/isaacpjt/hwia_parking_robot_final_caster_package/hwia_parking_robot_final_caster_mecha_roller.usd",
+    "test_stage": "/home/rokey/cobot3_ws/isaacpjt/Isaac_envo/parking_robot_rear_lift_test.usd"
+  },
+  "vehicle": "Sedan",
+  "keep_drivetrain": false,
+  "sphere_wheels": true,
+  "parking_bay": "A7",
+  "robot_start_xyz_m": [
+    8.5,
+    0.00012994930148124695,
+    4.550012588500977
+  ],
+  "robot_pulse_xyz_m": [
+    8.49998950958252,
+    0.000295788049697876,
+    6.309460639953613
+  ],
+  "robot_parked_xyz_m": [
+    8.499874114990234,
+    0.00046378374099731445,
+    6.320852279663086
+  ],
+  "robot_settle_drift_m": 0.011391639709472656,
+  "robot_final_xyz_m": [
+    8.503955841064453,
+    0.0002602897584438324,
+    6.307348251342773
+  ],
+  "robot_target_z_m": 6.30336095,
+  "arrival_error_m": 0.003987301342773364,
+  "sedan_start_xyz_m": [
+    8.50000286102295,
+    -0.002927035093307495,
+    7.800000190734863
+  ],
+  "sedan_final_xyz_m": [
+    8.500266075134277,
+    0.011325925588607788,
+    7.800534248352051
+  ],
+  "initial_wheel_centers_m": {
+    "FrontLeftWheel": [
+      9.285833242608238,
+      0.342567565397228,
+      9.245201354000386
+    ],
+    "FrontRightWheel": [
+      7.717277506891796,
+      0.34256756539722777,
+      9.246886227834626
+    ],
+    "RearLeftWheel": [
+      9.28266335607657,
+      0.3425674128093367,
+      6.294607841894991
+    ],
+    "RearRightWheel": [
+      7.710194437175884,
+      0.3440688471355084,
+      6.31211431103676
+    ]
+  },
+  "before_lift_wheel_centers_m": {
+    "FrontLeftWheel": [
+      9.285833242608238,
+      0.342567565397228,
+      9.245201354000386
+    ],
+    "FrontRightWheel": [
+      7.717277506891796,
+      0.34256756539722777,
+      9.246886227834626
+    ],
+    "RearLeftWheel": [
+      9.28266335607657,
+      0.3425674128093367,
+      6.294607841894991
+    ],
+    "RearRightWheel": [
+      7.710194437175884,
+      0.3440688471355084,
+      6.31211431103676
+    ]
+  },
+  "after_lift_wheel_centers_m": {
+    "FrontLeftWheel": [
+      9.285903256028268,
+      0.34257831664058086,
+      9.24917098104728
+    ],
+    "FrontRightWheel": [
+      7.7173473059020985,
+      0.34257835175558393,
+      9.250642773347533
+    ],
+    "RearLeftWheel": [
+      9.283134329522085,
+      0.3716046678927017,
+      6.298719841672475
+    ],
+    "RearRightWheel": [
+      7.710663060123564,
+      0.3729504611393819,
+      6.31602670251666
+    ]
+  },
+  "after_carry_wheel_centers_m": {
+    "FrontLeftWheel": [
+      9.28671348400228,
+      0.34256765480419515,
+      9.247080092403706
+    ],
+    "FrontRightWheel": [
+      7.718157748285839,
+      0.34256765480419493,
+      9.248764966237946
+    ],
+    "RearLeftWheel": [
+      9.283543597470613,
+      0.3425675022163039,
+      6.296486580298311
+    ],
+    "RearRightWheel": [
+      7.711074678569927,
+      0.34406893654247556,
+      6.31399304944008
+    ]
+  },
+  "carry_target_m": 1.0,
+  "carry_robot_m": 1.0146746635437012,
+  "carry_sedan_m": 0.0013446807861328125,
+  "carry_follow_ratio": 0.0013252334314100061,
+  "carry_slip_m": 1.0133299827575684,
+  "carry_steps": 189,
+  "rear_wheel_lift_m": [
+    0.029037255083364966,
+    0.028881614003873513
+  ],
+  "front_wheel_lift_m": [
+    1.0751243352868922e-05,
+    1.0786358356162928e-05
+  ],
+  "mean_rear_lift_m": 0.02895943454361924,
+  "mean_front_lift_m": 1.0768800854515925e-05,
+  "arm_angles_deg": {
+    "arm_left_front_joint": 89.99998201391065,
+    "arm_left_rear_joint": -89.999995674289,
+    "arm_right_front_joint": -90.00002299504568,
+    "arm_right_rear_joint": 90.00000250447816
+  },
+  "checks": {
+    "robot_arrived": true,
+    "arms_reached_targets": true,
+    "rear_wheels_lifted": true
+  },
+  "carry_verification": {
+    "robot_moved_forward": true,
+    "car_followed_robot": false
+  }
+}

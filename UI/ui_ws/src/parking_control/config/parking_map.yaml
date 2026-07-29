@@ -1,0 +1,188 @@
+meta:
+  generated_by: generate_map.py
+  frame: map
+  usd_to_ros: ros_x = usd_x, ros_y = -usd_z (v4.usd 실측 기반, 2026-07-25)
+  source: isaacpjt/Isaac_envo/parking/parking_environment_v4.usd (ArucoMarkerPreview
+    스코프) + src/parkbot_aruco/parkbot_aruco/site_map_v4.py(ENTRY/EXIT 변환 기준)
+  params:
+    slot_count: 3
+    layout: v4
+    space_length: 6.6
+    space_width: 3.4
+    aisle_width: 9.0
+    half_w_m: 17.0
+nodes:
+  A1:
+    x: 2.8
+    y: -0.0
+    kind: slot
+  A2:
+    x: 6.2
+    y: -0.0
+    kind: slot
+  A3:
+    x: 9.6
+    y: -0.0
+    kind: slot
+  entry_outer:
+    x: -21.0
+    y: -7.075
+    kind: junction
+  entry_gate:
+    x: -12.55
+    y: -7.075
+    kind: junction
+  entry_wait:
+    x: -8.5
+    y: -7.075
+    kind: junction
+  crossing_entry:
+    x: -2.5
+    y: -6.875
+    kind: junction
+  entry_a1:
+    x: 2.8
+    y: -6.875
+    kind: junction
+  entry_a2:
+    x: 6.2
+    y: -6.875
+    kind: junction
+  entry_a3:
+    x: 9.6
+    y: -6.875
+    kind: junction
+  crossing_exit:
+    x: -2.5
+    y: 6.875
+    kind: junction
+  exit_wait:
+    x: -8.5
+    y: 7.075
+    kind: junction
+  exit_gate:
+    x: -12.55
+    y: 7.075
+    kind: junction
+  exit_outer:
+    x: -21.0
+    y: 7.075
+    kind: junction
+  exit_a1:
+    x: 2.8
+    y: 6.875
+    kind: junction
+  exit_a2:
+    x: 6.2
+    y: 6.875
+    kind: junction
+  exit_a3:
+    x: 9.6
+    y: 6.875
+    kind: junction
+  dock_entry_1:
+    x: -3.2
+    y: -2.2
+    kind: dock
+    role: entry
+  dock_entry_2:
+    x: -1.2
+    y: -2.2
+    kind: dock
+    role: entry
+  dock_exit_1:
+    x: -3.2
+    y: 2.2
+    kind: dock
+    role: exit
+  dock_exit_2:
+    x: -1.2
+    y: 2.2
+    kind: dock
+    role: exit
+edges:
+- u: entry_outer
+  v: entry_gate
+  zone: ZIN01
+- u: entry_gate
+  v: entry_wait
+  zone: ZIN02
+- u: entry_wait
+  v: crossing_entry
+  zone: ZIN03
+- u: crossing_entry
+  v: entry_a1
+  zone: ZIN_A1
+- u: entry_a1
+  v: A1
+  zone: ZIN_A1_dock
+- u: crossing_entry
+  v: entry_a2
+  zone: ZIN_A2
+- u: entry_a2
+  v: A2
+  zone: ZIN_A2_dock
+- u: crossing_entry
+  v: entry_a3
+  zone: ZIN_A3
+- u: entry_a3
+  v: A3
+  zone: ZIN_A3_dock
+- u: crossing_exit
+  v: exit_wait
+  zone: ZOUT01
+- u: exit_wait
+  v: exit_gate
+  zone: ZOUT02
+- u: exit_gate
+  v: exit_outer
+  zone: ZOUT03
+- u: crossing_exit
+  v: exit_a1
+  zone: ZOUT_A1
+- u: exit_a1
+  v: A1
+  zone: ZOUT_A1_dock
+- u: crossing_exit
+  v: exit_a2
+  zone: ZOUT_A2
+- u: exit_a2
+  v: A2
+  zone: ZOUT_A2_dock
+- u: crossing_exit
+  v: exit_a3
+  zone: ZOUT_A3
+- u: exit_a3
+  v: A3
+  zone: ZOUT_A3_dock
+- u: crossing_entry
+  v: dock_entry_1
+  zone: null
+- u: crossing_entry
+  v: dock_entry_2
+  zone: null
+- u: crossing_exit
+  v: dock_exit_1
+  zone: null
+- u: crossing_exit
+  v: dock_exit_2
+  zone: null
+zones:
+- ZIN01
+- ZIN02
+- ZIN03
+- ZIN_A1
+- ZIN_A1_dock
+- ZIN_A2
+- ZIN_A2_dock
+- ZIN_A3
+- ZIN_A3_dock
+- ZOUT01
+- ZOUT02
+- ZOUT03
+- ZOUT_A1
+- ZOUT_A1_dock
+- ZOUT_A2
+- ZOUT_A2_dock
+- ZOUT_A3
+- ZOUT_A3_dock

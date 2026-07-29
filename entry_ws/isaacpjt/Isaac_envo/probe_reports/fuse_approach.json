@@ -1,0 +1,17 @@
+{
+  "camera_height_m": 0.15,
+  "speed": 0.25,
+  "d_start": 2.1,
+  "d_end": 1.25,
+  "pos_gain": 0.5,
+  "yaw_gain": 0.5,
+  "tbasecam_convention": "X180",
+  "tbasecam_verify_err_m": 0.006214887736317706,
+  "n_traj": 170,
+  "n_single": 158,
+  "terminal_pos_err_m": 0.0029321958196263267,
+  "terminal_yaw_err_deg": 0.023236587644191786,
+  "fused_traj_pos_p95_m": 0.019049017459864665,
+  "fused_traj_yaw_p95_deg": 0.5277227736102077,
+  "single_traj_pos_p95_m": 0.025238820563076685
+}

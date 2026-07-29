@@ -1,0 +1,305 @@
+{
+  "dictionary": "DICT_5X5_100",
+  "code_size_m": 0.19444445,
+  "source": "parking_environment_v4.usd (decal xformOp:translate)",
+  "note": "마커 x,z 는 데칼 실좌표(translate). 도크 마커는 aruco:position 과 z 로 0.7m 다르므로 데칼을 써야 측위가 맞는다.",
+  "markers": [
+    {
+      "id": 0,
+      "serves": "A1",
+      "kind": "slot",
+      "x": 2.8,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 1,
+      "serves": "A2",
+      "kind": "slot",
+      "x": 6.2,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 2,
+      "serves": "A3",
+      "kind": "slot",
+      "x": 9.6,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 3,
+      "serves": "A1'",
+      "kind": "lane",
+      "x": 2.8,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 4,
+      "serves": "A2'",
+      "kind": "lane",
+      "x": 6.2,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 5,
+      "serves": "A3'",
+      "kind": "lane",
+      "x": 9.6,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 20,
+      "serves": "D_IN_1",
+      "kind": "dock",
+      "x": -3.2,
+      "z": -2.9000000432133675,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 21,
+      "serves": "D_OUT_1",
+      "kind": "dock",
+      "x": -3.2,
+      "z": 3.8000000566244125,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 22,
+      "serves": "D_IN_2",
+      "kind": "dock",
+      "x": -1.2,
+      "z": -2.9000000432133675,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 23,
+      "serves": "D_OUT_2",
+      "kind": "dock",
+      "x": -1.2,
+      "z": 3.8000000566244125,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 30,
+      "serves": "XS",
+      "kind": "crossing",
+      "x": -3.2,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 31,
+      "serves": "XN",
+      "kind": "crossing",
+      "x": -3.200000047683716,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 40,
+      "serves": "GATE_IN",
+      "kind": "gateway",
+      "x": -12.55,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 41,
+      "serves": "GATE_OUT",
+      "kind": "gateway",
+      "x": -12.55,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 50,
+      "serves": "W_IN",
+      "kind": "handoff_bay",
+      "x": -8.5,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 51,
+      "serves": "W_OUT",
+      "kind": "handoff_bay",
+      "x": -8.5,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 61,
+      "serves": "LANE_1",
+      "kind": "lane",
+      "x": -6.75,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 62,
+      "serves": "LANE_2",
+      "kind": "lane",
+      "x": -5.000000074505806,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 63,
+      "serves": "LANE_3",
+      "kind": "lane",
+      "x": -1.2,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 64,
+      "serves": "LANE_4",
+      "kind": "lane",
+      "x": 0.4000000059604645,
+      "z": 7.075,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 65,
+      "serves": "A1_F",
+      "kind": "slot_front",
+      "x": 2.8,
+      "z": 3.500000052154064,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 66,
+      "serves": "A1_C",
+      "kind": "slot_center",
+      "x": 2.8,
+      "z": 0.0,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 67,
+      "serves": "A2_F",
+      "kind": "slot_front",
+      "x": 6.2,
+      "z": 3.500000052154064,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 68,
+      "serves": "A2_C",
+      "kind": "slot_center",
+      "x": 6.2,
+      "z": 0.0,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 69,
+      "serves": "A3_F",
+      "kind": "slot_front",
+      "x": 9.6,
+      "z": 3.500000052154064,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 70,
+      "serves": "A3_C",
+      "kind": "slot_center",
+      "x": 9.6,
+      "z": 0.0,
+      "yaw": 0.0,
+      "role": "ENTRY"
+    },
+    {
+      "id": 71,
+      "serves": "A1_FX",
+      "kind": "slot_front",
+      "x": 2.8,
+      "z": -3.5,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 72,
+      "serves": "A2_FX",
+      "kind": "slot_front",
+      "x": 6.2,
+      "z": -3.5,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 73,
+      "serves": "A3_FX",
+      "kind": "slot_front",
+      "x": 9.6,
+      "z": -3.5,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 74,
+      "serves": "LANE_1X",
+      "kind": "lane",
+      "x": -6.75,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 75,
+      "serves": "LANE_2X",
+      "kind": "lane",
+      "x": -5.0,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 76,
+      "serves": "LANE_3X",
+      "kind": "lane",
+      "x": -1.2,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    },
+    {
+      "id": 77,
+      "serves": "LANE_4X",
+      "kind": "lane",
+      "x": 0.4,
+      "z": -7.075,
+      "yaw": 0.0,
+      "role": "EXIT"
+    }
+  ]
+}

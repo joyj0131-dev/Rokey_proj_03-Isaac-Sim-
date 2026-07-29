@@ -1,0 +1,17 @@
+# Phase D: 2로봇 가상중심(virtual-center) 운반. 트럭을 든 lead/follow 를
+# 하나의 강체로 보고 두 로봇 사이 가상중심을 목표 슬롯 pose 로 이동시킨다.
+# 측위는 바닥 아루코(lead 후방캠 + follow 전방캠) → 가상중심 pose. GT 아님.
+string lead_robot_id
+string follow_robot_id
+float64 target_x
+float64 target_z
+float64 target_yaw_deg
+---
+bool success
+string message
+float64 final_x
+float64 final_z
+float64 final_yaw_deg
+---
+string phase
+float64 dist_remaining

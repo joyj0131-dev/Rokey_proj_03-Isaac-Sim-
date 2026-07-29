@@ -1,0 +1,560 @@
+<?xml version="1.0"?>
+<robot name="hwia_parking_robot_final_caster">
+  <!--
+    Hyundai WIA-style parking robot functional approximation - swing-arm + free bearing roller revision.
+    Key mechanism: NO separate vertical lift link.
+    Four arms are directly revolute-jointed to base_link.
+    At q=0 all arms are stowed longitudinally along the robot body.
+    Arms swing outward about Z to straddle the left/right vehicle tires.
+    Each arm has a freely rotating bearing roller at its tire-contact end.
+    Each arm tip also has a passive swivel caster that supports the arm on the floor.
+    As the front/rear arm pair closes, the rollers spin against the tire surface while
+    the casters carry vertical load into the floor, reducing bending load on the arm pivots.
+
+    Coordinate: +X forward, +Y left, +Z up.
+    Units: m, kg, rad.
+  -->
+
+  <!-- ================= Materials ================= -->
+  <material name="body_dark"><color rgba="0.06 0.07 0.09 1"/></material>
+  <material name="body_mid"><color rgba="0.18 0.20 0.24 1"/></material>
+  <material name="accent_red"><color rgba="0.84 0.11 0.10 1"/></material>
+  <material name="arm_light"><color rgba="0.78 0.80 0.84 1"/></material>
+  <material name="roller_gray"><color rgba="0.52 0.55 0.60 1"/></material>
+  <material name="wheel_black"><color rgba="0.03 0.03 0.04 1"/></material>
+  <material name="sensor_blue"><color rgba="0.08 0.60 0.92 1"/></material>
+
+  <!-- ================= Base ================= -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.040" rpy="0 0 0"/>
+      <mass value="120.0"/>
+      <inertia ixx="8.8" ixy="0" ixz="0" iyy="34.5" iyz="0" izz="43.0"/>
+    </inertial>
+
+    <!--
+      The swing-arm pivots sit at Y = +/-0.43 m; their widest rigid part is the
+      0.115 m ramp. Keeping the body inside Y = +/-0.365 m leaves 7.5 mm
+      clearance and clears all four arms throughout their full swing range.
+    -->
+    <visual name="main_body">
+      <origin xyz="0 0 0.040" rpy="0 0 0"/>
+      <geometry><box size="1.85 0.73 0.080"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+    <collision name="main_body_collision">
+      <!-- Keep 30 mm ground clearance so the drive wheels and tip casters,
+           rather than the body pan, carry the robot on the floor. -->
+      <origin xyz="0 0 0.055" rpy="0 0 0"/>
+      <geometry><box size="1.85 0.73 0.050"/></geometry>
+    </collision>
+
+    <visual name="top_cover">
+      <origin xyz="0 0 0.092" rpy="0 0 0"/>
+      <geometry><box size="1.30 0.56 0.022"/></geometry>
+      <material name="body_mid"/>
+    </visual>
+    <visual name="front_accent">
+      <origin xyz="0.80 0 0.098" rpy="0 0 0"/>
+      <geometry><box size="0.24 0.58 0.014"/></geometry>
+      <material name="accent_red"/>
+    </visual>
+
+    <!-- Four narrow pivot mounting tabs bridge the trimmed body to the arms.
+         Their outer faces stop 0.5 mm before the stowed beam surfaces, so the
+         links look connected without sharing collision volume. -->
+    <visual name="mount_left_front">
+      <origin xyz="0.27 0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+      <material name="body_mid"/>
+    </visual>
+    <collision name="mount_left_front_collision">
+      <origin xyz="0.27 0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+    </collision>
+    <visual name="mount_left_rear">
+      <origin xyz="-0.27 0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+      <material name="body_mid"/>
+    </visual>
+    <collision name="mount_left_rear_collision">
+      <origin xyz="-0.27 0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+    </collision>
+    <visual name="mount_right_front">
+      <origin xyz="0.27 -0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+      <material name="body_mid"/>
+    </visual>
+    <collision name="mount_right_front_collision">
+      <origin xyz="0.27 -0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+    </collision>
+    <visual name="mount_right_rear">
+      <origin xyz="-0.27 -0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+      <material name="body_mid"/>
+    </visual>
+    <collision name="mount_right_rear_collision">
+      <origin xyz="-0.27 -0.3735 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.017 0.038"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ================= Drive wheels ================= -->
+  <link name="wheel_fl">
+    <inertial><mass value="2.0"/><origin xyz="0 0 0"/><inertia ixx="0.004" ixy="0" ixz="0" iyy="0.004" iyz="0" izz="0.004"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.060" length="0.048"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.060"/></geometry></collision>
+  </link>
+  <joint name="wheel_fl_joint" type="continuous">
+    <parent link="base_link"/><child link="wheel_fl"/>
+    <origin xyz="0.68 0.35 0.060" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.5" friction="0.0"/>
+  </joint>
+
+  <link name="wheel_fr">
+    <inertial><mass value="2.0"/><origin xyz="0 0 0"/><inertia ixx="0.004" ixy="0" ixz="0" iyy="0.004" iyz="0" izz="0.004"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.060" length="0.048"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.060"/></geometry></collision>
+  </link>
+  <joint name="wheel_fr_joint" type="continuous">
+    <parent link="base_link"/><child link="wheel_fr"/>
+    <origin xyz="0.68 -0.35 0.060" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.5" friction="0.0"/>
+  </joint>
+
+  <link name="wheel_rl">
+    <inertial><mass value="2.0"/><origin xyz="0 0 0"/><inertia ixx="0.004" ixy="0" ixz="0" iyy="0.004" iyz="0" izz="0.004"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.060" length="0.048"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.060"/></geometry></collision>
+  </link>
+  <joint name="wheel_rl_joint" type="continuous">
+    <parent link="base_link"/><child link="wheel_rl"/>
+    <origin xyz="-0.68 0.35 0.060" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.5" friction="0.0"/>
+  </joint>
+
+  <link name="wheel_rr">
+    <inertial><mass value="2.0"/><origin xyz="0 0 0"/><inertia ixx="0.004" ixy="0" ixz="0" iyy="0.004" iyz="0" izz="0.004"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.060" length="0.048"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.060"/></geometry></collision>
+  </link>
+  <joint name="wheel_rr_joint" type="continuous">
+    <parent link="base_link"/><child link="wheel_rr"/>
+    <origin xyz="-0.68 -0.35 0.060" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.5" friction="0.0"/>
+  </joint>
+
+  <!-- ============================================================
+       SWING ARMS
+       Each arm geometry points along local +X from its pivot.
+       q=0 is the stowed 'attention' pose along the robot body.
+       Joint origin yaw sets whether the stowed arm points +X or -X.
+       Joint rotation then swings it outward toward +/-Y.
+       ============================================================ -->
+
+  <!-- Reusable arm shape is represented directly in each link:
+       - main beam along local +X
+       - nose ramp close to outer end
+       - a separate free-spinning bearing roller link at the outer end
+       When deployed 90 deg, local +X aligns with world +/-Y. The bearing roller
+       joint axis therefore aligns with the vehicle wheel axle and spins freely on contact. -->
+
+  <link name="arm_left_front">
+    <inertial><origin xyz="0.26 0 0"/><mass value="6.0"/><inertia ixx="0.025" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.15"/></inertial>
+    <visual name="beam"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry><material name="arm_light"/></visual>
+    <collision name="beam_collision"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry></collision>
+    <visual name="ramp"><origin xyz="0.43 0 -0.008" rpy="0 0 0"/><geometry><box size="0.18 0.115 0.020"/></geometry><material name="accent_red"/></visual>
+    <collision name="ramp_collision"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry></collision>
+  </link>
+  <joint name="arm_left_front_joint" type="revolute">
+    <parent link="base_link"/><child link="arm_left_front"/>
+    <origin xyz="0.27 0.43 0.075" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.57079632679" effort="5000" velocity="0.7"/>
+    <dynamics damping="8.0" friction="2.0"/>
+  </joint>
+
+  <link name="arm_left_rear">
+    <inertial><origin xyz="0.26 0 0"/><mass value="6.0"/><inertia ixx="0.025" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.15"/></inertial>
+    <visual name="beam"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry><material name="arm_light"/></visual>
+    <collision name="beam_collision"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry></collision>
+    <visual name="ramp"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry><material name="accent_red"/></visual>
+    <collision name="ramp_collision"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry></collision>
+  </link>
+  <joint name="arm_left_rear_joint" type="revolute">
+    <parent link="base_link"/><child link="arm_left_rear"/>
+    <origin xyz="-0.27 0.43 0.075" rpy="0 0 3.14159265359"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57079632679" upper="0.0" effort="5000" velocity="0.7"/>
+    <dynamics damping="8.0" friction="2.0"/>
+  </joint>
+
+  <link name="arm_right_front">
+    <inertial><origin xyz="0.26 0 0"/><mass value="6.0"/><inertia ixx="0.025" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.15"/></inertial>
+    <visual name="beam"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry><material name="arm_light"/></visual>
+    <collision name="beam_collision"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry></collision>
+    <visual name="ramp"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry><material name="accent_red"/></visual>
+    <collision name="ramp_collision"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry></collision>
+  </link>
+  <joint name="arm_right_front_joint" type="revolute">
+    <parent link="base_link"/><child link="arm_right_front"/>
+    <origin xyz="0.27 -0.43 0.075" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57079632679" upper="0.0" effort="5000" velocity="0.7"/>
+    <dynamics damping="8.0" friction="2.0"/>
+  </joint>
+
+  <link name="arm_right_rear">
+    <inertial><origin xyz="0.26 0 0"/><mass value="6.0"/><inertia ixx="0.025" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.15"/></inertial>
+    <visual name="beam"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry><material name="arm_light"/></visual>
+    <collision name="beam_collision"><origin xyz="0.26 0 0"/><geometry><box size="0.52 0.095 0.038"/></geometry></collision>
+    <visual name="ramp"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry><material name="accent_red"/></visual>
+    <collision name="ramp_collision"><origin xyz="0.43 0 -0.008"/><geometry><box size="0.18 0.115 0.020"/></geometry></collision>
+  </link>
+  <joint name="arm_right_rear_joint" type="revolute">
+    <parent link="base_link"/><child link="arm_right_rear"/>
+    <origin xyz="-0.27 -0.43 0.075" rpy="0 0 3.14159265359"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.57079632679" effort="5000" velocity="0.7"/>
+    <dynamics damping="8.0" friction="2.0"/>
+  </joint>
+
+
+  <!-- ============================================================
+       FREE-SPINNING TIRE CONTACT BEARING ROLLERS
+       Each roller is a separate link connected to its swing arm by a
+       continuous revolute joint. The roller is passive: no drive is applied.
+       Joint axis is local +X. After the arm swings 90 deg outward, this axis
+       aligns with the vehicle wheel axle, allowing the roller to spin as it
+       contacts and moves under the tire.
+       ============================================================ -->
+
+  <link name="bearing_roller_left_front">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.0012" ixy="0" ixz="0" iyy="0.0007" iyz="0" izz="0.0007"/>
+    </inertial>
+
+    <!-- Main tire-contact roller. Cylinder axis is local +X. -->
+    <visual name="outer_roller">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.045" length="0.18"/></geometry>
+      <material name="roller_gray"/>
+    </visual>
+    <collision name="outer_roller_collision_left"><origin xyz="-0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_center"><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_right"><origin xyz="0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+
+    <!-- Smaller center hub makes the part visually read like a bearing roller. -->
+    <visual name="bearing_hub">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.020" length="0.186"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+  </link>
+
+  <joint name="bearing_roller_left_front_joint" type="continuous">
+    <parent link="arm_left_front"/>
+    <child link="bearing_roller_left_front"/>
+    <origin xyz="0.43 0 0.020" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <!-- Very low passive resistance; do not configure a motor drive for this joint. -->
+    <dynamics damping="0.02" friction="0.01"/>
+  </joint>
+
+  <link name="bearing_roller_left_rear">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.0012" ixy="0" ixz="0" iyy="0.0007" iyz="0" izz="0.0007"/>
+    </inertial>
+
+    <!-- Main tire-contact roller. Cylinder axis is local +X. -->
+    <visual name="outer_roller">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.045" length="0.18"/></geometry>
+      <material name="roller_gray"/>
+    </visual>
+    <collision name="outer_roller_collision_left"><origin xyz="-0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_center"><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_right"><origin xyz="0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+
+    <!-- Smaller center hub makes the part visually read like a bearing roller. -->
+    <visual name="bearing_hub">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.020" length="0.186"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+  </link>
+
+  <joint name="bearing_roller_left_rear_joint" type="continuous">
+    <parent link="arm_left_rear"/>
+    <child link="bearing_roller_left_rear"/>
+    <origin xyz="0.43 0 0.020" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <!-- Very low passive resistance; do not configure a motor drive for this joint. -->
+    <dynamics damping="0.02" friction="0.01"/>
+  </joint>
+
+  <link name="bearing_roller_right_front">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.0012" ixy="0" ixz="0" iyy="0.0007" iyz="0" izz="0.0007"/>
+    </inertial>
+
+    <!-- Main tire-contact roller. Cylinder axis is local +X. -->
+    <visual name="outer_roller">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.045" length="0.18"/></geometry>
+      <material name="roller_gray"/>
+    </visual>
+    <collision name="outer_roller_collision_left"><origin xyz="-0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_center"><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_right"><origin xyz="0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+
+    <!-- Smaller center hub makes the part visually read like a bearing roller. -->
+    <visual name="bearing_hub">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.020" length="0.186"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+  </link>
+
+  <joint name="bearing_roller_right_front_joint" type="continuous">
+    <parent link="arm_right_front"/>
+    <child link="bearing_roller_right_front"/>
+    <origin xyz="0.43 0 0.020" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <!-- Very low passive resistance; do not configure a motor drive for this joint. -->
+    <dynamics damping="0.02" friction="0.01"/>
+  </joint>
+
+  <link name="bearing_roller_right_rear">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.0012" ixy="0" ixz="0" iyy="0.0007" iyz="0" izz="0.0007"/>
+    </inertial>
+
+    <!-- Main tire-contact roller. Cylinder axis is local +X. -->
+    <visual name="outer_roller">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.045" length="0.18"/></geometry>
+      <material name="roller_gray"/>
+    </visual>
+    <collision name="outer_roller_collision_left"><origin xyz="-0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_center"><geometry><sphere radius="0.045"/></geometry></collision>
+    <collision name="outer_roller_collision_right"><origin xyz="0.06 0 0"/><geometry><sphere radius="0.045"/></geometry></collision>
+
+    <!-- Smaller center hub makes the part visually read like a bearing roller. -->
+    <visual name="bearing_hub">
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><cylinder radius="0.020" length="0.186"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+  </link>
+
+  <joint name="bearing_roller_right_rear_joint" type="continuous">
+    <parent link="arm_right_rear"/>
+    <child link="bearing_roller_right_rear"/>
+    <origin xyz="0.43 0 0.020" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <!-- Very low passive resistance; do not configure a motor drive for this joint. -->
+    <dynamics damping="0.02" friction="0.01"/>
+  </joint>
+
+
+  <!-- ============================================================
+       ARM-TIP PASSIVE SWIVEL CASTERS
+       Each swing arm has one chair-style caster at its extreme tip.
+       The caster has two passive DOFs:
+         1) caster_*_swivel_joint : continuous rotation about local Z
+         2) caster_*_wheel_joint  : continuous wheel rotation about local Y
+       The caster wheel radius/height are chosen so the wheel touches the ground
+       when the robot base and arms are at their nominal height.
+       These casters do NOT lift the tire. They support the arm tip and transfer
+       vertical vehicle load to the floor while the bearing roller handles tire contact.
+       ============================================================ -->
+
+  <link name="caster_left_front_fork">
+    <inertial>
+      <origin xyz="0.012 0 -0.012" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.00035" ixy="0" ixz="0" iyy="0.00035" iyz="0" izz="0.00020"/>
+    </inertial>
+    <visual name="swivel_stem">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.012" length="0.030"/></geometry>
+      <material name="body_dark"/>
+    </visual>
+    <visual name="fork_bracket">
+      <origin xyz="0.012 0 -0.018" rpy="0 0 0"/>
+      <geometry><box size="0.050 0.038 0.018"/></geometry>
+      <material name="arm_light"/>
+    </visual>
+  </link>
+  <joint name="caster_left_front_swivel_joint" type="continuous">
+    <parent link="arm_left_front"/>
+    <child link="caster_left_front_fork"/>
+    <origin xyz="0.50 0 -0.015" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <dynamics damping="0.04" friction="0.02"/>
+  </joint>
+
+  <link name="caster_left_front_wheel">
+    <inertial>
+      <mass value="0.35"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00008" iyz="0" izz="0.00012"/>
+    </inertial>
+    <visual>
+      <geometry><sphere radius="0.028"/></geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry><cylinder radius="0.028" length="0.022"/></geometry>
+    </collision>
+  </link>
+  <joint name="caster_left_front_wheel_joint" type="continuous">
+    <parent link="caster_left_front_fork"/>
+    <child link="caster_left_front_wheel"/>
+    <origin xyz="0.025 0 -0.032" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.015" friction="0.005"/>
+  </joint>
+
+  <link name="caster_left_rear_fork">
+    <inertial>
+      <origin xyz="0.012 0 -0.012" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.00035" ixy="0" ixz="0" iyy="0.00035" iyz="0" izz="0.00020"/>
+    </inertial>
+    <visual name="swivel_stem"><geometry><cylinder radius="0.012" length="0.030"/></geometry><material name="body_dark"/></visual>
+    <visual name="fork_bracket"><origin xyz="0.012 0 -0.018"/><geometry><box size="0.050 0.038 0.018"/></geometry><material name="arm_light"/></visual>
+  </link>
+  <joint name="caster_left_rear_swivel_joint" type="continuous">
+    <parent link="arm_left_rear"/><child link="caster_left_rear_fork"/>
+    <origin xyz="0.50 0 -0.015" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <dynamics damping="0.04" friction="0.02"/>
+  </joint>
+  <link name="caster_left_rear_wheel">
+    <inertial><mass value="0.35"/><origin xyz="0 0 0"/><inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00008" iyz="0" izz="0.00012"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.028" length="0.022"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.028"/></geometry></collision>
+  </link>
+  <joint name="caster_left_rear_wheel_joint" type="continuous">
+    <parent link="caster_left_rear_fork"/><child link="caster_left_rear_wheel"/>
+    <origin xyz="0.025 0 -0.032"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.015" friction="0.005"/>
+  </joint>
+
+  <link name="caster_right_front_fork">
+    <inertial>
+      <origin xyz="0.012 0 -0.012" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.00035" ixy="0" ixz="0" iyy="0.00035" iyz="0" izz="0.00020"/>
+    </inertial>
+    <visual name="swivel_stem"><geometry><cylinder radius="0.012" length="0.030"/></geometry><material name="body_dark"/></visual>
+    <visual name="fork_bracket"><origin xyz="0.012 0 -0.018"/><geometry><box size="0.050 0.038 0.018"/></geometry><material name="arm_light"/></visual>
+  </link>
+  <joint name="caster_right_front_swivel_joint" type="continuous">
+    <parent link="arm_right_front"/><child link="caster_right_front_fork"/>
+    <origin xyz="0.50 0 -0.015" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <dynamics damping="0.04" friction="0.02"/>
+  </joint>
+  <link name="caster_right_front_wheel">
+    <inertial><mass value="0.35"/><origin xyz="0 0 0"/><inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00008" iyz="0" izz="0.00012"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.028" length="0.022"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.028"/></geometry></collision>
+  </link>
+  <joint name="caster_right_front_wheel_joint" type="continuous">
+    <parent link="caster_right_front_fork"/><child link="caster_right_front_wheel"/>
+    <origin xyz="0.025 0 -0.032"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.015" friction="0.005"/>
+  </joint>
+
+  <link name="caster_right_rear_fork">
+    <inertial>
+      <origin xyz="0.012 0 -0.012" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.00035" ixy="0" ixz="0" iyy="0.00035" iyz="0" izz="0.00020"/>
+    </inertial>
+    <visual name="swivel_stem"><geometry><cylinder radius="0.012" length="0.030"/></geometry><material name="body_dark"/></visual>
+    <visual name="fork_bracket"><origin xyz="0.012 0 -0.018"/><geometry><box size="0.050 0.038 0.018"/></geometry><material name="arm_light"/></visual>
+  </link>
+  <joint name="caster_right_rear_swivel_joint" type="continuous">
+    <parent link="arm_right_rear"/><child link="caster_right_rear_fork"/>
+    <origin xyz="0.50 0 -0.015" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <dynamics damping="0.04" friction="0.02"/>
+  </joint>
+  <link name="caster_right_rear_wheel">
+    <inertial><mass value="0.35"/><origin xyz="0 0 0"/><inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00008" iyz="0" izz="0.00012"/></inertial>
+    <visual><origin rpy="1.57079632679 0 0"/><geometry><cylinder radius="0.028" length="0.022"/></geometry><material name="wheel_black"/></visual>
+    <collision><geometry><sphere radius="0.028"/></geometry></collision>
+  </link>
+  <joint name="caster_right_rear_wheel_joint" type="continuous">
+    <parent link="caster_right_rear_fork"/><child link="caster_right_rear_wheel"/>
+    <origin xyz="0.025 0 -0.032"/><axis xyz="0 1 0"/>
+    <dynamics damping="0.015" friction="0.005"/>
+  </joint>
+
+  <!-- ================= Sensors ================= -->
+  <link name="cam_front_link">
+    <visual><geometry><box size="0.034 0.040 0.025"/></geometry><material name="sensor_blue"/></visual>
+  </link>
+  <joint name="cam_front_joint" type="fixed">
+    <parent link="base_link"/><child link="cam_front_link"/>
+    <origin xyz="0.91 0 0.090" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cam_qr_down_link">
+    <visual><geometry><box size="0.034 0.040 0.025"/></geometry><material name="sensor_blue"/></visual>
+  </link>
+  <joint name="cam_qr_down_joint" type="fixed">
+    <parent link="base_link"/><child link="cam_qr_down_link"/>
+    <origin xyz="0 0 0.050" rpy="0 3.14159265359 0"/>
+  </joint>
+
+  <link name="cam_side_left_link">
+    <visual><geometry><box size="0.034 0.040 0.025"/></geometry><material name="sensor_blue"/></visual>
+  </link>
+  <joint name="cam_side_left_joint" type="fixed">
+    <parent link="base_link"/><child link="cam_side_left_link"/>
+    <!-- Camera inner face sits on the trimmed body's +Y side surface. -->
+    <origin xyz="0 0.3775 0.100" rpy="1.57079632679 0 0"/>
+  </joint>
+
+  <link name="cam_side_right_link">
+    <visual><geometry><box size="0.034 0.040 0.025"/></geometry><material name="sensor_blue"/></visual>
+  </link>
+  <joint name="cam_side_right_joint" type="fixed">
+    <parent link="base_link"/><child link="cam_side_right_link"/>
+    <!-- Camera inner face sits on the trimmed body's -Y side surface. -->
+    <origin xyz="0 -0.3775 0.100" rpy="-1.57079632679 0 0"/>
+  </joint>
+
+  <!--
+    Isaac Sim setup:
+      1) Import as articulation with movable base.
+      2) wheel_*_joint -> velocity drive.
+      3) arm_*_joint -> position drive.
+      4) Stowed targets: all arm joints = 0 rad.
+      5) Deployed targets:
+           arm_left_front_joint  = +1.5708
+           arm_left_rear_joint   = -1.5708
+           arm_right_front_joint = -1.5708
+           arm_right_rear_joint  = +1.5708
+      6) bearing_roller_*_joint -> PASSIVE continuous joints. Do NOT add position/velocity drives.
+      7) caster_*_swivel_joint and caster_*_wheel_joint -> PASSIVE continuous joints.
+         Do NOT add position/velocity drives; keep damping/friction low so each caster self-aligns and rolls.
+      8) For actual tire lift, the vehicle wheels/body must have rigid-body collision enabled.
+         In Isaac Sim, tune the bearing-roller/tire contact material, caster-wheel/floor friction,
+         arm drive effort, roller radius, caster height, and arm pivot spacing. The caster wheels
+         should stay in light contact with the floor so the arm tips can carry vertical load.
+  -->
+</robot>

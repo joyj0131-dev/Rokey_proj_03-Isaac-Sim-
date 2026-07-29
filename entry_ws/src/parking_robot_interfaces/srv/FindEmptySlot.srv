@@ -1,0 +1,7 @@
+# [초안] parking_slot_manager가 제공하는 find_empty_slot 서비스.
+float64 vehicle_length
+float64 vehicle_width
+---
+bool success
+string slot_id
+geometry_msgs/Pose slot_pose

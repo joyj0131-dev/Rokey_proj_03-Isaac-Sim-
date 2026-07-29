@@ -1,0 +1,31 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    doc = "parking_scene.usd - composed scene per project doc: PhysicsScene + Lot + Robot(-9,0,0)."
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Xform "Lot" (
+        prepend references = @./parking_lot.usd@
+    )
+    {
+    }
+
+    def Xform "Robot" (
+        prepend references = @./parking_robot.usd@
+    )
+    {
+        double3 xformOp:translate = (-9, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
+
