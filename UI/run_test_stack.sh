@@ -4,11 +4,14 @@
 # 확인하기 위한 테스트 전용 도구다 (실제 로봇 동작은 아직 B/C 미구현).
 # 안전 복구 운영 절차: docs/safety-recovery-runbook.md
 #
-# 실행:  bash run_test_stack.sh     (cobot3_ws 루트에서)
+# 실행:  bash UI/run_test_stack.sh   (어느 경로에서 실행해도 된다)
 # 종료:  Ctrl+C  (노드/서버 전부 정리. DB 데이터는 남겨둔다)
 #
 # (set -u는 ROS의 setup.bash와 충돌하므로 쓰지 않는다)
-WS="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 관제 colcon 워크스페이스는 이 스크립트가 있는 UI/ 가 아니라 그 아래 ui_ws/ 다.
+# (src/parking_control, install/, parking_control_mvp 전부 ui_ws 기준)
+WS="$SCRIPT_DIR/ui_ws"
 DB="mysql -u parking -pparking1234 parking"
 LOG_DIR="$(mktemp -d /tmp/parking_test_stack.XXXX)"
 CLEANED_UP=0
@@ -38,11 +41,18 @@ sleep 0.2
 for port in 8000 8080; do
     if ss -H -ltn "sport = :$port" | grep -q .; then
         echo "[오류] $port 포트가 이미 사용 중입니다."
-        echo "       기존 서버를 종료한 뒤 ./run_test_stack.sh를 다시 실행해주세요."
+        echo "       기존 서버를 종료한 뒤 이 스크립트를 다시 실행해주세요."
         exit 1
     fi
 done
 trap cleanup EXIT INT TERM
+
+# 빌드 산출물이 없으면 ros2 run 이 전부 조용히 실패하므로 미리 잡아준다.
+if [ ! -f "$WS/install/setup.bash" ]; then
+    echo "[오류] $WS/install/setup.bash 가 없습니다."
+    echo "       먼저 빌드하세요:  cd $WS && colcon build --symlink-install"
+    exit 1
+fi
 
 echo "=== 1/4: DB를 깨끗한 상태로 리셋 ==="
 echo "    (V4 스키마/슬롯/로봇 4대 동기화, 이전 테스트 작업 이력 삭제)"

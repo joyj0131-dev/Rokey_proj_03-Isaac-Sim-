@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# colcon 워크스페이스는 이 스크립트의 상위(UI/)가 아니라 그 아래 ui_ws/ 다.
+WORKSPACE="$(cd -- "$SCRIPT_DIR/../ui_ws" && pwd)"
 RVIZ_CONFIG="$WORKSPACE/src/parking_control/config/slot_occupancy.rviz"
 WORLD_RELAY="$WORKSPACE/src/parking_control/scripts/lidar/ros_pointcloud_world_relay.py"
 WEB_RUNNER="$WORKSPACE/parking_control_mvp/run_prs.sh"
