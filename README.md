@@ -13,7 +13,7 @@ Isaac Sim이 로봇 4대의 가상 하드웨어(odom·카메라·`cmd_vel`)를 D
 
 ```
 p3/
-├─ entry/        입차 PC용 워크스페이스 (구 cobot_ws)
+├─ entry_ws/        입차 PC용 워크스페이스 
 │  ├─ src/       parkbot_motion · parkbot_aruco · parking_robot_interfaces
 │  └─ isaacpjt/  Isaac Sim 러너(sim_bridge.sh)
 ├─ exit_ws/      출차 PC용 워크스페이스
@@ -33,7 +33,7 @@ p3/
 | 역할 | 폴더 | 실행 | 담당 |
 |---|---|---|---|
 | **관제** | `UI/ui_ws` | `ros2 launch parking_control control_tower.launch.py` + 웹UI | UI 접수·라우팅, MySQL, 슬롯관리, 안전, 로봇위치→DB |
-| **입차** | `entry` | `ros2 launch parkbot_motion nodes.launch.py` | `entry_lead/follow` 제어 |
+| **입차** | `entry_ws` | `ros2 launch parkbot_motion nodes.launch.py` | `entry_lead/follow` 제어 |
 | **출차** | `exit_ws` | `ros2 launch parkbot_motion exit_nodes.launch.py` | `exit_lead/follow` 제어 |
 | **Isaac** | (GPU 있는 곳) | `./isaacpjt/Isaac_envo/sim_bridge.sh` | 가상 세계 1개 + 로봇 4대 스폰 |
 
@@ -123,7 +123,7 @@ done
 # 관제
 cd UI/ui_ws        && colcon build && source install/setup.bash
 # 입차
-cd entry           && colcon build && source install/setup.bash
+cd entry_ws           && colcon build && source install/setup.bash
 # 출차
 cd exit_ws         && colcon build && source install/setup.bash
 ```
@@ -143,7 +143,7 @@ pip install -r requirements.txt
 
 **① Isaac** (세계 + 로봇 4대 스폰). 통합 운영이면 **딱 1개**만, 4대 카메라 전부 렌더:
 ```bash
-cd entry     # 또는 exit_ws — 같은 씬을 띄운다
+cd entry_ws     
 BRIDGE_CAMERAS=all ./isaacpjt/Isaac_envo/sim_bridge.sh
 ```
 > `BRIDGE_CAMERAS`로 렌더할 로봇 카메라를 고른다. 기본값 `entry_lead,entry_follow`(입차만 —
@@ -156,7 +156,7 @@ cd UI/ui_ws && ros2 launch parking_control control_tower.launch.py
 
 **③ 입차**:
 ```bash
-cd entry && ros2 launch parkbot_motion nodes.launch.py
+cd entry_ws && ros2 launch parkbot_motion nodes.launch.py
 ```
 
 **④ 출차** (`auto_start:=false` 기본 — UI 요청 대기):
